@@ -1,0 +1,8 @@
+.vercel/
+.repo-git/
+node_modules/
+.DS_Store
+*.log
+playwright-report/
+test-results/
+screenshots/
