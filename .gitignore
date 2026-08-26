@@ -1,6 +1,7 @@
 .vercel/
 .repo-git/
 node_modules/
+public/
 .DS_Store
 *.log
 playwright-report/

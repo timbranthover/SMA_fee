@@ -7,7 +7,8 @@
     "dev": "node local-server.mjs",
     "check": "node --check app.js && node --check lib/shared-config.js && node --check lib/catalog.js && node --check api/search.js && node --check api/detail.js && node --check local-server.mjs",
     "test": "node --test tests/*.test.mjs",
-    "build": "npm run check && npm test"
+    "build:static": "node scripts/build-static.mjs",
+    "build": "npm run check && npm test && npm run build:static"
   },
   "engines": {
     "node": ">=20"
