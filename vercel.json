@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "alias": ["ups-investment-screener.vercel.app"],
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
