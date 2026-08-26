@@ -24,6 +24,14 @@ test("text search never fabricates unrelated rows", () => {
   const result = searchCatalog({ q: "Apple" });
   assert.equal(result.total, 1);
   assert.equal(result.items[0].symbol, "AAPL");
+  assert.equal(result.items[0].brandKey, "apple");
+});
+
+test("brand identity enrichment is deterministic and falls back cleanly", () => {
+  assert.equal(getInvestmentDetail("eq-msft").brandKey, "microsoft");
+  assert.equal(getInvestmentDetail("fi-jpm").brandKey, "chase");
+  assert.equal(getInvestmentDetail("mf-vfiax").brandKey, "vanguard");
+  assert.equal(getInvestmentDetail("sma-northstar").brandKey, null);
 });
 
 test("multiple governed flags use AND logic on every result", () => {

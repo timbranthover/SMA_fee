@@ -11,3 +11,11 @@ await Promise.all(
     cp(new URL(file, projectRoot), new URL(file, outputDirectory)),
   ),
 );
+
+await mkdir(new URL("lib/", outputDirectory), { recursive: true });
+await Promise.all(
+  ["shared-config.js", "brand-logos.js"].map((file) =>
+    cp(new URL(`lib/${file}`, projectRoot), new URL(`lib/${file}`, outputDirectory)),
+  ),
+);
+await cp(new URL("assets/", projectRoot), new URL("assets/", outputDirectory), { recursive: true });

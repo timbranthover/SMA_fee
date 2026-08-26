@@ -1,4 +1,5 @@
 import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, SORTS, STATUSES } from "/lib/shared-config.js";
+import { brandLogo } from "/lib/brand-logos.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -38,6 +39,12 @@ function formatFee(value) { return value === null || value === undefined ? "—"
 function formatReturn(value) { return value === null || value === undefined ? "—" : `${value >= 0 ? "+" : ""}${Number(value).toFixed(1)}%`; }
 function monogram(item) { return item.symbol?.slice(0, 3) || item.name.split(" ").slice(0, 2).map((part) => part[0]).join(""); }
 function productClass(category) { return category === "SMAs" ? "sma" : category === "Fixed Income" ? "fixed" : category === "Equities" ? "equity" : ""; }
+function productMark(item) {
+  const fallback = `<span class="product-monogram-text">${escapeHtml(monogram(item))}</span>`;
+  const logo = brandLogo(item.brandKey);
+  if (!logo) return `<span class="product-monogram ${productClass(item.category)}" aria-hidden="true">${fallback}</span>`;
+  return `<span class="product-monogram has-logo brand-${escapeHtml(item.brandKey)}" aria-hidden="true" title="${escapeHtml(logo.label)}">${fallback}<img class="product-logo" src="${escapeHtml(logo.src)}" alt="" width="22" height="22" loading="lazy" decoding="async"/></span>`;
+}
 
 function getSavedScreens() {
   const defaults = [
@@ -139,7 +146,7 @@ function renderResults() {
     const checked = state.compare.has(item.id);
     return `<tr data-row-id="${escapeHtml(item.id)}">
       <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
-      <td><div class="investment-cell"><span class="product-monogram ${productClass(item.category)}">${escapeHtml(monogram(item))}</span><div class="investment-meta"><button data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
+      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><button data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
       <td><span class="metric-primary">${formatMinimum(item.minimum)}</span><span class="metric-secondary">Opening</span></td>
       <td><span class="metric-primary">${formatFee(item.fee)}</span><span class="metric-secondary">Annual</span></td>
       <td><span class="metric-primary">${escapeHtml(item.risk)}</span></td>
@@ -443,6 +450,12 @@ document.addEventListener("change", (event) => {
   if (target.matches('[data-filter="status"]')) { target.checked ? state.statuses.add(target.value) : state.statuses.delete(target.value); runSearch(); }
   if (target.matches("[data-compare-id]")) toggleCompare(target.dataset.compareId, target.checked);
 });
+
+document.addEventListener("error", (event) => {
+  if (event.target instanceof HTMLImageElement && event.target.classList.contains("product-logo")) {
+    event.target.closest(".product-monogram")?.classList.add("logo-failed");
+  }
+}, true);
 
 el("searchForm").addEventListener("submit", (event) => { event.preventDefault(); window.clearTimeout(debounceTimer); state.q = el("searchInput").value.trim(); runSearch(); });
 el("searchInput").addEventListener("input", () => { state.q = el("searchInput").value.trim(); if (!state.q || state.q.length >= 2) debouncedSearch(); });

@@ -11,6 +11,14 @@
 
 Warm searches are designed to complete in tens of milliseconds in the demo runtime. The initial server instance builds its mock index once.
 
+## Brand identity
+
+- Search records expose a stable `brandKey`, never an arbitrary remote image URL.
+- The browser resolves that key through a small allowlisted registry of locally served, symbol-only SVG marks.
+- Logo tiles stay exactly 31 × 31 pixels and use per-mark sizing so visually different symbols feel balanced.
+- A monogram remains the deterministic fallback for managers without a legible compact symbol or if an asset fails to load.
+- Production teams can expand the registry through a reviewed asset pipeline without changing the search contract or depending on a third-party logo service at runtime.
+
 ## Production replacement
 
 - **Ingestion:** source adapters → validation/quarantine → canonical security and vehicle schemas → versioned search documents.

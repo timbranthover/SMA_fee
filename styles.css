@@ -162,10 +162,25 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .check-cell { text-align: center !important; padding-left: 13px !important; }
 .row-check { accent-color: #111; }
 .investment-cell { display: grid; grid-template-columns: 31px minmax(0, 1fr); gap: 10px; align-items: center; }
-.product-monogram { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 3px; background: #f1f1ef; color: #444; font-size: 9px; font-weight: 700; }
+.product-monogram { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 3px; background: #f1f1ef; color: #444; font-size: 9px; font-weight: 700; overflow: hidden; isolation: isolate; }
 .product-monogram.equity { background: #eaf2fb; color: #155ea8; }
 .product-monogram.sma { background: #f1ebfa; color: #6a3fb4; }
 .product-monogram.fixed { background: #eaf5ef; color: #16764d; }
+.product-monogram.has-logo { background: #fff; border: 1px solid #e7e7e3; }
+.product-monogram-text, .product-logo { grid-area: 1 / 1; }
+.product-monogram.has-logo .product-monogram-text { visibility: hidden; }
+.product-logo { width: 20px; height: 20px; object-fit: contain; display: block; }
+.brand-apple .product-logo { width: 17px; height: 17px; }
+.brand-microsoft .product-logo { width: 18px; height: 18px; }
+.brand-nvidia .product-logo { width: 21px; height: 21px; }
+.brand-chase .product-logo { width: 19px; height: 19px; }
+.brand-nextera .product-logo { width: 21px; height: 18px; }
+.brand-vanguard .product-logo { width: 18px; height: 20px; }
+.brand-fidelity .product-logo { width: 21px; height: 21px; }
+.brand-capital-group .product-logo { width: 19px; height: 19px; }
+.product-monogram.logo-failed { background: #f1f1ef; border-color: transparent; }
+.product-monogram.logo-failed .product-logo { display: none; }
+.product-monogram.logo-failed .product-monogram-text { visibility: visible; }
 .investment-meta { min-width: 0; }
 .investment-meta button { padding: 0; border: 0; background: transparent; font-weight: 700; font-size: 11px; max-width: 100%; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; display: block; text-align: left; }
 .investment-meta button:hover { text-decoration: underline; }

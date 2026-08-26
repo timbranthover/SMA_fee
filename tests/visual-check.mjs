@@ -15,6 +15,15 @@ try {
   assert.equal(await page.locator("#resultsBody tr[data-row-id]").count(), 25);
   assert.match(await page.locator("body").innerText(), /130,428/);
   assert.match(await page.locator(".brand-mark").innerText(), /UPS/);
+  const logoState = await page.locator(".product-logo").evaluateAll((logos) => logos.map((logo) => {
+    const tile = logo.closest(".product-monogram").getBoundingClientRect();
+    return { src: logo.getAttribute("src"), loaded: logo.complete && logo.naturalWidth > 0, tileWidth: tile.width, tileHeight: tile.height };
+  }));
+  assert.ok(logoState.length >= 8);
+  assert.ok(logoState.every((logo) => logo.src.startsWith("/assets/brands/") && logo.loaded));
+  assert.ok(logoState.every((logo) => logo.tileWidth === 31 && logo.tileHeight === 31));
+  assert.ok(await page.locator(".product-monogram:not(.has-logo)").count() > 0);
+  assert.equal(await page.locator(".product-monogram.logo-failed").count(), 0);
   assert.equal(await page.getByText("Client context", { exact: true }).count(), 0);
   assert.equal(await page.locator("[data-nextjs-dialog], .vite-error-overlay").count(), 0);
   await page.screenshot({ path: "/tmp/investment-screener-home.png", fullPage: true });

@@ -8,6 +8,7 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - Search, combined filters, exact facets and global sorting run against that catalog.
 - API responses are capped at 25 investments; the browser never downloads the universe.
 - Natural-language phrases are converted to an explicit allowlist of governed filters.
+- Curated company and manager marks are served locally, with deterministic identity matching and monogram fallbacks.
 - Detail, comparison, saved screens, saved investments, document previews and shareable screen URLs work.
 - Inputs are validated and invalid categories, flags, risk levels and pagination values return HTTP 400.
 
