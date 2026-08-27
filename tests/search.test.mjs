@@ -141,6 +141,17 @@ test("multiple governed flags use AND logic on every result", () => {
   assert.ok(result.items.every((item) => item.flags.includes("Tax-Aware") && item.flags.includes("Direct Indexing")));
 });
 
+test("CIO Select spans mutual funds, ETFs and SMAs only", () => {
+  const categories = ["Mutual Funds", "ETFs", "SMAs"];
+  for (const category of categories) {
+    const result = searchCatalog({ category, flags: ["CIO Select"] });
+    assert.ok(result.total > 0, `missing CIO Select ${category}`);
+    assert.ok(result.items.every((item) => item.category === category && item.flags.includes("CIO Select")));
+  }
+  assert.equal(searchCatalog({ category: "Equities", flags: ["CIO Select"] }).total, 0);
+  assert.equal("SMA Select" in FLAG_DEFINITIONS, false);
+});
+
 test("sorting is global across pagination boundaries", () => {
   const first = searchCatalog({ category: "ETFs", sort: "fee" });
   const second = searchCatalog({ category: "ETFs", sort: "fee", cursor: first.nextCursor });

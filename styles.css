@@ -117,6 +117,7 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .filter-header span { font-size: 10px; color: #777; margin-top: 3px; }
 .link-button { border: 0; background: transparent; color: #555; text-decoration: underline; font-size: 11px; }
 .active-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.active-chips:not(:empty) { padding-top: 8px; }
 .filter-chip { border: 1px solid #cfcfcb; background: white; padding: 5px 7px; font-size: 9px; border-radius: 3px; display: flex; align-items: center; gap: 5px; }
 .filter-chip button { border: 0; background: transparent; padding: 0; line-height: 1; }
 .filter-group { border-bottom: 1px solid var(--line); padding: 0; }

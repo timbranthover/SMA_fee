@@ -18,6 +18,14 @@ test("governed model-delivery language is current everywhere", async () => {
   assert.match(source, /Model Delivered/);
 });
 
+test("CIO Select naming and active-filter spacing stay consistent", async () => {
+  const source = (await Promise.all(files.map((file) => readFile(new URL(`../${file}`, import.meta.url), "utf8")))).join("\n");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.equal(source.includes("SMA Select"), false);
+  assert.match(source, /CIO Select/);
+  assert.match(css, /\.active-chips:not\(:empty\) \{ padding-top: 8px; \}/);
+});
+
 test("removed prototype controls do not remain in the markup or event code", async () => {
   const source = `${await readFile(new URL("../index.html", import.meta.url), "utf8")}\n${await readFile(new URL("../app.js", import.meta.url), "utf8")}`;
   assert.equal(source.includes("addCriteriaButton"), false);
