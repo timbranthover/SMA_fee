@@ -178,6 +178,16 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .brand-vanguard .product-logo { width: 18px; height: 20px; }
 .brand-fidelity .product-logo { width: 21px; height: 21px; }
 .brand-capital-group .product-logo { width: 19px; height: 19px; }
+.brand-t-rowe-price .product-logo { width: 22px; height: 22px; }
+.brand-alliance-bernstein .product-logo { width: 22px; height: 22px; }
+.brand-nuveen .product-logo { width: 22px; height: 22px; }
+.brand-neuberger-berman .product-logo { width: 22px; height: 22px; }
+.brand-parnassus .product-logo { width: 22px; height: 22px; }
+.brand-pimco .product-logo { width: 22px; height: 22px; }
+.brand-mfs .product-logo { width: 22px; height: 22px; }
+.brand-blackstone .product-logo { width: 22px; height: 22px; }
+.brand-cboe .product-logo { width: 22px; height: 22px; }
+.brand-schwab .product-logo { width: 22px; height: 22px; }
 .product-monogram.logo-failed { background: #f1f1ef; border-color: transparent; }
 .product-monogram.logo-failed .product-logo { display: none; }
 .product-monogram.logo-failed .product-monogram-text { visibility: visible; }

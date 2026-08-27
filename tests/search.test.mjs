@@ -34,6 +34,27 @@ test("brand identity enrichment is deterministic and falls back cleanly", () => 
   assert.equal(getInvestmentDetail("sma-northstar").brandKey, null);
 });
 
+test("the expanded manager-logo registry maps all ten new brands", () => {
+  const expected = new Map([
+    ["T. Rowe Price", "t-rowe-price"],
+    ["AllianceBernstein", "alliance-bernstein"],
+    ["Nuveen Asset Management", "nuveen"],
+    ["Neuberger Berman", "neuberger-berman"],
+    ["Parnassus Investments", "parnassus"],
+    ["PIMCO", "pimco"],
+    ["MFS Investment Management", "mfs"],
+    ["Blackstone Credit & Insurance", "blackstone"],
+    ["Cboe Vest", "cboe"],
+    ["Charles Schwab Investment Management", "schwab"],
+  ]);
+  const index = getSearchIndex();
+  for (const [manager, brandKey] of expected) {
+    const record = index.find((item) => item.manager === manager);
+    assert.ok(record, `missing catalog record for ${manager}`);
+    assert.equal(record.brandKey, brandKey, `wrong brand key for ${manager}`);
+  }
+});
+
 test("multiple governed flags use AND logic on every result", () => {
   const result = searchCatalog({ category: "SMAs", flags: ["Tax-Aware", "Direct Indexing"] });
   assert.ok(result.total > 0);

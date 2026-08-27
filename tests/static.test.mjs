@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { BRAND_LOGOS } from "../lib/brand-logos.js";
 
 const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js"];
 
@@ -16,4 +17,15 @@ test("removed prototype controls do not remain in the markup or event code", asy
   assert.equal(source.includes("addCriteriaButton"), false);
   assert.equal(source.includes("criteriaModal"), false);
   assert.equal(source.includes("100+ available criteria"), false);
+});
+
+test("every allowlisted brand mark is local, unique and present", async () => {
+  const logos = Object.values(BRAND_LOGOS);
+  assert.equal(logos.length, 18);
+  assert.equal(new Set(logos.map((logo) => logo.src)).size, logos.length);
+  for (const logo of logos) {
+    assert.match(logo.src, /^\/assets\/brands\/[a-z0-9-]+\.(?:svg|png)$/);
+    const asset = await stat(new URL(`..${logo.src}`, import.meta.url));
+    assert.ok(asset.size > 100, `brand asset is unexpectedly empty: ${logo.src}`);
+  }
 });
