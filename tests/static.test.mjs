@@ -43,6 +43,7 @@ test("investment profiles support a shared canvas and standalone URLs", async ()
   assert.match(app, /window\.addEventListener\("popstate"/);
   assert.match(app, /setTimeout\(\(\) => fetchDetail[^\n]+160\)/);
   assert.match(css, /width: min\(1120px, calc\(100vw - 250px\)\)/);
+  assert.match(css, /\.profile-actions \.secondary-button \{ color: #111; \}/);
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investment/:slug" && rule.destination === "/"));
 });
 

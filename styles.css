@@ -286,6 +286,7 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .profile-quote > em { grid-column: 1 / -1; color: #777; font-style: normal; font-size: 8px; margin-top: 7px; }
 .profile-actions { display: flex; gap: 8px; margin-top: 24px; padding-left: 64px; }
 .profile-actions button { min-width: 145px; }
+.profile-actions .secondary-button { color: #111; }
 
 .profile-nav { position: sticky; top: 0; z-index: 3; height: 49px; display: flex; align-items: stretch; gap: 2px; padding: 0 clamp(32px, 4.5vw, 68px); background: white; border-bottom: 1px solid var(--line); box-shadow: 0 5px 14px rgba(0,0,0,.04); overflow-x: auto; }
 .profile-nav button { border: 0; border-bottom: 2px solid transparent; background: white; color: #666; font-size: 9px; padding: 0 11px; white-space: nowrap; }
