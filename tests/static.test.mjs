@@ -32,6 +32,20 @@ test("search rendering is cancellation-safe and avoids loader flicker", async ()
   assert.doesNotMatch(app, /data\.appliedCategory[^\n]+state\.category = data\.appliedCategory/);
 });
 
+test("investment profiles support a shared canvas and standalone URLs", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.match(html, /class="detail-drawer"[^>]+role="dialog"/);
+  assert.match(app, /href="\$\{escapeHtml\(profileHref\(item\)\)\}" data-detail-id/);
+  assert.match(app, /target="_blank" rel="noopener"/);
+  assert.match(app, /window\.addEventListener\("popstate"/);
+  assert.match(app, /setTimeout\(\(\) => fetchDetail[^\n]+160\)/);
+  assert.match(css, /width: min\(1120px, calc\(100vw - 250px\)\)/);
+  assert.ok(vercel.rewrites.some((rule) => rule.source === "/investment/:slug" && rule.destination === "/index.html"));
+});
+
 test("every allowlisted brand mark is local, unique and present", async () => {
   const logos = Object.values(BRAND_LOGOS);
   assert.equal(logos.length, 18);

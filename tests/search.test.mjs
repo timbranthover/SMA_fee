@@ -133,8 +133,33 @@ test("detail responses contain governed metadata without client fields", () => {
   assert.equal(detail.category, "SMAs");
   assert.equal(detail.details.Identifier, "NX1A");
   assert.ok(detail.flagDetails.some((flag) => flag.owner === "Managed Solutions"));
-  assert.equal(detail.documents.length, 3);
+  assert.equal(detail.documents.length, 4);
+  assert.equal(detail.profile.quote.label, "3Y composite return");
+  assert.ok(detail.profile.performance.benchmarkSeries.length > 10);
+  assert.ok(detail.profile.operations.some((field) => field.label === "Customization review"));
   assert.equal("eligibility" in detail, false);
+});
+
+test("standalone profile slugs and vehicle-specific research are complete", () => {
+  const apple = getInvestmentDetail("AAPL");
+  assert.equal(apple.id, "eq-aapl");
+  assert.equal(apple.canonicalSlug, "AAPL");
+  assert.equal(apple.profile.quote.label, "Market price");
+  const expectations = new Map([
+    ["Equities", "Market price"], ["Mutual Funds", "NAV"], ["ETFs", "Market price"], ["SMAs", "3Y composite return"],
+    ["Fixed Income", "Clean price"], ["Alternatives", "Latest reported NAV"], ["Structured", "Indicative value"],
+    ["Managed Options", "3Y composite return"], ["Annuities", "Current crediting rate"], ["Precious Metals", "Reference price"],
+  ]);
+  const index = getSearchIndex();
+  for (const [category, quoteLabel] of expectations) {
+    const record = index.find((item) => item.category === category);
+    const detail = getInvestmentDetail(record.id);
+    assert.equal(detail.profile.quote.label, quoteLabel, `wrong primary value for ${category}`);
+    assert.ok(detail.profile.keyFacts.length >= 6, `missing key facts for ${category}`);
+    assert.ok(detail.profile.performance.rows.length >= 3, `missing performance for ${category}`);
+    assert.ok(detail.profile.riskMetrics.length >= 4, `missing risk measures for ${category}`);
+    assert.ok(detail.profile.operations.length >= 6, `missing operating terms for ${category}`);
+  }
 });
 
 test("API query parsing is explicit", () => {

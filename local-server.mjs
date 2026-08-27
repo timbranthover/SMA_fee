@@ -29,7 +29,7 @@ const server = createServer(async (request, response) => {
     const detail = getInvestmentDetail(url.searchParams.get("id") || "");
     return detail ? json(response, detail) : json(response, { error: "Investment not found" }, 404);
   }
-  const requested = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+  const requested = url.pathname === "/" || /^\/investment\/[^/]+\/?$/.test(url.pathname) ? "index.html" : url.pathname.slice(1);
   const safePath = normalize(requested).replace(/^(\.\.(\/|\\|$))+/, "");
   const path = join(root, safePath);
   try {
@@ -44,6 +44,6 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, "127.0.0.1", () => {
+server.listen(port, "0.0.0.0", () => {
   process.stdout.write(`Investment Screener running at http://127.0.0.1:${port}\n`);
 });

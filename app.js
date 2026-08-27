@@ -24,6 +24,11 @@ const state = {
   compare: new Map(),
   currentDetail: null,
   lastFocus: null,
+  detailCache: new Map(),
+  detailRequest: 0,
+  detailMode: null,
+  detailHistoryPushed: false,
+  prefetchTimer: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -45,6 +50,20 @@ function productMark(item) {
   const logo = brandLogo(item.brandKey);
   if (!logo) return `<span class="product-monogram ${productClass(item.category)}" aria-hidden="true">${fallback}</span>`;
   return `<span class="product-monogram has-logo brand-${escapeHtml(item.brandKey)}" aria-hidden="true" title="${escapeHtml(logo.label)}">${fallback}<img class="product-logo" src="${escapeHtml(logo.src)}" alt="" width="22" height="22" loading="lazy" decoding="async"/></span>`;
+}
+
+function profileSlug(item) {
+  return item?.canonicalSlug || (item?.id?.startsWith("syn-") ? item.id : item?.symbol || item?.id);
+}
+
+function profileHref(item) {
+  return `/investment/${encodeURIComponent(profileSlug(item))}`;
+}
+
+function profileFromPath() {
+  const match = location.pathname.match(/^\/investment\/([^/]+)\/?$/i);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return match[1]; }
 }
 
 function getSavedScreens() {
@@ -147,12 +166,12 @@ function renderResults() {
     const checked = state.compare.has(item.id);
     return `<tr data-row-id="${escapeHtml(item.id)}">
       <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
-      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><button data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
+      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
       <td><span class="metric-primary">${formatMinimum(item.minimum)}</span><span class="metric-secondary">Opening</span></td>
       <td><span class="metric-primary">${formatFee(item.fee)}</span><span class="metric-secondary">Annual</span></td>
       <td><span class="metric-primary">${escapeHtml(item.risk)}</span></td>
       <td><span class="${item.perf3 >= 0 ? "return-positive" : item.perf3 === null ? "" : "return-negative"}">${formatReturn(item.perf3)}</span><span class="metric-secondary">Annualized</span></td>
-      <td class="action-cell"><button class="row-menu" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</button></td>
+      <td class="action-cell"><a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a></td>
     </tr>`;
   }).join("");
 }
@@ -199,7 +218,7 @@ function syncUrl() {
   if (Number.isFinite(state.maxMinimum)) params.set("maxMinimum", String(state.maxMinimum));
   if (Number.isFinite(state.maxFee)) params.set("maxFee", String(state.maxFee));
   if (state.sort !== "relevance") params.set("sort", state.sort);
-  history.replaceState(null, "", params.size ? `/?${params}` : "/");
+  if (!profileFromPath()) history.replaceState(null, "", params.size ? `/?${params}` : "/");
 }
 
 async function runSearch({ preserveCursor = false } = {}) {
@@ -320,48 +339,137 @@ function toggleCompare(id, checked) {
   renderResults();
 }
 
-function chartSvg(series) {
+function chartSvg(series, benchmarkSeries = []) {
   if (!series?.length) return "";
-  const width = 450, height = 105, padding = 5;
-  const min = Math.min(...series), max = Math.max(...series), spread = max - min || 1;
-  const points = series.map((value, index) => `${padding + index * ((width - padding * 2) / (series.length - 1))},${height - padding - ((value - min) / spread) * (height - padding * 2)}`).join(" ");
-  const area = `${padding},${height} ${points} ${width - padding},${height}`;
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Illustrative performance trend"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#16764d" stop-opacity=".24"/><stop offset="1" stop-color="#16764d" stop-opacity="0"/></linearGradient></defs><polygon points="${area}" fill="url(#chartFill)"/><polyline points="${points}" fill="none" stroke="#16764d" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+  const width = 760, height = 210, paddingX = 12, paddingY = 18;
+  const all = [...series, ...benchmarkSeries];
+  const min = Math.min(...all), max = Math.max(...all), spread = max - min || 1;
+  const points = (values) => values.map((value, index) => `${paddingX + index * ((width - paddingX * 2) / (values.length - 1))},${height - paddingY - ((value - min) / spread) * (height - paddingY * 2)}`).join(" ");
+  const investmentPoints = points(series);
+  const benchmarkPoints = benchmarkSeries.length ? points(benchmarkSeries) : "";
+  const area = `${paddingX},${height - paddingY} ${investmentPoints} ${width - paddingX},${height - paddingY}`;
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Illustrative investment and benchmark performance"><defs><linearGradient id="profileChartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#16764d" stop-opacity=".18"/><stop offset="1" stop-color="#16764d" stop-opacity="0"/></linearGradient></defs><line x1="12" y1="54" x2="748" y2="54"/><line x1="12" y1="105" x2="748" y2="105"/><line x1="12" y1="156" x2="748" y2="156"/><polygon points="${area}" fill="url(#profileChartFill)"/>${benchmarkPoints ? `<polyline points="${benchmarkPoints}" class="benchmark-line"/>` : ""}<polyline points="${investmentPoints}" class="investment-line"/></svg>`;
 }
 
-async function openDetail(id) {
-  state.lastFocus = document.activeElement;
-  el("drawerBackdrop").hidden = false;
-  el("detailDrawer").classList.add("open");
-  el("detailDrawer").setAttribute("aria-hidden", "false");
+function detailSummary(id) {
+  return state.items.find((item) => item.id === id || item.symbol?.toLowerCase() === String(id).toLowerCase())
+    || [...state.compare.values()].find((item) => item.id === id)
+    || (state.currentDetail?.id === id ? state.currentDetail : null);
+}
+
+function fetchDetail(id) {
+  const key = String(id).toLowerCase();
+  if (state.detailCache.has(key)) return state.detailCache.get(key);
+  const pending = fetch(`/api/detail?id=${encodeURIComponent(id)}`).then(async (response) => {
+    if (!response.ok) throw new Error(response.status === 404 ? "Investment not found" : "Unable to load investment research");
+    const item = await response.json();
+    state.detailCache.set(item.id.toLowerCase(), Promise.resolve(item));
+    state.detailCache.set(String(item.canonicalSlug).toLowerCase(), Promise.resolve(item));
+    return item;
+  }).catch((error) => { state.detailCache.delete(key); throw error; });
+  state.detailCache.set(key, pending);
+  return pending;
+}
+
+function renderDetailSkeleton(summary) {
+  el("drawerLoading").innerHTML = `${summary ? `<div class="profile-loading-identity">${productMark(summary)}<div><strong>${escapeHtml(summary.name)}</strong><span>${escapeHtml(summary.category)} · ${escapeHtml(summary.manager)}</span></div></div>` : ""}<div class="profile-skeleton"><i></i><i></i><i></i><i></i></div><p>Loading research profile…</p>`;
   el("drawerLoading").hidden = false;
   el("drawerContent").hidden = true;
+}
+
+function factGrid(items, className = "profile-facts") {
+  return `<div class="${className}">${items.map((item) => `<div><small>${escapeHtml(item.label)}</small><strong>${escapeHtml(item.value)}</strong>${item.context ? `<span>${escapeHtml(item.context)}</span>` : ""}</div>`).join("")}</div>`;
+}
+
+function breakdownRows(items) {
+  return `<div class="exposure-bars">${items.map((item) => `<div><span>${escapeHtml(item.label)}</span><progress value="${Math.min(100, Math.max(2, Number(item.value) || 0))}" max="100">${escapeHtml(item.value)}%</progress><strong>${escapeHtml(item.value)}%</strong></div>`).join("")}</div>`;
+}
+
+function renderResearchProfile(item) {
+  const profile = item.profile;
+  const selected = state.compare.has(item.id);
+  const saved = isInvestmentSaved(item.id);
+  const pageMode = state.detailMode === "page";
+  const currentIndex = state.items.findIndex((candidate) => candidate.id === item.id);
+  const previous = currentIndex > 0 ? state.items[currentIndex - 1] : null;
+  const next = currentIndex >= 0 && currentIndex < state.items.length - 1 ? state.items[currentIndex + 1] : null;
+  const navigation = [
+    ["Overview", "profile-overview"], ["Performance", "profile-performance"], [profile.composition.title, "profile-composition"],
+    ["Risk", "profile-risk"], ["Fees & operations", "profile-fees"], ["UPS research", "profile-research"], ["Documents", "profile-documents"],
+  ];
+  el("drawerContent").innerHTML = `<header class="profile-hero">
+      <div class="profile-utility">
+        ${pageMode ? `<a class="profile-back" href="/">← Back to screener</a>` : `<button class="profile-back" data-close-drawer>← Back to results</button>`}
+        <div class="profile-stepper"><button data-profile-neighbor="${escapeHtml(previous?.id || "")}" ${previous ? "" : "disabled"} aria-label="Previous result">←</button><span>${currentIndex >= 0 ? `${currentIndex + 1} of ${state.items.length} on this page` : "Investment profile"}</span><button data-profile-neighbor="${escapeHtml(next?.id || "")}" ${next ? "" : "disabled"} aria-label="Next result">→</button></div>
+        ${pageMode ? "" : `<a class="open-new-tab" href="${escapeHtml(profileHref(item))}" target="_blank" rel="noopener">Open in new tab ↗</a>`}
+      </div>
+      <div class="profile-identity">
+        <div class="profile-name-block"><div class="profile-large-mark">${productMark(item)}</div><div><span class="drawer-type">${escapeHtml(item.category)} · ${escapeHtml(item.type)}</span><h2 id="detailTitle">${escapeHtml(item.name)}</h2><p>${escapeHtml(item.symbol)} · ${escapeHtml(item.manager)}</p><div class="drawer-badges">${item.flags.map(badge).join("")}</div></div></div>
+        <div class="profile-quote"><small>${escapeHtml(profile.quote.label)}</small><strong>${escapeHtml(profile.quote.value)}</strong><span class="quote-change ${escapeHtml(profile.quote.changeTone)}">${escapeHtml(profile.quote.change)}</span><div><small>${escapeHtml(profile.quote.secondaryLabel)}</small><b>${escapeHtml(profile.quote.secondaryValue)}</b></div><em>${escapeHtml(profile.quote.asOf)}</em></div>
+      </div>
+      <div class="profile-actions"><button class="secondary-button" data-save-investment="${escapeHtml(item.id)}">${saved ? "★ Saved" : "☆ Save"}</button><button class="primary-button" data-drawer-compare="${escapeHtml(item.id)}">${selected ? "Remove from compare" : "＋ Add to compare"}</button></div>
+    </header>
+    <nav class="profile-nav" aria-label="Investment profile sections">${navigation.map(([label, section]) => `<button data-profile-section="${section}">${escapeHtml(label)}</button>`).join("")}</nav>
+    <div class="profile-body">
+      <section class="profile-section" id="profile-overview"><div class="section-heading"><span>At a glance</span><h3>Overview</h3><p>The essential characteristics needed to understand the investment and its intended role.</p></div><div class="overview-layout"><div class="profile-description"><h4>Investment objective</h4><p>${escapeHtml(item.description)}</p><dl><div><dt>Objective</dt><dd>${escapeHtml(item.objective)}</dd></div><div><dt>Primary benchmark</dt><dd>${escapeHtml(item.benchmark)}</dd></div></dl></div>${factGrid(profile.keyFacts)}</div></section>
+      <section class="profile-section" id="profile-performance"><div class="section-heading"><span>Track record</span><h3>${escapeHtml(profile.performance.title)}</h3><p>${escapeHtml(profile.performance.subtitle)}</p></div><div class="performance-layout"><div class="profile-chart"><div class="chart-legend"><span class="investment">Investment</span><span class="benchmark">${escapeHtml(item.benchmark)}</span></div>${chartSvg(profile.performance.series, profile.performance.benchmarkSeries)}</div><table class="performance-table"><thead><tr><th>Period</th><th>Investment</th><th>Benchmark</th></tr></thead><tbody>${profile.performance.rows.map((row) => `<tr><th>${escapeHtml(row.period)}</th><td class="${row.investment >= 0 ? "positive" : "negative"}">${formatReturn(row.investment)}</td><td>${formatReturn(row.benchmark)}</td></tr>`).join("")}</tbody></table></div></section>
+      <section class="profile-section" id="profile-composition"><div class="section-heading"><span>What is inside</span><h3>${escapeHtml(profile.composition.title)}</h3><p>${escapeHtml(profile.composition.subtitle)}</p></div><div class="composition-layout">${breakdownRows(profile.composition.breakdown)}<div class="characteristic-list"><h4>${profile.composition.holdings.length ? "Key holdings / characteristics" : "Operating profile"}</h4>${profile.composition.holdings.length ? `<ol>${profile.composition.holdings.map((holding, index) => `<li><span>${String(index + 1).padStart(2, "0")}</span>${escapeHtml(holding)}</li>`).join("")}</ol>` : `<p>Review fundamentals, valuation, growth and capital-return measures alongside current research.</p>`}</div></div></section>
+      <section class="profile-section" id="profile-risk"><div class="section-heading"><span>Decision context</span><h3>Risk & analytical measures</h3><p>Measures are shown with context so an advisor can interpret them rather than simply collect numbers.</p></div>${factGrid(profile.riskMetrics, "risk-facts")}</section>
+      <section class="profile-section" id="profile-fees"><div class="section-heading"><span>Implementation</span><h3>Fees & operations</h3><p>Costs and operating terms are kept together because both affect whether an idea is practical.</p></div><div class="fees-layout"><div><h4>Costs</h4>${factGrid(profile.fees, "stacked-facts")}</div><div><h4>Operating terms</h4>${factGrid(profile.operations, "stacked-facts operations")}</div></div></section>
+      <section class="profile-section research-section" id="profile-research"><div class="section-heading"><span>House perspective</span><h3>UPS research & shelf context</h3></div><div class="research-card"><div><span class="research-label">${escapeHtml(profile.research.reviewed)}</span><h4>${escapeHtml(profile.research.title)}</h4><p>${escapeHtml(profile.research.summary)}</p><ul>${profile.research.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul><small>Coverage owner · ${escapeHtml(profile.research.owner)}</small></div><div class="governed-flags"><h4>Governed designations</h4>${item.flagDetails.length ? item.flagDetails.map((flag) => `<div class="flag-detail"><strong>${badge(flag.name)} ${escapeHtml(flag.name)}</strong><span>${escapeHtml(flag.definition)}</span><em>${escapeHtml(flag.owner)}<br>${escapeHtml(flag.effective)}</em></div>`).join("") : `<p>No active governed designations.</p>`}</div></div></section>
+      <section class="profile-section" id="profile-documents"><div class="section-heading"><span>Source material</span><h3>Documents</h3><p>Use current governed documents for product terms, risk factors and disclosures.</p></div><div class="profile-documents">${item.documents.map((document, index) => `<button class="document-link" data-document-index="${index}"><span class="document-icon">PDF</span><span><strong>${escapeHtml(document.name)}</strong><small>${escapeHtml(document.meta)}</small></span><span>Preview ›</span></button>`).join("")}</div></section>
+      <p class="profile-disclosure">Illustrative prototype data · Not for investment decisions · Values, research and documents shown here are representative of the intended production experience.</p>
+    </div>`;
+  el("drawerLoading").hidden = true;
+  el("drawerContent").hidden = false;
+  if (!pageMode) el("drawerContent").querySelector(".profile-back")?.focus();
+}
+
+async function openDetail(id, { mode = "panel", pushHistory = true, replaceHistory = false } = {}) {
+  const request = ++state.detailRequest;
+  if (!el("detailDrawer").classList.contains("open")) state.lastFocus = document.activeElement;
+  state.detailMode = mode;
+  state.detailHistoryPushed = mode === "panel";
+  document.body.classList.toggle("profile-route", mode === "page");
+  document.body.classList.toggle("profile-panel-open", mode === "panel");
+  document.querySelector("main").inert = mode === "panel";
+  document.querySelector(".global-header").inert = mode === "panel";
+  el("drawerBackdrop").hidden = mode === "page";
+  el("detailDrawer").classList.add("open");
+  el("detailDrawer").setAttribute("aria-hidden", "false");
+  el("detailDrawer").setAttribute("aria-modal", mode === "panel" ? "true" : "false");
+  renderDetailSkeleton(detailSummary(id));
+  const summary = detailSummary(id);
+  const href = summary ? profileHref(summary) : `/investment/${encodeURIComponent(id)}`;
+  if (pushHistory) history.pushState({ profileCanvas: true, id }, "", href);
+  else if (replaceHistory) history.replaceState({ ...(history.state || {}), profileCanvas: mode === "panel", id }, "", href);
   try {
-    const response = await fetch(`/api/detail?id=${encodeURIComponent(id)}`);
-    if (!response.ok) throw new Error("Unable to load details");
-    const item = await response.json();
+    const item = await fetchDetail(id);
+    if (request !== state.detailRequest) return;
     state.currentDetail = item;
-    const selected = state.compare.has(item.id);
-    const saved = isInvestmentSaved(item.id);
-    el("drawerContent").innerHTML = `<header class="drawer-header"><button class="drawer-close" data-close-drawer aria-label="Close details">×</button><span class="drawer-type">${escapeHtml(item.category)} · ${escapeHtml(item.type)}</span><h2 id="detailTitle">${escapeHtml(item.name)}</h2><p>${escapeHtml(item.symbol)} · ${escapeHtml(item.manager)}</p><div class="drawer-badges">${item.flags.map(badge).join("")}</div></header>
-      <div class="drawer-actions"><button class="secondary-button" data-save-investment="${escapeHtml(item.id)}">${saved ? "★ Saved" : "☆ Save"}</button><button class="primary-button" id="drawerCompare" data-drawer-compare="${escapeHtml(item.id)}">${selected ? "Remove from compare" : "＋ Add to compare"}</button></div>
-      <section class="drawer-section"><h3>Overview</h3><p>${escapeHtml(item.description)}</p></section>
-      <section class="drawer-section"><div class="detail-metrics"><div class="detail-metric"><small>Minimum</small><strong>${formatMinimum(item.minimum)}</strong></div><div class="detail-metric"><small>Annual fee</small><strong>${formatFee(item.fee)}</strong></div><div class="detail-metric"><small>Risk</small><strong>${escapeHtml(item.risk)}</strong></div><div class="detail-metric"><small>1Y return</small><strong>${formatReturn(item.perf1)}</strong></div><div class="detail-metric"><small>3Y return</small><strong>${formatReturn(item.perf3)}</strong></div><div class="detail-metric"><small>Assets</small><strong>${escapeHtml(item.aum)}</strong></div></div><div class="performance-chart">${chartSvg(item.performanceSeries)}</div></section>
-      <section class="drawer-section"><h3>Investment details</h3><div class="detail-metrics">${Object.entries(item.details).map(([key, value]) => `<div class="detail-metric"><small>${escapeHtml(key)}</small><strong>${escapeHtml(value)}</strong></div>`).join("")}</div></section>
-      ${item.flagDetails.length ? `<section class="drawer-section"><h3>UPS views & programs</h3>${item.flagDetails.map((flag) => `<div class="flag-detail"><strong>${badge(flag.name)} ${escapeHtml(flag.name)}</strong><span>${escapeHtml(flag.definition)}</span><em>${escapeHtml(flag.owner)}<br>${escapeHtml(flag.effective)}</em></div>`).join("")}</section>` : ""}
-      <section class="drawer-section"><h3>Documents</h3>${item.documents.map((document, index) => `<button class="document-link" data-document-index="${index}"><span><strong>${escapeHtml(document.name)}</strong><small>${escapeHtml(document.meta)}</small></span><span>›</span></button>`).join("")}</section>`;
-    el("drawerLoading").hidden = true;
-    el("drawerContent").hidden = false;
-    el("drawerContent").querySelector(".drawer-close")?.focus();
+    renderResearchProfile(item);
+    document.title = `${item.symbol} · ${item.name} | Investment Screener`;
+    if (replaceHistory || (pushHistory && href !== profileHref(item))) history.replaceState({ ...(history.state || {}), profileCanvas: mode === "panel", id: item.id }, "", profileHref(item));
   } catch (error) {
-    el("drawerLoading").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+    if (request !== state.detailRequest) return;
+    el("drawerLoading").innerHTML = `<div class="profile-error"><strong>${escapeHtml(error.message)}</strong><p>Return to the screener and select another investment.</p>${mode === "page" ? `<a href="/">Back to screener</a>` : `<button data-close-drawer>Back to results</button>`}</div>`;
   }
 }
 
-function closeDrawer() {
+function closeDrawer({ fromHistory = false } = {}) {
+  if (!fromHistory && state.detailMode === "panel" && state.detailHistoryPushed && profileFromPath()) { history.back(); return; }
+  state.detailRequest += 1;
   el("detailDrawer").classList.remove("open");
   el("detailDrawer").setAttribute("aria-hidden", "true");
   el("drawerBackdrop").hidden = true;
+  document.body.classList.remove("profile-route");
+  document.body.classList.remove("profile-panel-open");
+  document.querySelector("main").inert = false;
+  document.querySelector(".global-header").inert = false;
+  document.title = "Investment Screener";
+  state.detailMode = null;
+  state.detailHistoryPushed = false;
+  state.currentDetail = null;
   state.lastFocus?.focus?.();
 }
 
@@ -382,7 +490,7 @@ function renderSavedScreens() {
   const screens = getSavedScreens();
   el("savedList").innerHTML = screens.map((screen) => `<div class="saved-item"><span class="saved-icon">☆</span><div><strong>${escapeHtml(screen.name)}</strong><small>${escapeHtml(screen.subtitle || "Saved investment criteria")}</small></div><button data-run-saved="${escapeHtml(screen.id)}">Run screen</button><button data-delete-saved="${escapeHtml(screen.id)}" aria-label="Delete ${escapeHtml(screen.name)}">×</button></div>`).join("");
   const investments = getSavedInvestments();
-  el("savedInvestments").innerHTML = investments.length ? investments.map((item) => `<div class="saved-item"><span class="saved-icon">★</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(item.symbol)}</small></div><button data-detail-id="${escapeHtml(item.id)}">Open</button><button data-delete-investment="${escapeHtml(item.id)}" aria-label="Remove ${escapeHtml(item.name)}">×</button></div>`).join("") : `<p class="saved-empty">No saved investments yet.</p>`;
+  el("savedInvestments").innerHTML = investments.length ? investments.map((item) => `<div class="saved-item"><span class="saved-icon">★</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(item.symbol)}</small></div><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">Open</a><button data-delete-investment="${escapeHtml(item.id)}" aria-label="Remove ${escapeHtml(item.name)}">×</button></div>`).join("") : `<p class="saved-empty">No saved investments yet.</p>`;
   el("savedCount").textContent = String(screens.length);
 }
 
@@ -442,7 +550,11 @@ document.addEventListener("click", (event) => {
   const screen = event.target.closest("[data-screen]");
   if (screen) applyQuickScreen(screen.dataset.screen);
   const detail = event.target.closest("[data-detail-id]");
-  if (detail) { if (el("savedModal").open) el("savedModal").close(); openDetail(detail.dataset.detailId); }
+  if (detail && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+    event.preventDefault();
+    if (el("savedModal").open) el("savedModal").close();
+    openDetail(detail.dataset.detailId);
+  }
   const remove = event.target.closest("[data-remove-filter]");
   if (remove) removeFilter(remove.dataset.removeFilter);
   const removeCompare = event.target.closest("[data-remove-compare]");
@@ -471,8 +583,25 @@ document.addEventListener("click", (event) => {
     el("documentModal").showModal();
   }
   const drawerCompare = event.target.closest("[data-drawer-compare]");
-  if (drawerCompare) { toggleCompare(drawerCompare.dataset.drawerCompare, !state.compare.has(drawerCompare.dataset.drawerCompare)); openDetail(drawerCompare.dataset.drawerCompare); }
+  if (drawerCompare) {
+    toggleCompare(drawerCompare.dataset.drawerCompare, !state.compare.has(drawerCompare.dataset.drawerCompare));
+    if (state.currentDetail) renderResearchProfile(state.currentDetail);
+  }
+  const neighbor = event.target.closest("[data-profile-neighbor]");
+  if (neighbor?.dataset.profileNeighbor) openDetail(neighbor.dataset.profileNeighbor, { mode: state.detailMode, pushHistory: false, replaceHistory: true });
+  const section = event.target.closest("[data-profile-section]");
+  if (section) el(section.dataset.profileSection)?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
+
+function scheduleDetailPrefetch(target) {
+  const detail = target.closest?.("[data-detail-id]");
+  if (!detail) return;
+  window.clearTimeout(state.prefetchTimer);
+  state.prefetchTimer = window.setTimeout(() => fetchDetail(detail.dataset.detailId).catch(() => {}), 160);
+}
+
+document.addEventListener("pointerover", (event) => scheduleDetailPrefetch(event.target));
+document.addEventListener("focusin", (event) => scheduleDetailPrefetch(event.target));
 
 document.addEventListener("change", (event) => {
   const target = event.target;
@@ -517,7 +646,13 @@ el("dismissInterpretation").addEventListener("click", () => { el("interpretation
 el("columnsButton").addEventListener("click", () => { document.body.classList.toggle("compact-columns"); el("columnsButton").textContent = document.body.classList.contains("compact-columns") ? "▦ Standard view" : "▦ Compact view"; showToast(document.body.classList.contains("compact-columns") ? "Compact view applied" : "Standard view restored"); });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); el("searchInput").focus(); }
-  if (event.key === "Escape" && el("detailDrawer").classList.contains("open")) closeDrawer();
+  if (event.key === "Escape" && state.detailMode === "panel" && el("detailDrawer").classList.contains("open")) closeDrawer();
+});
+
+window.addEventListener("popstate", () => {
+  const slug = profileFromPath();
+  if (!slug) { closeDrawer({ fromHistory: true }); return; }
+  openDetail(slug, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });
 });
 
 hydrateFromUrl();
@@ -526,4 +661,7 @@ renderCategories();
 renderFilterOptions();
 renderActiveFilters();
 renderSavedScreens();
-runSearch({ preserveCursor: true });
+const initialProfile = profileFromPath();
+runSearch({ preserveCursor: true }).finally(() => {
+  if (initialProfile) openDetail(initialProfile, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });
+});

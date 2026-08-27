@@ -9,7 +9,15 @@
 5. Exact identifiers rank first; weighted product, manager, benchmark and vehicle fields determine relevance and provide a visible match explanation. A one-edit name/manager fallback runs only when strict search returns zero rows.
 6. The server calculates facets and globally sorts the full matching set.
 7. Only the requested 25-row slice and facet counts return to the browser.
-8. `/api/detail` fetches one record by validated identifier.
+8. `/api/detail` fetches one record by validated identifier or canonical public slug and returns shared core fields plus a vehicle-specific profile schema.
+
+## Research profile navigation
+
+- Result names are semantic links to `/investment/:slug`. An ordinary click is intercepted to open the profile in a 75–80% viewport canvas; modified clicks and the explicit new-tab action retain native browser behavior.
+- `history.pushState` gives an in-context canvas a real URL. Browser Back closes it without rebuilding the search or losing filters, paging or scroll position.
+- A direct profile URL renders the same data and markup as a standalone full-page profile. A Vercel rewrite and the local development server both route profile paths to the application shell.
+- The client caches resolved profiles and starts a request only after 160 ms of hover/focus intent. It never preloads all 25 rows.
+- Current values in the prototype are visibly labeled illustrative. Production should source price, NAV, yield and valuation timestamps from governed market-data services and preserve the same profile contract.
 
 Warm searches are designed to remain under the one-second interaction budget in the demo runtime. The browser debounces typing for 260 ms, cancels stale work, keeps the current rows in place, and reveals a loading layer only after 180 ms. The initial server instance builds its mock index once.
 
