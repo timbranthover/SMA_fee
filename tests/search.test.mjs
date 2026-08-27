@@ -31,9 +31,15 @@ test("text search never fabricates unrelated rows", () => {
 
 test("exact identifiers outrank text and explain why they matched", () => {
   const ticker = searchCatalog({ q: "AAPL" });
+  const appleCusip = searchCatalog({ q: "037833100" });
+  const formattedAppleCusip = searchCatalog({ q: "037-833-100" });
   const identifier = searchCatalog({ q: "594918CE2" });
   assert.equal(ticker.items[0].symbol, "AAPL");
   assert.equal(ticker.items[0].matchReason, "Exact ticker match");
+  assert.deepEqual(appleCusip.items.map((item) => item.id), ticker.items.map((item) => item.id));
+  assert.deepEqual(formattedAppleCusip.items.map((item) => item.id), ticker.items.map((item) => item.id));
+  assert.equal(appleCusip.total, 1);
+  assert.equal(appleCusip.items[0].matchReason, "Exact identifier match");
   assert.equal(identifier.items[0].id, "fi-msft");
   assert.equal(identifier.items[0].matchReason, "Exact identifier match");
 });
@@ -138,6 +144,8 @@ test("detail responses contain governed metadata without client fields", () => {
   assert.ok(detail.profile.performance.benchmarkSeries.length > 10);
   assert.ok(detail.profile.operations.some((field) => field.label === "Customization review"));
   assert.equal("eligibility" in detail, false);
+  assert.ok(detail.flags.includes("Model Delivered"));
+  assert.equal(detail.flags.includes("Model Enabled"), false);
 });
 
 test("standalone profile slugs and vehicle-specific research are complete", () => {

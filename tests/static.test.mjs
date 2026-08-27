@@ -12,6 +12,12 @@ test("public source is masked and contains no client-context remnants", async ()
   }
 });
 
+test("governed model-delivery language is current everywhere", async () => {
+  const source = (await Promise.all(files.map((file) => readFile(new URL(`../${file}`, import.meta.url), "utf8")))).join("\n");
+  assert.equal(source.includes("Model Enabled"), false);
+  assert.match(source, /Model Delivered/);
+});
+
 test("removed prototype controls do not remain in the markup or event code", async () => {
   const source = `${await readFile(new URL("../index.html", import.meta.url), "utf8")}\n${await readFile(new URL("../app.js", import.meta.url), "utf8")}`;
   assert.equal(source.includes("addCriteriaButton"), false);
@@ -44,6 +50,9 @@ test("investment profiles support a shared canvas and standalone URLs", async ()
   assert.match(app, /setTimeout\(\(\) => fetchDetail[^\n]+160\)/);
   assert.match(css, /width: min\(1120px, calc\(100vw - 250px\)\)/);
   assert.match(css, /\.profile-actions \.secondary-button \{ color: #111; \}/);
+  assert.match(app, /<th>Excess<\/th>/);
+  assert.match(app, /profile-data-table paired-facts/);
+  assert.match(css, /\.profile-data-table \{/);
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investment/:slug" && rule.destination === "/"));
 });
 
