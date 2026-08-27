@@ -7,6 +7,7 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - A deterministic 130,428-record mock catalog exists in server memory.
 - Search uses exact ticker/CUSIP priority, field-weighted whole-word relevance, strict multi-term matching and a controlled name/manager typo fallback.
 - Combined filters, exact facets and global sorting run against the complete catalog; each text result explains why it matched.
+- The initial shelf, unfiltered category pages and curated ticker/CUSIP/name lookups use exact precomputed paths; category-specific searches build only the relevant deterministic shard.
 - API responses are capped at 25 investments; the browser never downloads the universe.
 - Natural-language phrases are converted to an explicit allowlist of governed filters.
 - Curated company and manager marks are served locally, with deterministic identity matching and monogram fallbacks.
@@ -15,6 +16,7 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - Detail, comparison, saved screens, saved investments, document previews and shareable screen URLs work.
 - Inputs are validated and invalid categories, flags, risk levels and pagination values return HTTP 400.
 - The browser aborts stale requests, waits 260 ms for typing intent and delays loading chrome for 180 ms so fast results replace in place without flicker. Profile requests are cached and prefetched only after brief hover/focus intent.
+- Search responses contain only list-and-compare fields; profile-only research data is retrieved from `/api/detail` after selection.
 
 The investment data, performance, flags, product availability and company identity are illustrative. This is not an investment or production entitlement system.
 

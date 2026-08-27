@@ -37,7 +37,7 @@ export default {
       const result = searchCatalog(inputFromQuery(query));
       return Response.json(result, {
         headers: {
-          "Cache-Control": "public, s-maxage=30, stale-while-revalidate=300",
+          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
           "Server-Timing": `search;dur=${result.tookMs}`,
         },
       });

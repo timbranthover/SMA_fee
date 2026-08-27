@@ -29,12 +29,14 @@ test("search rendering is cancellation-safe and avoids loader flicker", async ()
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   assert.match(html, /id="resultsPanel"[^>]+aria-busy="false"/);
+  assert.match(html, /rel="modulepreload" href="\/app\.js"/);
   assert.match(app, /setTimeout\(showLoading, 180\)/);
   assert.match(app, /140 - \(performance\.now\(\) - loadingShownAt\)/);
   assert.match(app, /setTimeout\(\(\) => runSearch\(\), 260\)/);
   assert.match(app, /state\.controller\?\.abort\(\)/);
   assert.match(app, /class="match-reason"/);
   assert.match(app, /state\.appliedCategory = data\.appliedCategory \|\| state\.category/);
+  assert.match(app, /function updateHtml\(/);
   assert.doesNotMatch(app, /data\.appliedCategory[^\n]+state\.category = data\.appliedCategory/);
 });
 

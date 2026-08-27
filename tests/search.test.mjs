@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getInvestmentDetail, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
+import { CATEGORY_ORDER, FLAG_DEFINITIONS, getInvestmentDetail, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
 import searchHandler, { inputFromQuery } from "../api/search.js";
 import detailHandler from "../api/detail.js";
 
@@ -18,6 +18,35 @@ test("category facets are calculated from the indexed records", () => {
   const result = searchCatalog({});
   assert.equal(result.facets.categories.Equities, 22584);
   assert.equal(result.facets.categories["Fixed Income"], 93571);
+});
+
+test("fast shelf facets stay aligned with the complete index", () => {
+  const index = getSearchIndex();
+  const all = searchCatalog({});
+  for (const risk of ["Conservative", "Moderate", "High"]) assert.equal(all.facets.risks[risk], index.filter((item) => item.risk === risk).length, `All ${risk} count drifted`);
+  for (const status of ["Available", "New", "Limited"]) assert.equal(all.facets.statuses[status], index.filter((item) => item.status === status).length, `All ${status} count drifted`);
+  for (const flag of Object.keys(FLAG_DEFINITIONS)) assert.equal(all.facets.flags[flag], index.filter((item) => item.flags.includes(flag)).length, `All ${flag} count drifted`);
+  for (const category of CATEGORY_ORDER.slice(1)) {
+    const records = index.filter((item) => item.category === category);
+    const result = searchCatalog({ category });
+    assert.equal(result.total, records.length);
+    for (const risk of ["Conservative", "Moderate", "High"]) {
+      assert.equal(result.facets.risks[risk], records.filter((item) => item.risk === risk).length, `${category} ${risk} count drifted`);
+    }
+    for (const status of ["Available", "New", "Limited"]) {
+      assert.equal(result.facets.statuses[status], records.filter((item) => item.status === status).length, `${category} ${status} count drifted`);
+    }
+    for (const flag of Object.keys(FLAG_DEFINITIONS)) {
+      assert.equal(result.facets.flags[flag], records.filter((item) => item.flags.includes(flag)).length, `${category} ${flag} count drifted`);
+    }
+  }
+});
+
+test("search summaries omit detail-only data and stay lightweight", () => {
+  const result = searchCatalog({});
+  assert.equal("description" in result.items[0], false);
+  assert.equal("benchmark" in result.items[0], false);
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) < 12000);
 });
 
 test("text search never fabricates unrelated rows", () => {

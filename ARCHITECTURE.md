@@ -4,11 +4,11 @@
 
 1. The desktop browser sends only search text, allowlisted filters, sort and a 25-row cursor.
 2. `/api/search` validates every value and rejects unknown criteria.
-3. A lazily initialized server index holds the deterministic 130,428-record mock shelf.
+3. The deterministic 130,428-record mock shelf is divided into lazily initialized category shards. The initial shelf, unfiltered category pages and curated instrument lookups use exact precomputed paths instead of constructing the entire index.
 4. The server applies structured filters, then requires every meaningful query term to match a whole word or word prefix in an indexed field.
 5. Exact identifiers rank first; weighted product, manager, benchmark and vehicle fields determine relevance and provide a visible match explanation. A one-edit name/manager fallback runs only when strict search returns zero rows.
 6. The server calculates facets and globally sorts the full matching set.
-7. Only the requested 25-row slice and facet counts return to the browser.
+7. Only the requested 25-row list-and-compare projection and facet counts return to the browser; detail-only fields remain behind `/api/detail`.
 8. `/api/detail` fetches one record by validated identifier or canonical public slug and returns shared core fields plus a vehicle-specific profile schema.
 
 ## Research profile navigation
@@ -19,7 +19,7 @@
 - The client caches resolved profiles and starts a request only after 160 ms of hover/focus intent. It never preloads all 25 rows.
 - Current values in the prototype are visibly labeled illustrative. Production should source price, NAV, yield and valuation timestamps from governed market-data services and preserve the same profile contract.
 
-Warm searches are designed to remain under the one-second interaction budget in the demo runtime. The browser debounces typing for 260 ms, cancels stale work, keeps the current rows in place, and reveals a loading layer only after 180 ms. The initial server instance builds its mock index once.
+Warm searches are designed to remain under the one-second interaction budget in the demo runtime. The browser debounces typing for 260 ms, cancels stale work, keeps the current rows in place, and reveals a loading layer only after 180 ms. Common initial, category and curated-instrument requests avoid the full mock-index build; broad filters initialize only the shards they require, which are then reused for the life of the server instance.
 
 ## Brand identity
 

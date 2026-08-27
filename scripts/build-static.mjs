@@ -1,9 +1,10 @@
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 
 const outputDirectory = new URL("../public/", import.meta.url);
 const projectRoot = new URL("../", import.meta.url);
 const staticFiles = ["index.html", "app.js", "styles.css", "robots.txt"];
 
+await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
 
 await Promise.all(

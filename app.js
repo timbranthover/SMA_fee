@@ -31,8 +31,18 @@ const state = {
   prefetchTimer: null,
 };
 
-const el = (id) => document.getElementById(id);
+const elementCache = new Map();
+const el = (id) => {
+  if (!elementCache.has(id)) elementCache.set(id, document.getElementById(id));
+  return elementCache.get(id);
+};
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+
+function updateHtml(element, html) {
+  if (element.__renderedHtml === html) return;
+  element.innerHTML = html;
+  element.__renderedHtml = html;
+}
 
 function formatCount(value) { return number.format(value || 0); }
 function formatMinimum(value) {
@@ -113,19 +123,20 @@ function showToast(message) {
 }
 
 function renderCategories() {
-  el("categoryStrip").innerHTML = CATEGORY_ORDER.map((name) => {
+  const html = CATEGORY_ORDER.map((name) => {
     const count = CATEGORY_COUNTS[name];
     const liveCount = state.facets?.categories?.[name];
     const display = name === "All" ? state.facets ? state.total : count : liveCount ?? count;
     return `<button class="category-tab ${state.appliedCategory === name ? "active" : ""}" data-category="${escapeHtml(name)}"><strong>${escapeHtml(name === "Fixed Income" ? "Fixed income" : name)}</strong><span>${formatCount(display)}</span></button>`;
   }).join("");
+  updateHtml(el("categoryStrip"), html);
 }
 
 function renderFilterOptions() {
   const flagCounts = state.facets?.flags || {};
-  el("flagFilters").innerHTML = PRIMARY_FLAGS.map((flag) => `<label title="${escapeHtml(FLAG_DEFINITIONS[flag].definition)}"><input type="checkbox" data-filter="flag" value="${escapeHtml(flag)}" ${state.flags.has(flag) ? "checked" : ""}/> <span>${escapeHtml(flag)}</span><em>${formatCount(flagCounts[flag] ?? 0)}</em></label>`).join("");
+  updateHtml(el("flagFilters"), PRIMARY_FLAGS.map((flag) => `<label title="${escapeHtml(FLAG_DEFINITIONS[flag].definition)}"><input type="checkbox" data-filter="flag" value="${escapeHtml(flag)}" ${state.flags.has(flag) ? "checked" : ""}/> <span>${escapeHtml(flag)}</span><em>${formatCount(flagCounts[flag] ?? 0)}</em></label>`).join(""));
   const riskCounts = state.facets?.risks || {};
-  el("riskFilters").innerHTML = RISKS.map((risk) => `<label><input type="checkbox" data-filter="risk" value="${risk}" ${state.risks.has(risk) ? "checked" : ""}/> <span>${risk}</span><em>${formatCount(riskCounts[risk] ?? 0)}</em></label>`).join("");
+  updateHtml(el("riskFilters"), RISKS.map((risk) => `<label><input type="checkbox" data-filter="risk" value="${risk}" ${state.risks.has(risk) ? "checked" : ""}/> <span>${risk}</span><em>${formatCount(riskCounts[risk] ?? 0)}</em></label>`).join(""));
   const statuses = state.facets?.statuses || {};
   el("statusAvailableCount").textContent = formatCount(statuses.Available ?? 0);
   el("statusNewCount").textContent = formatCount(statuses.New ?? 0);
@@ -146,7 +157,7 @@ function activeFilterEntries() {
 function renderActiveFilters() {
   const entries = activeFilterEntries();
   el("activeFilterCount").textContent = `${entries.length} active`;
-  el("activeChips").innerHTML = entries.map(([key, label]) => `<span class="filter-chip">${escapeHtml(label)}<button data-remove-filter="${escapeHtml(key)}" aria-label="Remove ${escapeHtml(label)}">×</button></span>`).join("");
+  updateHtml(el("activeChips"), entries.map(([key, label]) => `<span class="filter-chip">${escapeHtml(label)}<button data-remove-filter="${escapeHtml(key)}" aria-label="Remove ${escapeHtml(label)}">×</button></span>`).join(""));
 }
 
 function badge(flag) { return `<span class="badge ${FLAG_COLORS[flag] || "blue"}">${escapeHtml(flag)}</span>`; }
