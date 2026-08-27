@@ -25,6 +25,50 @@ test("text search never fabricates unrelated rows", () => {
   assert.equal(result.total, 1);
   assert.equal(result.items[0].symbol, "AAPL");
   assert.equal(result.items[0].brandKey, "apple");
+  assert.equal(result.items[0].matchReason, "Matched on product name");
+  assert.equal(result.searchMode, "strict");
+});
+
+test("exact identifiers outrank text and explain why they matched", () => {
+  const ticker = searchCatalog({ q: "AAPL" });
+  const identifier = searchCatalog({ q: "594918CE2" });
+  assert.equal(ticker.items[0].symbol, "AAPL");
+  assert.equal(ticker.items[0].matchReason, "Exact ticker match");
+  assert.equal(identifier.items[0].id, "fi-msft");
+  assert.equal(identifier.items[0].matchReason, "Exact identifier match");
+});
+
+test("multiword manager search requires every meaningful term", () => {
+  const result = searchCatalog({ q: "Cboe Vest" });
+  assert.ok(result.total > 0);
+  assert.ok(result.items.every((item) => item.manager === "Cboe Vest"));
+  assert.equal(result.items[0].matchReason, "Exact manager match");
+});
+
+test("whole-word matching does not confuse Vest with Investments", () => {
+  const result = searchCatalog({ q: "Vest" });
+  assert.ok(result.total > 0);
+  assert.ok(result.items.every((item) => item.manager === "Cboe Vest"));
+  assert.ok(result.items.every((item) => item.manager !== "Parnassus Investments"));
+});
+
+test("typeahead prefixes work while typo correction remains controlled", () => {
+  const prefix = searchCatalog({ q: "Micros" });
+  const typo = searchCatalog({ q: "Microsft" });
+  const unrelated = searchCatalog({ q: "quantum banana" });
+  assert.ok(prefix.items.length > 0 && prefix.items.every((item) => /microsoft/i.test(`${item.name} ${item.manager}`)));
+  assert.equal(prefix.searchMode, "strict");
+  assert.equal(typo.items[0].symbol, "MSFT");
+  assert.equal(typo.searchMode, "fuzzy");
+  assert.match(typo.items[0].matchReason, /^Close /);
+  assert.equal(unrelated.total, 0);
+});
+
+test("natural language vehicle terms narrow before text relevance", () => {
+  const result = searchCatalog({ q: "Microsoft bond" });
+  assert.equal(result.appliedCategory, "Fixed Income");
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].id, "fi-msft");
 });
 
 test("brand identity enrichment is deterministic and falls back cleanly", () => {

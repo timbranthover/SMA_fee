@@ -146,7 +146,7 @@ function renderResults() {
     const checked = state.compare.has(item.id);
     return `<tr data-row-id="${escapeHtml(item.id)}">
       <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
-      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><button data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
+      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><button data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
       <td><span class="metric-primary">${formatMinimum(item.minimum)}</span><span class="metric-secondary">Opening</span></td>
       <td><span class="metric-primary">${formatFee(item.fee)}</span><span class="metric-secondary">Annual</span></td>
       <td><span class="metric-primary">${escapeHtml(item.risk)}</span></td>
@@ -207,13 +207,23 @@ async function runSearch({ preserveCursor = false } = {}) {
   const controller = new AbortController();
   state.controller = controller;
   const requestStarted = performance.now();
-  el("tableLoading").hidden = false;
-  el("latency").textContent = "Searching…";
+  const previousLatency = { text: el("latency").textContent, title: el("latency").title };
+  let loadingShownAt = 0;
+  const showLoading = () => {
+    if (controller !== state.controller) return;
+    loadingShownAt = performance.now();
+    el("tableLoading").hidden = false;
+    el("resultsPanel").setAttribute("aria-busy", "true");
+    el("latency").textContent = "Searching…";
+    el("latency").title = "Searching the indexed investment shelf";
+  };
+  const loadingTimer = window.setTimeout(showLoading, 180);
   try {
     const response = await fetch(buildSearchUrl(), { signal: controller.signal });
     if (!response.ok) throw new Error(`Search failed (${response.status})`);
     const data = await response.json();
     if (controller !== state.controller) return;
+    window.clearTimeout(loadingTimer);
     state.items = data.items;
     state.total = data.total;
     state.nextCursor = data.nextCursor;
@@ -230,20 +240,39 @@ async function runSearch({ preserveCursor = false } = {}) {
     renderResults();
     updateHeader();
     syncUrl();
+    if (loadingShownAt) {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      const remaining = 140 - (performance.now() - loadingShownAt);
+      if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining));
+    }
   } catch (error) {
     if (error.name !== "AbortError") {
       el("resultsBody").innerHTML = `<tr><td colspan="7" class="empty-state"><strong>Search is temporarily unavailable</strong>${escapeHtml(error.message)}. Try again.</td></tr>`;
       el("latency").textContent = "Unavailable";
+    } else if (controller === state.controller) {
+      el("latency").textContent = previousLatency.text;
+      el("latency").title = previousLatency.title;
     }
   } finally {
-    if (controller === state.controller) el("tableLoading").hidden = true;
+    window.clearTimeout(loadingTimer);
+    if (controller === state.controller) {
+      el("tableLoading").hidden = true;
+      el("resultsPanel").setAttribute("aria-busy", "false");
+    }
   }
 }
 
 let debounceTimer;
 function debouncedSearch() {
   window.clearTimeout(debounceTimer);
-  debounceTimer = window.setTimeout(() => runSearch(), 220);
+  debounceTimer = window.setTimeout(() => runSearch(), 260);
+}
+
+function cancelActiveSearch() {
+  state.controller?.abort();
+  state.controller = null;
+  el("tableLoading").hidden = true;
+  el("resultsPanel").setAttribute("aria-busy", "false");
 }
 
 function applyQuickScreen(name) {
@@ -457,8 +486,20 @@ document.addEventListener("error", (event) => {
   }
 }, true);
 
-el("searchForm").addEventListener("submit", (event) => { event.preventDefault(); window.clearTimeout(debounceTimer); state.q = el("searchInput").value.trim(); runSearch(); });
-el("searchInput").addEventListener("input", () => { state.q = el("searchInput").value.trim(); if (!state.q || state.q.length >= 2) debouncedSearch(); });
+el("searchForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  window.clearTimeout(debounceTimer);
+  state.q = el("searchInput").value.trim();
+  if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
+  runSearch();
+});
+el("searchInput").addEventListener("input", () => {
+  state.q = el("searchInput").value.trim();
+  window.clearTimeout(debounceTimer);
+  cancelActiveSearch();
+  if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
+  debouncedSearch();
+});
 el("sortSelect").addEventListener("change", (event) => { state.sort = event.target.value; runSearch(); });
 el("maxMinimum").addEventListener("change", (event) => { state.maxMinimum = event.target.value === "" ? undefined : Number(event.target.value); runSearch(); });
 el("maxFee").addEventListener("change", (event) => { state.maxFee = event.target.value === "" ? undefined : Number(event.target.value); runSearch(); });

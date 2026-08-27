@@ -5,11 +5,13 @@
 1. The desktop browser sends only search text, allowlisted filters, sort and a 25-row cursor.
 2. `/api/search` validates every value and rejects unknown criteria.
 3. A lazily initialized server index holds the deterministic 130,428-record mock shelf.
-4. The server filters, calculates facets and globally sorts the full matching set.
-5. Only the requested 25-row slice and facet counts return to the browser.
-6. `/api/detail` fetches one record by validated identifier.
+4. The server applies structured filters, then requires every meaningful query term to match a whole word or word prefix in an indexed field.
+5. Exact identifiers rank first; weighted product, manager, benchmark and vehicle fields determine relevance and provide a visible match explanation. A one-edit name/manager fallback runs only when strict search returns zero rows.
+6. The server calculates facets and globally sorts the full matching set.
+7. Only the requested 25-row slice and facet counts return to the browser.
+8. `/api/detail` fetches one record by validated identifier.
 
-Warm searches are designed to complete in tens of milliseconds in the demo runtime. The initial server instance builds its mock index once.
+Warm searches are designed to remain under the one-second interaction budget in the demo runtime. The browser debounces typing for 260 ms, cancels stale work, keeps the current rows in place, and reveals a loading layer only after 180 ms. The initial server instance builds its mock index once.
 
 ## Brand identity
 
