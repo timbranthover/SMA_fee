@@ -4,7 +4,7 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/investment/:slug", "destination": "/index.html" }
+    { "source": "/investment/:slug", "destination": "/" }
   ],
   "headers": [
     {
