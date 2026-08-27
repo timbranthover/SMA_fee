@@ -28,6 +28,8 @@ test("search rendering is cancellation-safe and avoids loader flicker", async ()
   assert.match(app, /setTimeout\(\(\) => runSearch\(\), 260\)/);
   assert.match(app, /state\.controller\?\.abort\(\)/);
   assert.match(app, /class="match-reason"/);
+  assert.match(app, /state\.appliedCategory = data\.appliedCategory \|\| state\.category/);
+  assert.doesNotMatch(app, /data\.appliedCategory[^\n]+state\.category = data\.appliedCategory/);
 });
 
 test("every allowlisted brand mark is local, unique and present", async () => {

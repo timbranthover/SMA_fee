@@ -7,6 +7,7 @@ const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 const state = {
   q: "",
   category: "All",
+  appliedCategory: "All",
   flags: new Set(),
   risks: new Set(),
   statuses: new Set(),
@@ -97,7 +98,7 @@ function renderCategories() {
     const count = CATEGORY_COUNTS[name];
     const liveCount = state.facets?.categories?.[name];
     const display = name === "All" ? state.facets ? state.total : count : liveCount ?? count;
-    return `<button class="category-tab ${state.category === name ? "active" : ""}" data-category="${escapeHtml(name)}"><strong>${escapeHtml(name === "Fixed Income" ? "Fixed income" : name)}</strong><span>${formatCount(display)}</span></button>`;
+    return `<button class="category-tab ${state.appliedCategory === name ? "active" : ""}" data-category="${escapeHtml(name)}"><strong>${escapeHtml(name === "Fixed Income" ? "Fixed income" : name)}</strong><span>${formatCount(display)}</span></button>`;
   }).join("");
 }
 
@@ -157,7 +158,7 @@ function renderResults() {
 }
 
 function updateHeader() {
-  el("resultsTitle").textContent = state.category === "All" ? "All investments" : state.category;
+  el("resultsTitle").textContent = state.appliedCategory === "All" ? "All investments" : state.appliedCategory;
   el("resultCount").textContent = formatCount(state.total);
   const start = state.total ? state.cursor + 1 : 0;
   const end = Math.min(state.cursor + state.items.length, state.total);
@@ -229,7 +230,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     state.nextCursor = data.nextCursor;
     state.previousCursor = data.previousCursor;
     state.facets = data.facets;
-    if (data.appliedCategory && state.category === "All" && data.appliedCategory !== "All") state.category = data.appliedCategory;
+    state.appliedCategory = data.appliedCategory || state.category;
     const roundTripMs = Math.max(1, Math.round(performance.now() - requestStarted));
     el("latency").textContent = `${roundTripMs} ms`;
     el("latency").title = `Browser round trip; server search ${data.tookMs} ms`;
@@ -419,6 +420,7 @@ function hydrateFromUrl() {
   state.q = params.get("q") || "";
   const category = params.get("category") || "All";
   state.category = CATEGORY_ORDER.includes(category) ? category : "All";
+  state.appliedCategory = state.category;
   state.flags = new Set((params.get("flags") || "").split(",").filter((value) => PRIMARY_FLAGS.includes(value)));
   state.risks = new Set((params.get("risks") || "").split(",").filter((value) => RISKS.includes(value)));
   state.statuses = new Set((params.get("statuses") || "").split(",").filter((value) => STATUSES.includes(value)));
@@ -436,7 +438,7 @@ function hydrateFromUrl() {
 
 document.addEventListener("click", (event) => {
   const category = event.target.closest("[data-category]");
-  if (category) { state.category = category.dataset.category; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; runSearch(); }
+  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; runSearch(); }
   const screen = event.target.closest("[data-screen]");
   if (screen) applyQuickScreen(screen.dataset.screen);
   const detail = event.target.closest("[data-detail-id]");
