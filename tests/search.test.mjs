@@ -180,7 +180,7 @@ test("detail responses contain governed metadata without client fields", () => {
   assert.equal(detail.category, "SMAs");
   assert.equal(detail.details.Identifier, "NX1A");
   assert.ok(detail.flagDetails.some((flag) => flag.owner === "Managed Solutions"));
-  assert.equal(detail.documents.length, 4);
+  assert.equal("documents" in detail, false);
   assert.equal(detail.profile.quote.label, "3Y composite return");
   assert.ok(detail.profile.performance.benchmarkSeries.length > 10);
   assert.ok(detail.profile.operations.some((field) => field.label === "Customization review"));

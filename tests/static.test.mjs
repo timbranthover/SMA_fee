@@ -31,6 +31,9 @@ test("removed prototype controls do not remain in the markup or event code", asy
   assert.equal(source.includes("addCriteriaButton"), false);
   assert.equal(source.includes("criteriaModal"), false);
   assert.equal(source.includes("100+ available criteria"), false);
+  assert.equal(source.includes("profile-documents"), false);
+  assert.equal(source.includes("documentModal"), false);
+  assert.equal(source.includes("data-document-index"), false);
 });
 
 test("search rendering is cancellation-safe and avoids loader flicker", async () => {

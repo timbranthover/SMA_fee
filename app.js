@@ -592,7 +592,7 @@ function renderResearchProfile(item) {
   const next = currentIndex >= 0 && currentIndex < state.items.length - 1 ? state.items[currentIndex + 1] : null;
   const navigation = [
     ["Overview", "profile-overview"], ["Performance", "profile-performance"], [profile.composition.title, "profile-composition"],
-    ["Risk", "profile-risk"], ["Fees & operations", "profile-fees"], ["UPS research", "profile-research"], ["Documents", "profile-documents"],
+    ["Risk", "profile-risk"], ["Fees & operations", "profile-fees"], ["UPS research", "profile-research"],
   ];
   el("drawerContent").innerHTML = `<header class="profile-hero">
       <div class="profile-utility">
@@ -614,8 +614,7 @@ function renderResearchProfile(item) {
       <section class="profile-section" id="profile-risk"><div class="section-heading"><span>Decision context</span><h3>Risk & analytical measures</h3><p>Each measure is paired with its analytical meaning and comparison basis.</p></div>${metricTable(profile.riskMetrics, "risk-table")}</section>
       <section class="profile-section" id="profile-fees"><div class="section-heading"><span>Implementation</span><h3>Fees & operations</h3><p>Cost, liquidity and implementation terms in an operational review format.</p></div><div class="fees-layout"><div><div class="table-caption"><strong>Costs</strong></div>${metricTable(profile.fees, "fee-table")}</div><div><div class="table-caption"><strong>Operating terms</strong></div>${metricTable(profile.operations, "operations-table")}</div></div></section>
       <section class="profile-section research-section" id="profile-research"><div class="section-heading"><span>House perspective</span><h3>UPS research & shelf context</h3></div><div class="research-card"><div><span class="research-label">${escapeHtml(profile.research.reviewed)}</span><h4>${escapeHtml(profile.research.title)}</h4><p>${escapeHtml(profile.research.summary)}</p><ul>${profile.research.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul><small>Coverage owner · ${escapeHtml(profile.research.owner)}</small></div><div class="governed-flags"><h4>Governed designations</h4>${item.flagDetails.length ? item.flagDetails.map((flag) => `<div class="flag-detail"><strong>${badge(flag.name)} ${escapeHtml(flag.name)}</strong><span>${escapeHtml(flag.definition)}</span><em>${escapeHtml(flag.owner)}<br>${escapeHtml(flag.effective)}</em></div>`).join("") : `<p>No active governed designations.</p>`}</div></div></section>
-      <section class="profile-section" id="profile-documents"><div class="section-heading"><span>Source material</span><h3>Documents</h3><p>Use current governed documents for product terms, risk factors and disclosures.</p></div><div class="profile-documents">${item.documents.map((document, index) => `<button class="document-link" data-document-index="${index}"><span class="document-icon">PDF</span><span><strong>${escapeHtml(document.name)}</strong><small>${escapeHtml(document.meta)}</small></span><span>Preview ›</span></button>`).join("")}</div></section>
-      <p class="profile-disclosure">Illustrative prototype data · Not for investment decisions · Values, research and documents shown here are representative of the intended production experience.</p>
+      <p class="profile-disclosure">Illustrative prototype data · Not for investment decisions · Values and research shown here are representative of the intended production experience.</p>
     </div>`;
   el("drawerLoading").hidden = true;
   el("drawerContent").hidden = false;
@@ -969,14 +968,6 @@ document.addEventListener("click", (event) => {
   if (deleteInvestment) { setSavedInvestments(getSavedInvestments().filter((item) => item.id !== deleteInvestment.dataset.deleteInvestment)); renderSavedScreens(); showToast("Investment removed from saved"); }
   const saveInvestment = event.target.closest("[data-save-investment]");
   if (saveInvestment && state.currentDetail) { const saved = toggleSavedInvestment(state.currentDetail); saveInvestment.textContent = saved ? "★ Saved" : "☆ Save"; }
-  const documentButton = event.target.closest("[data-document-index]");
-  if (documentButton && state.currentDetail) {
-    const document = state.currentDetail.documents[Number(documentButton.dataset.documentIndex)];
-    el("documentTitle").textContent = document.name;
-    el("documentMeta").textContent = `${state.currentDetail.name} · ${document.meta}`;
-    el("documentDescription").textContent = `Preview for ${document.name.toLowerCase()} associated with ${state.currentDetail.symbol}.`;
-    el("documentModal").showModal();
-  }
   const drawerCompare = event.target.closest("[data-drawer-compare]");
   if (drawerCompare) {
     toggleCompare(drawerCompare.dataset.drawerCompare, !state.compare.has(drawerCompare.dataset.drawerCompare));

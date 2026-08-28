@@ -12,9 +12,9 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - Result columns adapt to the selected vehicle and add cached price/NAV, trend and decision metrics in one post-render batch rather than per-row requests. Users can choose, order and persist up to five valid fields or apply a vehicle-specific Research, Performance, Income, Risk, or Cost preset; incompatible fields are excluded by configuration.
 - Natural-language phrases are converted to an explicit allowlist of governed filters.
 - Curated company and manager marks are served locally, with deterministic identity matching and monogram fallbacks.
-- Each investment has a vehicle-specific research profile covering its current illustrative value, benchmarked performance, composition, risk, costs, operating terms, UPS research and governed documents.
+- Each investment has a vehicle-specific research profile covering its current illustrative value, benchmarked performance, composition, risk, costs, operating terms and UPS research.
 - A normal result click opens that profile in a large in-context research canvas; every profile also has a stable `/investment/:slug` URL that supports new tabs and direct sharing.
-- Detail, comparison, saved screens, saved investments, document previews and shareable screen URLs work.
+- Detail, comparison, saved screens, saved investments and shareable screen URLs work.
 - Inputs are validated and invalid categories, flags, risk levels and pagination values return HTTP 400.
 - The browser aborts stale requests, waits 260 ms for typing intent and delays loading chrome for 180 ms so fast results replace in place without flicker. Profile requests are cached and prefetched only after brief hover/focus intent.
 - Search responses contain only list-and-compare fields; profile-only research data is retrieved from `/api/detail` after selection.
