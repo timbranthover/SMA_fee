@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CATEGORY_ORDER, FLAG_DEFINITIONS, getInvestmentDetail, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
+import { CATEGORY_ORDER, FLAG_DEFINITIONS, getInvestmentDetail, getMarketSnapshots, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
 import searchHandler, { inputFromQuery } from "../api/search.js";
 import detailHandler from "../api/detail.js";
+import snapshotHandler from "../api/snapshots.js";
 
 test("the server index contains the exact shelf while responses stay bounded", () => {
   assert.equal(getSearchIndex().length, UNIVERSE_SIZE);
@@ -221,10 +222,37 @@ test("search API returns 400 for invalid input and timing for valid input", asyn
   const valid = await searchHandler.fetch(new Request("https://example.test/api/search?category=ETFs&pageSize=25"));
   const invalid = await searchHandler.fetch(new Request("https://example.test/api/search?category=Crypto&pageSize=500"));
   assert.equal(valid.status, 200);
-  assert.equal((await valid.json()).items.length, 25);
+  const payload = await valid.json();
+  assert.equal(payload.items.length, 25);
+  assert.equal("marketSnapshot" in payload.items[0], false);
   assert.match(valid.headers.get("server-timing"), /^search;dur=/);
   assert.equal(invalid.status, 400);
   assert.match((await invalid.json()).error, /category|page size/i);
+});
+
+test("search snapshots expose decision-useful fields by vehicle", () => {
+  const expectations = new Map([
+    ["Equities", ["Market price", "Forward P/E", "Dividend yield"]],
+    ["Mutual Funds", ["NAV", "30-day SEC yield", "Expense ratio"]],
+    ["SMAs", ["3Y composite", "Minimum", "Manager fee"]],
+    ["Fixed Income", ["Clean price", "Yield to worst", "Credit rating"]],
+    ["Structured", ["Indicative value", "Contingent coupon", "Term"]],
+  ]);
+  for (const [category, labels] of expectations) {
+    const [item] = searchCatalog({ category, pageSize: 1 }).items;
+    const snapshot = getMarketSnapshots([item.id])[item.id];
+    assert.deepEqual([snapshot.primary.label, snapshot.keyA.label, snapshot.keyB.label], labels);
+    assert.equal(snapshot.trend.points.length, 14);
+  }
+});
+
+test("snapshot API batches visible rows and rejects oversized requests", async () => {
+  const ids = searchCatalog({ category: "Equities", pageSize: 3 }).items.map((item) => item.id);
+  const valid = await snapshotHandler.fetch(new Request(`https://example.test/api/snapshots?ids=${ids.join(",")}`));
+  const invalid = await snapshotHandler.fetch(new Request(`https://example.test/api/snapshots?ids=${Array.from({ length: 26 }, (_, index) => `eq-${index}`).join(",")}`));
+  assert.equal(valid.status, 200);
+  assert.equal(Object.keys((await valid.json()).snapshots).length, 3);
+  assert.equal(invalid.status, 400);
 });
 
 test("detail API validates identifiers and returns 404 for unknown records", async () => {

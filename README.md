@@ -9,6 +9,7 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - Combined filters, exact facets and global sorting run against the complete catalog; each text result explains why it matched.
 - The initial shelf, unfiltered category pages and curated ticker/CUSIP/name lookups use exact precomputed paths; category-specific searches build only the relevant deterministic shard.
 - API responses are capped at 25 investments; the browser never downloads the universe.
+- Result columns adapt to the selected vehicle and add cached price/NAV, trend and decision metrics in one post-render batch rather than per-row requests.
 - Natural-language phrases are converted to an explicit allowlist of governed filters.
 - Curated company and manager marks are served locally, with deterministic identity matching and monogram fallbacks.
 - Each investment has a vehicle-specific research profile covering its current illustrative value, benchmarked performance, composition, risk, costs, operating terms, UPS research and governed documents.

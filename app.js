@@ -24,6 +24,8 @@ const state = {
   items: [],
   facets: null,
   controller: null,
+  snapshotController: null,
+  snapshotCache: new Map(),
   compare: new Map(),
   currentDetail: null,
   lastFocus: null,
@@ -184,21 +186,72 @@ function visibleFlags(flags) {
   return [...selected, ...flags.filter((flag) => !selected.includes(flag))].slice(0, Math.max(2, selected.length));
 }
 
+const MARKET_HEADERS = {
+  All: ["Market / value", "Trend", "Key measure", "Cost / terms"],
+  Equities: ["Price", "1Y trend", "Forward P/E", "Dividend yield"],
+  "Mutual Funds": ["NAV", "1Y trend", "SEC yield", "Expense ratio"],
+  ETFs: ["Price", "1Y trend", "SEC yield", "Expense ratio"],
+  SMAs: ["3Y return", "1Y trend", "Minimum", "Manager fee"],
+  "Fixed Income": ["Price", "1Y trend", "Yield to worst", "Rating"],
+  Alternatives: ["Reported NAV", "1Y trend", "3Y return", "Liquidity"],
+  Structured: ["Indicative value", "Since issue", "Coupon", "Term"],
+  "Managed Options": ["3Y return", "1Y trend", "Minimum", "Annual fee"],
+  Annuities: ["Crediting rate", "Growth", "Guarantee", "Annual fee"],
+  "Precious Metals": ["Reference price", "1Y trend", "1Y return", "Custody fee"],
+};
+
+function renderMarketHeaders() {
+  const headers = MARKET_HEADERS[state.appliedCategory] || MARKET_HEADERS.All;
+  ["marketHeaderPrimary", "marketHeaderTrend", "marketHeaderKeyA", "marketHeaderKeyB"].forEach((id, index) => {
+    el(id).textContent = headers[index];
+  });
+}
+
+function marketMetric(metric) {
+  return `<span class="metric-primary">${escapeHtml(metric.value)}</span><span class="metric-secondary">${escapeHtml(metric.label)}</span>`;
+}
+
+function marketPrimary(snapshot) {
+  return `<div class="market-value-line"><span class="metric-primary">${escapeHtml(snapshot.primary.value)}</span><span class="snapshot-change ${escapeHtml(snapshot.primary.tone)}">${escapeHtml(snapshot.primary.change)}</span></div><span class="metric-secondary">${escapeHtml(snapshot.primary.label)} · ${escapeHtml(snapshot.asOf)}</span>`;
+}
+
+function marketSparkline(trend) {
+  const values = trend.points;
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const spread = maximum - minimum || 1;
+  const points = values.map((value, index) => {
+    const x = index * (94 / (values.length - 1));
+    const y = 3 + (maximum - value) * (21 / spread);
+    return [Number(x.toFixed(1)), Number(y.toFixed(1))];
+  });
+  const line = points.map(([x, y], index) => `${index ? "L" : "M"}${x} ${y}`).join(" ");
+  const area = `${line} L94 27 L0 27 Z`;
+  const [endX, endY] = points.at(-1);
+  return `<div class="sparkline-wrap ${escapeHtml(trend.tone)}" title="${escapeHtml(`${trend.label}: ${trend.value}`)}"><svg class="market-sparkline" viewBox="0 0 94 28" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(`${trend.label} ${trend.value}`)}"><path class="sparkline-area" d="${area}"></path><path class="sparkline-line" d="${line}"></path><circle cx="${endX}" cy="${endY}" r="2"></circle></svg><span class="metric-secondary">${escapeHtml(trend.label)} <b>${escapeHtml(trend.value)}</b></span></div>`;
+}
+
+function marketSnapshotPlaceholder() {
+  return `<span class="snapshot-placeholder" aria-label="Loading market snapshot"><i></i><i></i></span>`;
+}
+
 function renderResults() {
   const body = el("resultsBody");
+  renderMarketHeaders();
   if (!state.items.length) {
     body.innerHTML = `<tr><td colspan="7" class="empty-state"><strong>No investments match this screen</strong>Remove one or more filters, or search the full shelf.</td></tr>`;
     return;
   }
   body.innerHTML = state.items.map((item) => {
     const checked = state.compare.has(item.id);
+    const snapshot = item.marketSnapshot;
     return `<tr data-row-id="${escapeHtml(item.id)}">
       <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
       <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
-      <td><span class="metric-primary">${formatMinimum(item.minimum)}</span><span class="metric-secondary">Opening</span></td>
-      <td><span class="metric-primary">${formatFee(item.fee)}</span><span class="metric-secondary">Annual</span></td>
-      <td><span class="metric-primary">${escapeHtml(item.risk)}</span></td>
-      <td><span class="${item.perf3 >= 0 ? "return-positive" : item.perf3 === null ? "" : "return-negative"}">${formatReturn(item.perf3)}</span><span class="metric-secondary">Annualized</span></td>
+      <td class="col-primary market-primary">${snapshot ? marketPrimary(snapshot) : marketSnapshotPlaceholder()}</td>
+      <td class="col-trend">${snapshot ? marketSparkline(snapshot.trend) : marketSnapshotPlaceholder()}</td>
+      <td class="col-key-a">${snapshot ? marketMetric(snapshot.keyA) : marketSnapshotPlaceholder()}</td>
+      <td class="col-key-b">${snapshot ? marketMetric(snapshot.keyB) : marketSnapshotPlaceholder()}</td>
       <td class="action-cell"><a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a></td>
     </tr>`;
   }).join("");
@@ -236,6 +289,26 @@ function buildSearchUrl() {
   return `/api/search?${params}`;
 }
 
+async function loadMarketSnapshots(items) {
+  state.snapshotController?.abort();
+  const missingIds = items.map((item) => item.id).filter((id) => !state.snapshotCache.has(id));
+  if (!missingIds.length) return;
+  const controller = new AbortController();
+  state.snapshotController = controller;
+  const params = new URLSearchParams({ ids: missingIds.join(",") });
+  try {
+    const response = await fetch(`/api/snapshots?${params}`, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Snapshots failed (${response.status})`);
+    const data = await response.json();
+    if (controller !== state.snapshotController) return;
+    Object.entries(data.snapshots || {}).forEach(([id, snapshot]) => state.snapshotCache.set(id, snapshot));
+    state.items = state.items.map((item) => ({ ...item, marketSnapshot: state.snapshotCache.get(item.id) }));
+    renderResults();
+  } catch (error) {
+    if (error.name !== "AbortError") console.warn("Market snapshots unavailable", error);
+  }
+}
+
 function syncUrl() {
   const params = new URLSearchParams();
   if (state.q) params.set("q", state.q);
@@ -252,6 +325,7 @@ function syncUrl() {
 async function runSearch({ preserveCursor = false } = {}) {
   if (!preserveCursor) state.cursor = 0;
   state.controller?.abort();
+  state.snapshotController?.abort();
   const controller = new AbortController();
   state.controller = controller;
   const requestStarted = performance.now();
@@ -272,7 +346,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     const data = await response.json();
     if (controller !== state.controller) return;
     window.clearTimeout(loadingTimer);
-    state.items = data.items;
+    state.items = data.items.map((item) => ({ ...item, marketSnapshot: state.snapshotCache.get(item.id) }));
     state.total = data.total;
     state.nextCursor = data.nextCursor;
     state.previousCursor = data.previousCursor;
@@ -288,6 +362,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     renderResults();
     updateHeader();
     syncUrl();
+    window.requestAnimationFrame(() => loadMarketSnapshots(state.items));
     if (loadingShownAt) {
       await new Promise((resolve) => window.requestAnimationFrame(resolve));
       const remaining = 140 - (performance.now() - loadingShownAt);

@@ -3,9 +3,10 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { searchCatalog } from "./lib/catalog.js";
-import { getInvestmentDetail } from "./lib/catalog.js";
+import { getInvestmentDetail, getMarketSnapshots } from "./lib/catalog.js";
 import { getComparisonHistory, parseHistoryIds } from "./lib/history.js";
 import { inputFromQuery } from "./api/search.js";
+import { parseSnapshotIds } from "./api/snapshots.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -29,6 +30,10 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/api/detail") {
     const detail = getInvestmentDetail(url.searchParams.get("id") || "");
     return detail ? json(response, detail) : json(response, { error: "Investment not found" }, 404);
+  }
+  if (url.pathname === "/api/snapshots") {
+    try { return json(response, { snapshots: getMarketSnapshots(parseSnapshotIds(url.searchParams.get("ids"))) }); }
+    catch (error) { return json(response, { error: error.message }, error instanceof RangeError ? 400 : 500); }
   }
   if (url.pathname === "/api/history") {
     try { return json(response, getComparisonHistory(parseHistoryIds(url.searchParams.get("ids")))); }

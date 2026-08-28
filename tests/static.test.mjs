@@ -83,6 +83,19 @@ test("comparison chart stays lazy, local and additive to the decision table", as
   assert.match(build, /lightweight-charts\.standalone\.production\.mjs/);
 });
 
+test("results table renders compact vehicle-aware market snapshots", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(html, /id="marketHeaderPrimary"/);
+  assert.match(app, /const MARKET_HEADERS/);
+  assert.match(app, /function marketSparkline/);
+  assert.match(app, /\/api\/snapshots\?/);
+  assert.match(app, /requestAnimationFrame\(\(\) => loadMarketSnapshots/);
+  assert.match(css, /\.market-sparkline \{/);
+  assert.match(css, /\.compact-columns \.results-table \.col-trend/);
+});
+
 test("every allowlisted brand mark is local, unique and present", async () => {
   const logos = Object.values(BRAND_LOGOS);
   assert.equal(logos.length, 18);
