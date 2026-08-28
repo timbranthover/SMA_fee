@@ -90,6 +90,7 @@ test("results table uses capped, vehicle-aware configurable columns", async () =
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   const config = await readFile(new URL("../lib/column-config.js", import.meta.url), "utf8");
+  const build = await readFile(new URL("../scripts/build-static.mjs", import.meta.url), "utf8");
   assert.match(html, /id="columnsModal"/);
   assert.match(html, /id="resultsHeader"/);
   assert.match(app, /function renderColumnConfigurator/);
@@ -104,6 +105,7 @@ test("results table uses capped, vehicle-aware configurable columns", async () =
   assert.match(css, /\.market-sparkline \{/);
   assert.doesNotMatch(css, /\.compact-columns/);
   assert.match(css, /\.column-config-grid/);
+  assert.match(build, /"column-config\.js"/);
 });
 
 test("every allowlisted brand mark is local, unique and present", async () => {
