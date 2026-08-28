@@ -66,6 +66,23 @@ test("investment profiles support a shared canvas and standalone URLs", async ()
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investment/:slug" && rule.destination === "/"));
 });
 
+test("comparison chart stays lazy, local and additive to the decision table", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const build = await readFile(new URL("../scripts/build-static.mjs", import.meta.url), "utf8");
+  assert.match(html, /data-compare-range="1M"/);
+  assert.match(html, /data-compare-range="MAX"/);
+  assert.match(html, /id="compareBenchmark"/);
+  assert.match(html, /id="compareTableWrap"/);
+  assert.doesNotMatch(html, /lightweight-charts/);
+  assert.match(app, /import\("\/vendor\/lightweight-charts\.mjs"\)/);
+  assert.match(app, /\/api\/history\?ids=/);
+  assert.match(app, /Rebased|normalizeComparisonPoints/);
+  assert.match(css, /\.compare-chart-stage \{ height: 315px/);
+  assert.match(build, /lightweight-charts\.standalone\.production\.mjs/);
+});
+
 test("every allowlisted brand mark is local, unique and present", async () => {
   const logos = Object.values(BRAND_LOGOS);
   assert.equal(logos.length, 18);

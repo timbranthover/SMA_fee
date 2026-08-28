@@ -20,3 +20,8 @@ await Promise.all(
   ),
 );
 await cp(new URL("assets/", projectRoot), new URL("assets/", outputDirectory), { recursive: true });
+await mkdir(new URL("vendor/", outputDirectory), { recursive: true });
+await cp(
+  new URL("node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.mjs", projectRoot),
+  new URL("vendor/lightweight-charts.mjs", outputDirectory),
+);

@@ -52,8 +52,18 @@ try {
   assert.equal(await page.locator("#compareTrayCount").innerText(), "2");
   await page.locator("#compareButton").click();
   await page.waitForSelector("#compareModal[open]");
+  await page.waitForSelector("#compareChart canvas");
+  await page.waitForFunction(() => document.querySelector("#compareChartStatus")?.hidden === true);
   assert.match(await page.locator("#compareModal").innerText(), /Objective/);
+  assert.match(await page.locator("#compareModal").innerText(), /Performance comparison/);
   assert.doesNotMatch(await page.locator("#compareModal").innerText(), /Client fit/);
+  await page.locator('[data-compare-range="3Y"]').click();
+  assert.equal(await page.locator('[data-compare-range="3Y"]').getAttribute("aria-pressed"), "true");
+  await page.locator("#compareBenchmark").check();
+  assert.equal(await page.locator('[data-compare-series="benchmark-sp500"]:visible').count(), 1);
+  const firstSeries = page.locator("[data-compare-series]").first();
+  await firstSeries.click();
+  assert.equal(await firstSeries.getAttribute("aria-pressed"), "false");
   await page.screenshot({ path: "/tmp/investment-screener-compare.png", fullPage: false });
   await page.locator('[data-close-modal="compareModal"]').click();
 

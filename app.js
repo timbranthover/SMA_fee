@@ -3,6 +3,9 @@ import { brandLogo } from "/lib/brand-logos.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const chartDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const COMPARE_COLORS = ["#b51f35", "#246a58", "#315f8f", "#9b7629"];
+const COMPARE_RANGE_OPTIONS = new Set(["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"]);
 
 const state = {
   q: "",
@@ -31,6 +34,19 @@ const state = {
   prefetchTimer: null,
 };
 
+let compareChart = null;
+let compareChartLibraryPromise = null;
+let compareChartResizeObserver = null;
+let compareCrosshairHandler = null;
+let compareChartRequest = 0;
+let compareChartData = null;
+let compareRange = "1Y";
+let compareBenchmarkVisible = false;
+let compareHiddenSeries = new Set();
+const compareSeries = new Map();
+const compareRangeData = new Map();
+const compareHistoryCache = new Map();
+
 const elementCache = new Map();
 const el = (id) => {
   if (!elementCache.has(id)) elementCache.set(id, document.getElementById(id));
@@ -53,6 +69,7 @@ function formatMinimum(value) {
 }
 function formatFee(value) { return value === null || value === undefined ? "—" : `${Number(value).toFixed(value < 0.1 ? 2 : 2)}%`; }
 function formatReturn(value) { return value === null || value === undefined ? "—" : `${value >= 0 ? "+" : ""}${Number(value).toFixed(1)}%`; }
+function formatChartReturn(value) { return value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${Number(value).toFixed(1)}%`; }
 function monogram(item) { return item.symbol?.slice(0, 3) || item.name.split(" ").slice(0, 2).map((part) => part[0]).join(""); }
 function productClass(category) { return category === "SMAs" ? "sma" : category === "Fixed Income" ? "fixed" : category === "Equities" ? "equity" : ""; }
 function productMark(item) {
@@ -499,17 +516,183 @@ function closeDrawer({ fromHistory = false } = {}) {
   state.lastFocus?.focus?.();
 }
 
+function loadCompareChartLibrary() {
+  if (!compareChartLibraryPromise) compareChartLibraryPromise = import("/vendor/lightweight-charts.mjs");
+  return compareChartLibraryPromise;
+}
+
+function fetchComparisonHistory(items) {
+  const key = items.map((item) => item.id).join(",");
+  if (!compareHistoryCache.has(key)) {
+    const request = fetch(`/api/history?ids=${items.map((item) => encodeURIComponent(item.id)).join(",")}`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Performance history could not be loaded");
+        if (!Array.isArray(data.series) || !data.benchmark) throw new Error("Performance history response is incomplete");
+        return data;
+      })
+      .catch((error) => { compareHistoryCache.delete(key); throw error; });
+    compareHistoryCache.set(key, request);
+  }
+  return compareHistoryCache.get(key);
+}
+
+function cutoffForRange(range, asOf) {
+  if (range === "MAX") return null;
+  const date = new Date(`${asOf}T00:00:00Z`);
+  if (range === "YTD") return `${date.getUTCFullYear()}-01-01`;
+  const amounts = { "1M": ["month", 1], "3M": ["month", 3], "6M": ["month", 6], "1Y": ["year", 1], "3Y": ["year", 3], "5Y": ["year", 5] };
+  const [unit, amount] = amounts[range] || amounts["1Y"];
+  if (unit === "month") date.setUTCMonth(date.getUTCMonth() - amount);
+  else date.setUTCFullYear(date.getUTCFullYear() - amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeComparisonPoints(points, range, asOf) {
+  const cutoff = cutoffForRange(range, asOf);
+  const visible = cutoff ? points.filter((point) => point.time >= cutoff) : points;
+  if (!visible.length) return [];
+  const base = visible[0].value;
+  return visible.map((point) => ({ time: point.time, value: Number((((point.value / base) - 1) * 100).toFixed(3)) }));
+}
+
+function chartTimeToIso(time) {
+  if (typeof time === "string") return time;
+  if (typeof time === "number") return new Date(time * 1000).toISOString().slice(0, 10);
+  if (time && typeof time === "object") return `${time.year}-${String(time.month).padStart(2, "0")}-${String(time.day).padStart(2, "0")}`;
+  return null;
+}
+
+function updateCompareLegend(seriesData = null, time = null) {
+  for (const [id, entry] of compareSeries) {
+    const output = document.querySelector(`[data-compare-series-value="${CSS.escape(id)}"]`);
+    if (!output) continue;
+    const point = seriesData?.get(entry.series);
+    const fallback = compareRangeData.get(id)?.at(-1);
+    const value = point?.value ?? fallback?.value;
+    output.textContent = formatChartReturn(value);
+    output.classList.toggle("negative", Number(value) < 0);
+  }
+  const iso = chartTimeToIso(time);
+  el("compareChartAsOf").textContent = iso ? `Viewing ${chartDate.format(new Date(`${iso}T00:00:00Z`))}` : `Data through ${chartDate.format(new Date(`${compareChartData.asOf}T00:00:00Z`))}`;
+}
+
+function updateCompareChartSummary() {
+  const labels = compareChartData.series.map((item) => {
+    const value = compareRangeData.get(item.id)?.at(-1)?.value;
+    return `${item.symbol} ${formatChartReturn(value)}`;
+  });
+  if (compareBenchmarkVisible) labels.push(`S&P 500 ${formatChartReturn(compareRangeData.get("benchmark-sp500")?.at(-1)?.value)}`);
+  el("compareChartSummary").textContent = `${compareRange} illustrative total return: ${labels.join(", ")}.`;
+}
+
+function drawCompareRange() {
+  if (!compareChart || !compareChartData) return;
+  const inputs = [...compareChartData.series, compareChartData.benchmark];
+  for (const item of inputs) {
+    const entry = compareSeries.get(item.id);
+    if (!entry) continue;
+    const data = normalizeComparisonPoints(item.points, compareRange, compareChartData.asOf);
+    compareRangeData.set(item.id, data);
+    entry.series.setData(data);
+    const isBenchmark = item.id === "benchmark-sp500";
+    entry.series.applyOptions({ visible: isBenchmark ? compareBenchmarkVisible : !compareHiddenSeries.has(item.id) });
+  }
+  document.querySelectorAll("[data-compare-range]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.compareRange === compareRange)));
+  document.querySelector('[data-compare-series="benchmark-sp500"]')?.toggleAttribute("hidden", !compareBenchmarkVisible);
+  compareChart.timeScale().fitContent();
+  updateCompareLegend();
+  updateCompareChartSummary();
+}
+
+function disposeCompareChart() {
+  compareChartRequest += 1;
+  compareChartResizeObserver?.disconnect();
+  compareChartResizeObserver = null;
+  if (compareChart && compareCrosshairHandler) compareChart.unsubscribeCrosshairMove(compareCrosshairHandler);
+  compareCrosshairHandler = null;
+  compareChart?.remove();
+  compareChart = null;
+  compareChartData = null;
+  compareSeries.clear();
+  compareRangeData.clear();
+}
+
+function setCompareChartStatus(message, { error = false, hidden = false } = {}) {
+  const status = el("compareChartStatus");
+  status.hidden = hidden;
+  status.classList.toggle("error", error);
+  if (message) status.querySelector("p").textContent = message;
+}
+
+function initializeCompareChart(library, data) {
+  disposeCompareChart();
+  compareChartData = data;
+  const container = el("compareChart");
+  compareChart = library.createChart(container, {
+    width: Math.max(720, container.clientWidth),
+    height: 315,
+    layout: { background: { type: library.ColorType.Solid, color: "#ffffff" }, textColor: "#747474", fontFamily: "Arial, Helvetica, sans-serif", fontSize: 10, attributionLogo: false },
+    grid: { vertLines: { color: "#f1f1ef" }, horzLines: { color: "#ececea" } },
+    rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.15, bottom: 0.12 } },
+    timeScale: { borderColor: "#ddddda", rightOffset: 0, fixLeftEdge: true, fixRightEdge: true, timeVisible: false, secondsVisible: false },
+    crosshair: { mode: library.CrosshairMode.Normal, vertLine: { color: "#8c8c88", width: 1, labelBackgroundColor: "#171717" }, horzLine: { color: "#b8b8b4", width: 1, labelBackgroundColor: "#171717" } },
+    localization: { priceFormatter: (value) => formatChartReturn(value) },
+    handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+    handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+  });
+
+  data.series.forEach((item, index) => {
+    const series = compareChart.addSeries(library.LineSeries, { color: COMPARE_COLORS[index], lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 3 });
+    compareSeries.set(item.id, { item, series });
+  });
+  const benchmark = compareChart.addSeries(library.LineSeries, { color: "#343434", lineWidth: 2, lineStyle: library.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 3, visible: compareBenchmarkVisible });
+  compareSeries.set(data.benchmark.id, { item: data.benchmark, series: benchmark });
+  compareCrosshairHandler = (parameter) => updateCompareLegend(parameter.time ? parameter.seriesData : null, parameter.time);
+  compareChart.subscribeCrosshairMove(compareCrosshairHandler);
+  compareChartResizeObserver = new ResizeObserver(([entry]) => compareChart?.resize(Math.max(720, Math.round(entry.contentRect.width)), 315));
+  compareChartResizeObserver.observe(container);
+  drawCompareRange();
+}
+
+async function loadComparisonChart(items) {
+  const request = ++compareChartRequest;
+  setCompareChartStatus("Preparing performance history…");
+  try {
+    const [library, data] = await Promise.all([loadCompareChartLibrary(), fetchComparisonHistory(items)]);
+    if (request !== compareChartRequest || !el("compareModal").open) return;
+    initializeCompareChart(library, data);
+    setCompareChartStatus("", { hidden: true });
+  } catch (error) {
+    if (request !== compareChartRequest) return;
+    setCompareChartStatus(`${error.message}. The comparison table remains available below.`, { error: true });
+  }
+}
+
+function renderCompareLegend(items) {
+  const itemHtml = items.map((item, index) => `<button type="button" class="compare-legend-item" data-compare-series="${escapeHtml(item.id)}" aria-pressed="${!compareHiddenSeries.has(item.id)}" style="--series-color:${COMPARE_COLORS[index]}"><span class="compare-series-swatch" aria-hidden="true"></span><span class="compare-series-copy"><strong>${escapeHtml(item.symbol)}</strong><small>${escapeHtml(item.name)}</small></span><output class="compare-series-value" data-compare-series-value="${escapeHtml(item.id)}">—</output></button>`).join("");
+  const benchmarkHtml = `<button type="button" class="compare-legend-item" data-compare-series="benchmark-sp500" aria-pressed="true" style="--series-color:#343434" ${compareBenchmarkVisible ? "" : "hidden"}><span class="compare-series-swatch" aria-hidden="true"></span><span class="compare-series-copy"><strong>S&amp;P 500</strong><small>Broad US equity benchmark</small></span><output class="compare-series-value" data-compare-series-value="benchmark-sp500">—</output></button>`;
+  el("compareLegend").innerHTML = `${itemHtml}${benchmarkHtml}`;
+}
+
 function renderCompareModal() {
   const items = [...state.compare.values()];
   if (!items.length) { showToast("Select at least one investment to compare"); return; }
+  const itemIds = new Set(items.map((item) => item.id));
+  compareHiddenSeries = new Set([...compareHiddenSeries].filter((id) => itemIds.has(id)));
   const rows = [
     ["Vehicle", (item) => item.type], ["Manager / issuer", (item) => item.manager], ["Asset class", (item) => item.assetClass],
     ["Objective", (item) => item.objective], ["Minimum", (item) => formatMinimum(item.minimum)],
     ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk], ["1-year return", (item) => formatReturn(item.perf1)],
     ["3-year return", (item) => formatReturn(item.perf3)], ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
   ];
+  renderCompareLegend(items);
+  el("compareBenchmark").checked = compareBenchmarkVisible;
+  document.querySelectorAll("[data-compare-range]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.compareRange === compareRange)));
   el("compareTableWrap").innerHTML = `<table class="compare-table"><thead><tr><th></th>${items.map((item) => `<th>${escapeHtml(item.name)}<small>${escapeHtml(item.symbol)}</small></th>`).join("")}</tr></thead><tbody>${rows.map(([label, getter]) => `<tr><th>${label}</th>${items.map((item) => `<td>${escapeHtml(getter(item))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  el("compareScroll").scrollTop = 0;
   el("compareModal").showModal();
+  requestAnimationFrame(() => loadComparisonChart(items));
 }
 
 function renderSavedScreens() {
@@ -571,6 +754,15 @@ function hydrateFromUrl() {
 }
 
 document.addEventListener("click", (event) => {
+  const range = event.target.closest("[data-compare-range]");
+  if (range && COMPARE_RANGE_OPTIONS.has(range.dataset.compareRange)) { compareRange = range.dataset.compareRange; drawCompareRange(); }
+  const chartSeries = event.target.closest("[data-compare-series]");
+  if (chartSeries && chartSeries.dataset.compareSeries !== "benchmark-sp500") {
+    const id = chartSeries.dataset.compareSeries;
+    if (compareHiddenSeries.has(id)) compareHiddenSeries.delete(id); else compareHiddenSeries.add(id);
+    chartSeries.setAttribute("aria-pressed", String(!compareHiddenSeries.has(id)));
+    drawCompareRange();
+  }
   const category = event.target.closest("[data-category]");
   if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; runSearch(); }
   const screen = event.target.closest("[data-screen]");
@@ -631,6 +823,7 @@ document.addEventListener("focusin", (event) => scheduleDetailPrefetch(event.tar
 
 document.addEventListener("change", (event) => {
   const target = event.target;
+  if (target.matches("#compareBenchmark")) { compareBenchmarkVisible = target.checked; drawCompareRange(); }
   if (target.matches('[data-filter="flag"]')) { target.checked ? state.flags.add(target.value) : state.flags.delete(target.value); runSearch(); }
   if (target.matches('[data-filter="risk"]')) { target.checked ? state.risks.add(target.value) : state.risks.delete(target.value); runSearch(); }
   if (target.matches('[data-filter="status"]')) { target.checked ? state.statuses.add(target.value) : state.statuses.delete(target.value); runSearch(); }
@@ -665,6 +858,7 @@ el("prevPage").addEventListener("click", () => { if (state.previousCursor !== nu
 el("nextPage").addEventListener("click", () => { if (state.nextCursor !== null) { state.cursor = state.nextCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("compareButton").addEventListener("click", renderCompareModal);
 el("compareTopButton").addEventListener("click", renderCompareModal);
+el("compareModal").addEventListener("close", disposeCompareChart);
 el("clearCompare").addEventListener("click", () => { state.compare.clear(); renderCompareTray(); renderResults(); });
 el("saveScreenButton").addEventListener("click", () => { el("saveName").value = state.q ? state.q.slice(0, 60) : `${state.category} screen`; el("saveModal").showModal(); });
 el("saveForm").addEventListener("submit", (event) => { event.preventDefault(); saveCurrentScreen(el("saveName").value.trim()); el("saveModal").close(); });
