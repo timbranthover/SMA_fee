@@ -444,6 +444,11 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .compare-legend-item { --series-color: #111; min-width: 0; height: 47px; display: grid; grid-template-columns: 13px minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 0; background: #fff; padding: 7px 10px; text-align: left; }
 .compare-legend-item:hover { background: #fafaf8; }
 .compare-legend-item[aria-pressed="false"] { opacity: .48; }
+.compare-legend-item.series-color-0 { --series-color: #b51f35; }
+.compare-legend-item.series-color-1 { --series-color: #246a58; }
+.compare-legend-item.series-color-2 { --series-color: #315f8f; }
+.compare-legend-item.series-color-3 { --series-color: #9b7629; }
+.compare-legend-item.series-benchmark { --series-color: #343434; }
 .compare-series-swatch { width: 13px; height: 4px; border-radius: 1px; background-color: var(--series-color); }
 .compare-legend-item[data-compare-series="benchmark-sp500"] .compare-series-swatch { height: 0; border-top: 2px dashed var(--series-color); background: transparent; }
 .compare-series-copy { min-width: 0; }

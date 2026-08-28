@@ -80,7 +80,9 @@ test("comparison chart stays lazy, local and additive to the decision table", as
   assert.match(app, /\/api\/history\?ids=/);
   assert.match(app, /Rebased|normalizeComparisonPoints/);
   assert.match(css, /\.compare-chart-stage \{ height: 315px/);
-  assert.match(app, /class="compare-series-swatch"[^>]+background-color:\$\{COMPARE_COLORS\[index\]\}/);
+  assert.match(app, /class="compare-legend-item series-color-\$\{index\}"/);
+  assert.match(css, /series-color-0 \{ --series-color: #b51f35; \}/);
+  assert.match(css, /series-color-1 \{ --series-color: #246a58; \}/);
   assert.match(css, /benchmark-sp500[^\n]+border-top: 2px dashed var\(--series-color\)/);
   assert.match(build, /lightweight-charts\.standalone\.production\.mjs/);
 });
