@@ -1,6 +1,7 @@
-import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, SORTS, STATUSES } from "/lib/shared-config.js";
+import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, STATUSES } from "/lib/shared-config.js";
 import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
+import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -17,7 +18,8 @@ const state = {
   statuses: new Set(),
   maxMinimum: undefined,
   maxFee: undefined,
-  sort: "relevance",
+  sort: "name-asc",
+  sortExplicit: false,
   cursor: 0,
   previousCursor: null,
   nextCursor: null,
@@ -73,7 +75,28 @@ function saveColumnPreferences() {
 }
 
 function selectedColumns(category = state.appliedCategory) {
+  if (state.pendingColumns?.category === category) return normalizeColumns(category, state.pendingColumns.columns);
   return normalizeColumns(category, state.columnPreferences[category] || CATEGORY_DEFAULT_COLUMNS[category]);
+}
+
+function activeSortOptions(category = state.appliedCategory) {
+  return sortOptions(category, selectedColumns(category), Boolean(state.q));
+}
+
+function normalizeActiveSort(category = state.appliedCategory) {
+  if (!state.sortExplicit) state.sort = defaultSort(Boolean(state.q));
+  const options = activeSortOptions(category);
+  if (!options.some(({ value }) => value === state.sort)) {
+    state.sort = defaultSort(Boolean(state.q));
+    state.sortExplicit = false;
+  }
+  return options;
+}
+
+function renderSortControl(category = state.appliedCategory) {
+  const options = normalizeActiveSort(category);
+  updateHtml(el("sortSelect"), options.map(({ value, label }) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join(""));
+  el("sortSelect").value = state.sort;
 }
 
 function setColumnsForCategory(category, columns, { persist = true } = {}) {
@@ -215,7 +238,14 @@ function renderMarketHeaders() {
   const columns = selectedColumns();
   el("resultsTable").style.setProperty("--result-columns", String(columns.length));
   el("columnsButton").textContent = `▦ Columns · ${columns.length}/${MAX_RESULT_COLUMNS}`;
-  updateHtml(el("resultsHeader"), `<th class="check-cell"><span class="sr-only">Compare</span></th><th class="col-investment">Investment</th>${columns.map((column) => `<th class="result-data-column col-${escapeHtml(column)}">${escapeHtml(columnLabel(state.appliedCategory, column))}</th>`).join("")}<th class="action-cell"><span class="sr-only">Actions</span></th>`);
+  const sortableHeader = (column, label, className = "") => {
+    const config = headerSort(state.appliedCategory, column, state.sort);
+    if (!config) return `<th class="${className}">${escapeHtml(label)}</th>`;
+    const ariaSort = config.active ? (config.direction === "asc" ? "ascending" : "descending") : "none";
+    const indicator = config.active ? (config.direction === "asc" ? "↑" : "↓") : "↕";
+    return `<th class="${className} sortable-column ${config.active ? "active-sort" : ""}" aria-sort="${ariaSort}"><button type="button" data-sort-header="${escapeHtml(config.nextSort)}" title="Sort by ${escapeHtml(label)}">${escapeHtml(label)}<span aria-hidden="true">${indicator}</span></button></th>`;
+  };
+  updateHtml(el("resultsHeader"), `<th class="check-cell"><span class="sr-only">Compare</span></th>${sortableHeader("investment", "Investment", "col-investment")}${columns.map((column) => sortableHeader(column, columnLabel(state.appliedCategory, column), `result-data-column col-${escapeHtml(column)}`)).join("")}<th class="action-cell"><span class="sr-only">Actions</span></th>`);
 }
 
 function marketMetric(metric) {
@@ -320,9 +350,12 @@ function openColumnConfigurator() {
 
 function applyColumnDraft() {
   setColumnsForCategory(state.appliedCategory, columnDraft);
-  renderResults();
-  syncUrl();
   el("columnsModal").close();
+  const previousSort = state.sort;
+  normalizeActiveSort();
+  renderSortControl();
+  if (state.sort !== previousSort) runSearch();
+  else { renderResults(); syncUrl(); }
   showToast(`${columnDraft.length} columns applied to ${state.appliedCategory === "All" ? "all investments" : state.appliedCategory}`);
 }
 
@@ -387,7 +420,7 @@ function syncUrl() {
   if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
   if (Number.isFinite(state.maxMinimum)) params.set("maxMinimum", String(state.maxMinimum));
   if (Number.isFinite(state.maxFee)) params.set("maxFee", String(state.maxFee));
-  if (state.sort !== "relevance") params.set("sort", state.sort);
+  if (state.sortExplicit || state.sort !== defaultSort(Boolean(state.q))) params.set("sort", state.sort);
   const columns = selectedColumns();
   const defaults = CATEGORY_DEFAULT_COLUMNS[state.appliedCategory] || CATEGORY_DEFAULT_COLUMNS.All;
   if (!columnsEqual(columns, defaults)) {
@@ -399,6 +432,8 @@ function syncUrl() {
 
 async function runSearch({ preserveCursor = false } = {}) {
   if (!preserveCursor) state.cursor = 0;
+  normalizeActiveSort(state.category);
+  renderSortControl(state.category);
   state.controller?.abort();
   state.snapshotController?.abort();
   const controller = new AbortController();
@@ -431,6 +466,8 @@ async function runSearch({ preserveCursor = false } = {}) {
       setColumnsForCategory(state.appliedCategory, state.pendingColumns.columns, { persist: false });
       state.pendingColumns = null;
     }
+    normalizeActiveSort(state.appliedCategory);
+    renderSortControl(state.appliedCategory);
     const roundTripMs = Math.max(1, Math.round(performance.now() - requestStarted));
     el("latency").textContent = `${roundTripMs} ms`;
     el("latency").title = `Browser round trip; server search ${data.tookMs} ms`;
@@ -866,6 +903,8 @@ function applySavedScreen(id) {
   state.statuses = new Set(screen.state.statuses || []);
   state.maxMinimum = screen.state.maxMinimum;
   state.maxFee = screen.state.maxFee;
+  state.sort = SORTS.includes(screen.state.sort) && isSortAllowed(screen.state.sort, state.category, Boolean(state.q)) ? screen.state.sort : defaultSort(Boolean(state.q));
+  state.sortExplicit = Boolean(screen.state.sort && state.sort === screen.state.sort);
   state.pendingColumns = Array.isArray(screen.state.columns) ? { category: screen.state.columnCategory || screen.state.category || "All", columns: screen.state.columns } : null;
   el("searchInput").value = state.q;
   el("maxMinimum").value = state.maxMinimum ?? "";
@@ -880,7 +919,7 @@ function saveCurrentScreen(name) {
     id: `screen-${Date.now()}`,
     name,
     subtitle: `${state.category}${state.flags.size ? ` · ${[...state.flags].join(" · ")}` : ""}`,
-    state: { category: state.category, q: state.q, flags: [...state.flags], risks: [...state.risks], statuses: [...state.statuses], maxMinimum: state.maxMinimum, maxFee: state.maxFee, columns: selectedColumns(), columnCategory: state.appliedCategory },
+    state: { category: state.category, q: state.q, flags: [...state.flags], risks: [...state.risks], statuses: [...state.statuses], maxMinimum: state.maxMinimum, maxFee: state.maxFee, sort: state.sort, columns: selectedColumns(), columnCategory: state.appliedCategory },
   });
   setSavedScreens(screens);
   showToast(`Saved “${name}”`);
@@ -899,8 +938,9 @@ function hydrateFromUrl() {
   const maxFee = Number(params.get("maxFee"));
   state.maxMinimum = params.has("maxMinimum") && Number.isFinite(maxMinimum) && maxMinimum >= 0 ? maxMinimum : undefined;
   state.maxFee = params.has("maxFee") && Number.isFinite(maxFee) && maxFee >= 0 && maxFee <= 10 ? maxFee : undefined;
-  const sort = params.get("sort") || "relevance";
-  state.sort = SORTS.includes(sort) ? sort : "relevance";
+  const sort = params.get("sort");
+  state.sort = sort && SORTS.includes(sort) && isSortAllowed(sort, state.category, Boolean(state.q)) ? sort : defaultSort(Boolean(state.q));
+  state.sortExplicit = Boolean(sort && state.sort === sort);
   if (params.has("columns")) {
     const columnCategory = params.get("columnCategory") || state.category;
     const safeColumnCategory = CATEGORY_ORDER.includes(columnCategory) ? columnCategory : state.category;
@@ -909,10 +949,17 @@ function hydrateFromUrl() {
   el("searchInput").value = state.q;
   el("maxMinimum").value = state.maxMinimum ?? "";
   el("maxFee").value = state.maxFee ?? "";
-  el("sortSelect").value = state.sort;
+  renderSortControl(state.category);
 }
 
 document.addEventListener("click", (event) => {
+  const sortHeader = event.target.closest("[data-sort-header]");
+  if (sortHeader) {
+    state.sort = sortHeader.dataset.sortHeader;
+    state.sortExplicit = true;
+    renderSortControl();
+    runSearch();
+  }
   const columnPreset = event.target.closest("[data-column-preset]");
   if (columnPreset) {
     columnDraft = [...(CATEGORY_COLUMN_PRESETS[state.appliedCategory]?.[columnPreset.dataset.columnPreset] || CATEGORY_DEFAULT_COLUMNS[state.appliedCategory])];
@@ -940,7 +987,7 @@ document.addEventListener("click", (event) => {
     drawCompareRange();
   }
   const category = event.target.closest("[data-category]");
-  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; runSearch(); }
+  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; normalizeActiveSort(); runSearch(); }
   const screen = event.target.closest("[data-screen]");
   if (screen) applyQuickScreen(screen.dataset.screen);
   const detail = event.target.closest("[data-detail-id]");
@@ -1029,15 +1076,21 @@ el("searchInput").addEventListener("input", () => {
   if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
   debouncedSearch();
 });
-el("sortSelect").addEventListener("change", (event) => { state.sort = event.target.value; runSearch(); });
+el("sortSelect").addEventListener("change", (event) => { state.sort = event.target.value; state.sortExplicit = true; runSearch(); });
 el("maxMinimum").addEventListener("change", (event) => { state.maxMinimum = event.target.value === "" ? undefined : Number(event.target.value); runSearch(); });
 el("maxFee").addEventListener("change", (event) => { state.maxFee = event.target.value === "" ? undefined : Number(event.target.value); runSearch(); });
-el("clearAll").addEventListener("click", () => { state.q = ""; state.category = "All"; state.flags.clear(); state.risks.clear(); state.statuses.clear(); state.maxMinimum = undefined; state.maxFee = undefined; el("searchInput").value = ""; el("maxMinimum").value = ""; el("maxFee").value = ""; runSearch(); });
+el("clearAll").addEventListener("click", () => { state.q = ""; state.category = "All"; state.appliedCategory = "All"; state.flags.clear(); state.risks.clear(); state.statuses.clear(); state.maxMinimum = undefined; state.maxFee = undefined; state.sort = defaultSort(false); state.sortExplicit = false; el("searchInput").value = ""; el("maxMinimum").value = ""; el("maxFee").value = ""; runSearch(); });
 el("prevPage").addEventListener("click", () => { if (state.previousCursor !== null) { state.cursor = state.previousCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("nextPage").addEventListener("click", () => { if (state.nextCursor !== null) { state.cursor = state.nextCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("compareButton").addEventListener("click", renderCompareModal);
 el("compareTopButton").addEventListener("click", renderCompareModal);
 el("compareModal").addEventListener("close", disposeCompareChart);
+el("compareModal").addEventListener("pointerdown", (event) => {
+  const dialog = el("compareModal");
+  const bounds = dialog.getBoundingClientRect();
+  const outside = event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom;
+  if (event.target === dialog && outside) dialog.close();
+});
 el("clearCompare").addEventListener("click", () => { state.compare.clear(); renderCompareTray(); renderResults(); });
 el("saveScreenButton").addEventListener("click", () => { el("saveName").value = state.q ? state.q.slice(0, 60) : `${state.category} screen`; el("saveModal").showModal(); });
 el("saveForm").addEventListener("submit", (event) => { event.preventDefault(); saveCurrentScreen(el("saveName").value.trim()); el("saveModal").close(); });

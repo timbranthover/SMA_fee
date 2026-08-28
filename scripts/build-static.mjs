@@ -15,7 +15,7 @@ await Promise.all(
 
 await mkdir(new URL("lib/", outputDirectory), { recursive: true });
 await Promise.all(
-  ["shared-config.js", "brand-logos.js", "column-config.js"].map((file) =>
+  ["shared-config.js", "brand-logos.js", "column-config.js", "sort-config.js"].map((file) =>
     cp(new URL(`lib/${file}`, projectRoot), new URL(`lib/${file}`, outputDirectory)),
   ),
 );

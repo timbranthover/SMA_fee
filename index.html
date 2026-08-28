@@ -11,6 +11,7 @@
     <link rel="modulepreload" href="/lib/shared-config.js" />
     <link rel="modulepreload" href="/lib/brand-logos.js" />
     <link rel="modulepreload" href="/lib/column-config.js" />
+    <link rel="modulepreload" href="/lib/sort-config.js" />
   </head>
   <body>
     <header class="global-header">
@@ -125,12 +126,7 @@
               <button class="text-icon-button" id="saveScreenButton">☆ Save screen</button>
               <button class="text-icon-button" id="columnsButton">▦ Columns · 4/5</button>
               <label class="sort-control">Sort
-                <select id="sortSelect">
-                  <option value="relevance">Relevance</option>
-                  <option value="fee">Lowest fee</option>
-                  <option value="performance">3-year return</option>
-                  <option value="minimum">Lowest minimum</option>
-                </select>
+                <select id="sortSelect" aria-label="Sort results"></select>
               </label>
             </div>
           </div>

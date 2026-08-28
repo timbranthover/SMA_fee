@@ -14,6 +14,8 @@ try {
   assert.equal(await page.title(), "Investment Screener");
   assert.equal(await page.locator("#resultsBody tr[data-row-id]").count(), 25);
   assert.match(await page.locator("body").innerText(), /130,428/);
+  assert.equal(await page.locator("#sortSelect").inputValue(), "name-asc");
+  assert.equal(await page.locator("#resultsHeader .col-investment").getAttribute("aria-sort"), "ascending");
   assert.match(await page.locator(".brand-mark").innerText(), /UPS/);
   const logoState = await page.locator(".product-logo").evaluateAll((logos) => logos.map((logo) => {
     const tile = logo.closest(".product-monogram").getBoundingClientRect();
@@ -64,8 +66,11 @@ try {
   const firstSeries = page.locator("[data-compare-series]").first();
   await firstSeries.click();
   assert.equal(await firstSeries.getAttribute("aria-pressed"), "false");
+  await page.locator("#compareTableWrap").click();
+  assert.equal(await page.locator("#compareModal").getAttribute("open"), "");
   await page.screenshot({ path: "/tmp/investment-screener-compare.png", fullPage: false });
-  await page.locator('[data-close-modal="compareModal"]').click();
+  await page.mouse.click(8, 80);
+  await page.waitForSelector("#compareModal:not([open])");
 
   await page.locator("#saveScreenButton").click();
   await page.locator("#saveName").fill("Moderate tax-aware SMA shortlist");

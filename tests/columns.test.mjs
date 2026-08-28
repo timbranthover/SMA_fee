@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, MAX_RESULT_COLUMNS, normalizeColumns } from "../lib/column-config.js";
+import { defaultSort, headerSort, sortOptions } from "../lib/sort-config.js";
 
 test("every category default and preset stays valid and within the five-column cap", () => {
   for (const [category, allowed] of Object.entries(CATEGORY_COLUMN_RULES)) {
@@ -25,4 +26,19 @@ test("normalization removes duplicates, rejects incompatible fields and caps noi
 test("empty or unknown layouts fail back to category defaults", () => {
   assert.deepEqual(normalizeColumns("SMAs", []), [...CATEGORY_DEFAULT_COLUMNS.SMAs]);
   assert.deepEqual(normalizeColumns("Crypto", ["custodyFee"]), [...CATEGORY_DEFAULT_COLUMNS.All]);
+});
+
+test("sort choices follow the active vehicle and visible columns", () => {
+  const equityOptions = sortOptions("Equities", ["primary", "forwardPE", "risk"], false);
+  assert.deepEqual(equityOptions.map(({ value }) => value), ["name-asc", "name-desc", "primary-desc", "primary-asc", "forwardPE-asc", "forwardPE-desc"]);
+  assert.equal(sortOptions("All", ["primary", "trend", "fee"], false).length, 2);
+  assert.equal(sortOptions("ETFs", ["expenseRatio"], true)[0].value, "relevance");
+  assert.equal(defaultSort(false), "name-asc");
+  assert.equal(defaultSort(true), "relevance");
+});
+
+test("sortable headers toggle direction without exposing incompatible fields", () => {
+  assert.equal(headerSort("Equities", "forwardPE", "name-asc").nextSort, "forwardPE-asc");
+  assert.equal(headerSort("Equities", "forwardPE", "forwardPE-asc").nextSort, "forwardPE-desc");
+  assert.equal(headerSort("Equities", "custodyFee", "name-asc"), null);
 });

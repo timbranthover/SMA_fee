@@ -6,7 +6,7 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 
 - A deterministic 130,428-record mock catalog exists in server memory.
 - Search uses exact ticker/CUSIP priority, field-weighted whole-word relevance, strict multi-term matching and a controlled name/manager typo fallback.
-- Combined filters, exact facets and global sorting run against the complete catalog; each text result explains why it matched.
+- Combined filters, exact facets and global sorting run against the complete catalog; sorting adapts to the active vehicle and visible quantitative columns, and each text result explains why it matched.
 - The initial shelf, unfiltered category pages and curated ticker/CUSIP/name lookups use exact precomputed paths; category-specific searches build only the relevant deterministic shard.
 - API responses are capped at 25 investments; the browser never downloads the universe.
 - Result columns adapt to the selected vehicle and add cached price/NAV, trend and decision metrics in one post-render batch rather than per-row requests. Users can choose, order and persist up to five valid fields or apply a vehicle-specific Research, Performance, Income, Risk, or Cost preset; incompatible fields are excluded by configuration.

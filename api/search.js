@@ -21,7 +21,7 @@ export function inputFromQuery(query = {}) {
     maxMinimum: numericParam(query.maxMinimum),
     maxFee: numericParam(query.maxFee),
     location: query.location ? String(query.location) : undefined,
-    sort: String(query.sort || "relevance"),
+    sort: query.sort ? String(query.sort) : undefined,
     cursor: numericParam(query.cursor) ?? 0,
     pageSize: numericParam(query.pageSize) ?? 25,
   };

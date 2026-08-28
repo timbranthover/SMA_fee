@@ -160,6 +160,14 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .results-table th.col-primary { width: 126px; }
 .results-table th.col-trend { width: 112px; }
 .results-table th:last-child { width: 42px; }
+.results-table th.sortable-column { padding: 0; }
+.sort-header-button,
+.results-table th.sortable-column > button { width: 100%; height: 38px; display: flex; align-items: center; gap: 5px; padding: 0 6px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+.results-table th.sortable-column > button:hover { color: #111; background: #f4f4f1; }
+.results-table th.sortable-column > button:focus-visible { outline: 2px solid #111; outline-offset: -2px; }
+.results-table th.sortable-column > button span { color: #aaa; font-size: 10px; line-height: 1; }
+.results-table th.sortable-column.active-sort > button { color: #111; }
+.results-table th.sortable-column.active-sort > button span { color: var(--red); }
 .results-table td { height: 69px; border-bottom: 1px solid var(--line-soft); font-size: 11px; padding: 8px 6px; vertical-align: middle; }
 .results-table tr { transition: background .12s; }
 .results-table tbody tr:hover { background: #fbfbf9; }

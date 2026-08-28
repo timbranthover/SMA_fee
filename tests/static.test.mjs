@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { BRAND_LOGOS } from "../lib/brand-logos.js";
 
-const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js", "lib/column-config.js"];
+const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js", "lib/column-config.js", "lib/sort-config.js"];
 
 test("public source is masked and contains no client-context remnants", async () => {
   const source = (await Promise.all(files.map((file) => readFile(new URL(`../${file}`, import.meta.url), "utf8")))).join("\n");
@@ -111,6 +111,28 @@ test("results table uses capped, vehicle-aware configurable columns", async () =
   assert.doesNotMatch(css, /\.compact-columns/);
   assert.match(css, /\.column-config-grid/);
   assert.match(build, /"column-config\.js"/);
+});
+
+test("sorting is adaptive, column-aware and shareable", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const config = await readFile(new URL("../lib/sort-config.js", import.meta.url), "utf8");
+  const build = await readFile(new URL("../scripts/build-static.mjs", import.meta.url), "utf8");
+  assert.match(html, /id="sortSelect"[^>]+aria-label="Sort results"/);
+  assert.match(app, /data-sort-header/);
+  assert.match(app, /sort: state\.sort/);
+  assert.match(app, /params\.set\("sort", state\.sort\)/);
+  assert.match(config, /yieldToWorst/);
+  assert.match(config, /defaultSort/);
+  assert.match(build, /"sort-config\.js"/);
+});
+
+test("compare closes from its backdrop while preserving explicit controls", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(app, /compareModal"\)\.addEventListener\("pointerdown"/);
+  assert.match(app, /event\.target === dialog && outside/);
+  assert.match(html, /data-close-modal="compareModal"/);
 });
 
 test("every allowlisted brand mark is local, unique and present", async () => {

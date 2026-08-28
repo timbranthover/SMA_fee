@@ -154,10 +154,28 @@ test("CIO Select spans mutual funds, ETFs and SMAs only", () => {
 });
 
 test("sorting is global across pagination boundaries", () => {
-  const first = searchCatalog({ category: "ETFs", sort: "fee" });
-  const second = searchCatalog({ category: "ETFs", sort: "fee", cursor: first.nextCursor });
+  const first = searchCatalog({ category: "ETFs", sort: "expenseRatio-asc" });
+  const second = searchCatalog({ category: "ETFs", sort: "expenseRatio-asc", cursor: first.nextCursor });
   assert.ok((first.items.at(-1).fee ?? Infinity) <= (second.items[0].fee ?? Infinity));
   assert.equal(second.previousCursor, 0);
+});
+
+test("default shelf order is neutral and category sorts match displayed metrics", () => {
+  const shelf = searchCatalog({});
+  const shelfNames = shelf.items.map((item) => item.name);
+  assert.deepEqual(shelfNames, [...shelfNames].sort((left, right) => left.localeCompare(right, "en", { sensitivity: "base", numeric: true })));
+
+  const bonds = searchCatalog({ category: "Fixed Income", sort: "yieldToWorst-desc" });
+  const snapshots = getMarketSnapshots(bonds.items.map((item) => item.id));
+  const yields = bonds.items.map((item) => Number.parseFloat(snapshots[item.id].metrics.yieldToWorst.value));
+  assert.ok(yields.every((value, index) => index === 0 || yields[index - 1] >= value));
+});
+
+test("sort fields fail closed when they do not apply to the active vehicle", () => {
+  assert.throws(() => searchCatalog({ category: "Equities", sort: "expenseRatio-asc" }), /not available/);
+  assert.throws(() => searchCatalog({ category: "All", sort: "yieldToWorst-desc" }), /not available/);
+  assert.throws(() => searchCatalog({ sort: "relevance" }), /not available/);
+  assert.doesNotThrow(() => searchCatalog({ q: "Apple", sort: "relevance" }));
 });
 
 test("natural language becomes approved structured criteria", () => {
