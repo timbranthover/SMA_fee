@@ -1,5 +1,6 @@
 import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, SORTS, STATUSES } from "/lib/shared-config.js";
 import { brandLogo } from "/lib/brand-logos.js";
+import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -34,6 +35,8 @@ const state = {
   detailMode: null,
   detailHistoryPushed: false,
   prefetchTimer: null,
+  columnPreferences: {},
+  pendingColumns: null,
 };
 
 let compareChart = null;
@@ -48,6 +51,7 @@ let compareHiddenSeries = new Set();
 const compareSeries = new Map();
 const compareRangeData = new Map();
 const compareHistoryCache = new Map();
+let columnDraft = [];
 
 const elementCache = new Map();
 const el = (id) => {
@@ -55,6 +59,27 @@ const el = (id) => {
   return elementCache.get(id);
 };
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+
+function loadColumnPreferences() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("investment-screener-columns-v1"));
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+    return Object.fromEntries(CATEGORY_ORDER.map((category) => [category, normalizeColumns(category, stored[category])]).filter(([category]) => Array.isArray(stored[category])));
+  } catch { return {}; }
+}
+
+function saveColumnPreferences() {
+  localStorage.setItem("investment-screener-columns-v1", JSON.stringify(state.columnPreferences));
+}
+
+function selectedColumns(category = state.appliedCategory) {
+  return normalizeColumns(category, state.columnPreferences[category] || CATEGORY_DEFAULT_COLUMNS[category]);
+}
+
+function setColumnsForCategory(category, columns, { persist = true } = {}) {
+  state.columnPreferences[category] = normalizeColumns(category, columns);
+  if (persist) saveColumnPreferences();
+}
 
 function updateHtml(element, html) {
   if (element.__renderedHtml === html) return;
@@ -186,25 +211,11 @@ function visibleFlags(flags) {
   return [...selected, ...flags.filter((flag) => !selected.includes(flag))].slice(0, Math.max(2, selected.length));
 }
 
-const MARKET_HEADERS = {
-  All: ["Market / value", "Trend", "Key measure", "Cost / terms"],
-  Equities: ["Price", "1Y trend", "Forward P/E", "Dividend yield"],
-  "Mutual Funds": ["NAV", "1Y trend", "SEC yield", "Expense ratio"],
-  ETFs: ["Price", "1Y trend", "SEC yield", "Expense ratio"],
-  SMAs: ["3Y return", "1Y trend", "Minimum", "Manager fee"],
-  "Fixed Income": ["Price", "1Y trend", "Yield to worst", "Rating"],
-  Alternatives: ["Reported NAV", "1Y trend", "3Y return", "Liquidity"],
-  Structured: ["Indicative value", "Since issue", "Coupon", "Term"],
-  "Managed Options": ["3Y return", "1Y trend", "Minimum", "Annual fee"],
-  Annuities: ["Crediting rate", "Growth", "Guarantee", "Annual fee"],
-  "Precious Metals": ["Reference price", "1Y trend", "1Y return", "Custody fee"],
-};
-
 function renderMarketHeaders() {
-  const headers = MARKET_HEADERS[state.appliedCategory] || MARKET_HEADERS.All;
-  ["marketHeaderPrimary", "marketHeaderTrend", "marketHeaderKeyA", "marketHeaderKeyB"].forEach((id, index) => {
-    el(id).textContent = headers[index];
-  });
+  const columns = selectedColumns();
+  el("resultsTable").style.setProperty("--result-columns", String(columns.length));
+  el("columnsButton").textContent = `▦ Columns · ${columns.length}/${MAX_RESULT_COLUMNS}`;
+  updateHtml(el("resultsHeader"), `<th class="check-cell"><span class="sr-only">Compare</span></th><th class="col-investment">Investment</th>${columns.map((column) => `<th class="result-data-column col-${escapeHtml(column)}">${escapeHtml(columnLabel(state.appliedCategory, column))}</th>`).join("")}<th class="action-cell"><span class="sr-only">Actions</span></th>`);
 }
 
 function marketMetric(metric) {
@@ -235,26 +246,84 @@ function marketSnapshotPlaceholder() {
   return `<span class="snapshot-placeholder" aria-label="Loading market snapshot"><i></i><i></i></span>`;
 }
 
+const SNAPSHOT_COLUMNS = new Set(["primary", "trend", "featuredDecision", "featuredImplementation", "forwardPE", "dividendYield", "secYield", "expenseRatio", "managerFee", "yieldToWorst", "creditRating", "reportedReturn3Y", "reportedLiquidity", "contingentCoupon", "term", "annualFee", "guaranteePeriod", "return1Y", "custodyFee"]);
+
+function snapshotMetric(snapshot, column) {
+  if (!snapshot) return null;
+  if (column === "featuredDecision") return snapshot.metrics?.[snapshot.featured?.[0]];
+  if (column === "featuredImplementation") return snapshot.metrics?.[snapshot.featured?.[1]];
+  return snapshot.metrics?.[column];
+}
+
+function renderResultColumn(item, column) {
+  const snapshot = item.marketSnapshot;
+  if (column === "primary") return snapshot ? marketPrimary(snapshot) : marketSnapshotPlaceholder();
+  if (column === "trend") return snapshot ? marketSparkline(snapshot.trend) : marketSnapshotPlaceholder();
+  if (SNAPSHOT_COLUMNS.has(column)) return snapshot ? marketMetric(snapshotMetric(snapshot, column) || { value: "—", label: columnLabel(item.category, column) }) : marketSnapshotPlaceholder();
+  if (column === "minimum") return marketMetric({ value: formatMinimum(item.minimum), label: "Opening" });
+  if (column === "fee") return marketMetric({ value: formatFee(item.fee), label: "Annual" });
+  if (column === "risk") return marketMetric({ value: item.risk, label: "Risk level" });
+  if (column === "perf1") return marketMetric({ value: formatReturn(item.perf1), label: "Annualized" });
+  if (column === "perf3") return marketMetric({ value: formatReturn(item.perf3), label: "Annualized" });
+  if (column === "liquidity") return marketMetric({ value: item.liquidity || "—", label: "Terms" });
+  if (column === "assetClass") return marketMetric({ value: item.assetClass || "—", label: "Classification" });
+  return marketMetric({ value: "—", label: columnLabel(item.category, column) });
+}
+
+function resultColspan() { return selectedColumns().length + 3; }
+
 function renderResults() {
   const body = el("resultsBody");
   renderMarketHeaders();
   if (!state.items.length) {
-    body.innerHTML = `<tr><td colspan="7" class="empty-state"><strong>No investments match this screen</strong>Remove one or more filters, or search the full shelf.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="${resultColspan()}" class="empty-state"><strong>No investments match this screen</strong>Remove one or more filters, or search the full shelf.</td></tr>`;
     return;
   }
+  const columns = selectedColumns();
   body.innerHTML = state.items.map((item) => {
     const checked = state.compare.has(item.id);
-    const snapshot = item.marketSnapshot;
     return `<tr data-row-id="${escapeHtml(item.id)}">
       <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
       <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
-      <td class="col-primary market-primary">${snapshot ? marketPrimary(snapshot) : marketSnapshotPlaceholder()}</td>
-      <td class="col-trend">${snapshot ? marketSparkline(snapshot.trend) : marketSnapshotPlaceholder()}</td>
-      <td class="col-key-a">${snapshot ? marketMetric(snapshot.keyA) : marketSnapshotPlaceholder()}</td>
-      <td class="col-key-b">${snapshot ? marketMetric(snapshot.keyB) : marketSnapshotPlaceholder()}</td>
+      ${columns.map((column) => `<td class="result-data-column col-${escapeHtml(column)} ${column === "primary" ? "market-primary" : ""}">${renderResultColumn(item, column)}</td>`).join("")}
       <td class="action-cell"><a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a></td>
     </tr>`;
   }).join("");
+}
+
+function columnsEqual(left, right) {
+  return left.length === right.length && left.every((column, index) => column === right[index]);
+}
+
+function renderColumnConfigurator() {
+  const category = state.appliedCategory;
+  const allowed = CATEGORY_COLUMN_RULES[category] || CATEGORY_COLUMN_RULES.All;
+  const presets = CATEGORY_COLUMN_PRESETS[category] || CATEGORY_COLUMN_PRESETS.All;
+  columnDraft = normalizeColumns(category, columnDraft);
+  el("columnCategory").textContent = category === "All" ? "all investments" : category;
+  el("columnCount").textContent = `${columnDraft.length} of ${MAX_RESULT_COLUMNS}`;
+  el("columnCount").classList.toggle("at-limit", columnDraft.length === MAX_RESULT_COLUMNS);
+  updateHtml(el("columnPresets"), Object.entries(presets).map(([name, columns]) => `<button type="button" data-column-preset="${escapeHtml(name)}" aria-pressed="${columnsEqual(columnDraft, columns)}">${escapeHtml(name)}<small>${columns.length} columns</small></button>`).join(""));
+  updateHtml(el("selectedColumns"), columnDraft.map((column, index) => `<div class="selected-column-row" data-selected-column="${escapeHtml(column)}"><span class="column-order">${index + 1}</span><div><strong>${escapeHtml(columnLabel(category, column))}</strong><small>${escapeHtml(COLUMN_DEFINITIONS[column]?.group || "Field")}</small></div><div class="column-row-actions"><button type="button" data-column-move="up" data-column="${escapeHtml(column)}" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeHtml(columnLabel(category, column))} left">←</button><button type="button" data-column-move="down" data-column="${escapeHtml(column)}" ${index === columnDraft.length - 1 ? "disabled" : ""} aria-label="Move ${escapeHtml(columnLabel(category, column))} right">→</button><button type="button" data-column-remove="${escapeHtml(column)}" ${columnDraft.length === 1 ? "disabled" : ""} aria-label="Remove ${escapeHtml(columnLabel(category, column))}">×</button></div></div>`).join(""));
+  updateHtml(el("availableColumns"), allowed.map((column) => {
+    const checked = columnDraft.includes(column);
+    const disabled = !checked && columnDraft.length >= MAX_RESULT_COLUMNS;
+    return `<label class="available-column ${disabled ? "disabled" : ""}"><input type="checkbox" data-column-choice="${escapeHtml(column)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}/><span><strong>${escapeHtml(columnLabel(category, column))}</strong><small>${escapeHtml(COLUMN_DEFINITIONS[column]?.group || "Field")}</small></span></label>`;
+  }).join(""));
+}
+
+function openColumnConfigurator() {
+  columnDraft = [...selectedColumns()];
+  renderColumnConfigurator();
+  el("columnsModal").showModal();
+}
+
+function applyColumnDraft() {
+  setColumnsForCategory(state.appliedCategory, columnDraft);
+  renderResults();
+  syncUrl();
+  el("columnsModal").close();
+  showToast(`${columnDraft.length} columns applied to ${state.appliedCategory === "All" ? "all investments" : state.appliedCategory}`);
 }
 
 function updateHeader() {
@@ -319,6 +388,12 @@ function syncUrl() {
   if (Number.isFinite(state.maxMinimum)) params.set("maxMinimum", String(state.maxMinimum));
   if (Number.isFinite(state.maxFee)) params.set("maxFee", String(state.maxFee));
   if (state.sort !== "relevance") params.set("sort", state.sort);
+  const columns = selectedColumns();
+  const defaults = CATEGORY_DEFAULT_COLUMNS[state.appliedCategory] || CATEGORY_DEFAULT_COLUMNS.All;
+  if (!columnsEqual(columns, defaults)) {
+    params.set("columns", columns.join(","));
+    params.set("columnCategory", state.appliedCategory);
+  }
   if (!profileFromPath()) history.replaceState(null, "", params.size ? `/?${params}` : "/");
 }
 
@@ -352,6 +427,10 @@ async function runSearch({ preserveCursor = false } = {}) {
     state.previousCursor = data.previousCursor;
     state.facets = data.facets;
     state.appliedCategory = data.appliedCategory || state.category;
+    if (state.pendingColumns && state.pendingColumns.category === state.appliedCategory) {
+      setColumnsForCategory(state.appliedCategory, state.pendingColumns.columns, { persist: false });
+      state.pendingColumns = null;
+    }
     const roundTripMs = Math.max(1, Math.round(performance.now() - requestStarted));
     el("latency").textContent = `${roundTripMs} ms`;
     el("latency").title = `Browser round trip; server search ${data.tookMs} ms`;
@@ -370,7 +449,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     }
   } catch (error) {
     if (error.name !== "AbortError") {
-      el("resultsBody").innerHTML = `<tr><td colspan="7" class="empty-state"><strong>Search is temporarily unavailable</strong>${escapeHtml(error.message)}. Try again.</td></tr>`;
+      el("resultsBody").innerHTML = `<tr><td colspan="${resultColspan()}" class="empty-state"><strong>Search is temporarily unavailable</strong>${escapeHtml(error.message)}. Try again.</td></tr>`;
       el("latency").textContent = "Unavailable";
     } else if (controller === state.controller) {
       el("latency").textContent = previousLatency.text;
@@ -745,7 +824,7 @@ async function loadComparisonChart(items) {
 }
 
 function renderCompareLegend(items) {
-  const itemHtml = items.map((item, index) => `<button type="button" class="compare-legend-item" data-compare-series="${escapeHtml(item.id)}" aria-pressed="${!compareHiddenSeries.has(item.id)}" style="--series-color:${COMPARE_COLORS[index]}"><span class="compare-series-swatch" aria-hidden="true"></span><span class="compare-series-copy"><strong>${escapeHtml(item.symbol)}</strong><small>${escapeHtml(item.name)}</small></span><output class="compare-series-value" data-compare-series-value="${escapeHtml(item.id)}">—</output></button>`).join("");
+  const itemHtml = items.map((item, index) => `<button type="button" class="compare-legend-item" data-compare-series="${escapeHtml(item.id)}" aria-pressed="${!compareHiddenSeries.has(item.id)}" style="--series-color:${COMPARE_COLORS[index]}"><span class="compare-series-swatch" aria-hidden="true" style="background-color:${COMPARE_COLORS[index]}"></span><span class="compare-series-copy"><strong>${escapeHtml(item.symbol)}</strong><small>${escapeHtml(item.name)}</small></span><output class="compare-series-value" data-compare-series-value="${escapeHtml(item.id)}">—</output></button>`).join("");
   const benchmarkHtml = `<button type="button" class="compare-legend-item" data-compare-series="benchmark-sp500" aria-pressed="true" style="--series-color:#343434" ${compareBenchmarkVisible ? "" : "hidden"}><span class="compare-series-swatch" aria-hidden="true"></span><span class="compare-series-copy"><strong>S&amp;P 500</strong><small>Broad US equity benchmark</small></span><output class="compare-series-value" data-compare-series-value="benchmark-sp500">—</output></button>`;
   el("compareLegend").innerHTML = `${itemHtml}${benchmarkHtml}`;
 }
@@ -788,6 +867,7 @@ function applySavedScreen(id) {
   state.statuses = new Set(screen.state.statuses || []);
   state.maxMinimum = screen.state.maxMinimum;
   state.maxFee = screen.state.maxFee;
+  state.pendingColumns = Array.isArray(screen.state.columns) ? { category: screen.state.columnCategory || screen.state.category || "All", columns: screen.state.columns } : null;
   el("searchInput").value = state.q;
   el("maxMinimum").value = state.maxMinimum ?? "";
   el("maxFee").value = state.maxFee ?? "";
@@ -801,7 +881,7 @@ function saveCurrentScreen(name) {
     id: `screen-${Date.now()}`,
     name,
     subtitle: `${state.category}${state.flags.size ? ` · ${[...state.flags].join(" · ")}` : ""}`,
-    state: { category: state.category, q: state.q, flags: [...state.flags], risks: [...state.risks], statuses: [...state.statuses], maxMinimum: state.maxMinimum, maxFee: state.maxFee },
+    state: { category: state.category, q: state.q, flags: [...state.flags], risks: [...state.risks], statuses: [...state.statuses], maxMinimum: state.maxMinimum, maxFee: state.maxFee, columns: selectedColumns(), columnCategory: state.appliedCategory },
   });
   setSavedScreens(screens);
   showToast(`Saved “${name}”`);
@@ -822,6 +902,11 @@ function hydrateFromUrl() {
   state.maxFee = params.has("maxFee") && Number.isFinite(maxFee) && maxFee >= 0 && maxFee <= 10 ? maxFee : undefined;
   const sort = params.get("sort") || "relevance";
   state.sort = SORTS.includes(sort) ? sort : "relevance";
+  if (params.has("columns")) {
+    const columnCategory = params.get("columnCategory") || state.category;
+    const safeColumnCategory = CATEGORY_ORDER.includes(columnCategory) ? columnCategory : state.category;
+    state.pendingColumns = { category: safeColumnCategory, columns: params.get("columns").split(",") };
+  }
   el("searchInput").value = state.q;
   el("maxMinimum").value = state.maxMinimum ?? "";
   el("maxFee").value = state.maxFee ?? "";
@@ -829,6 +914,23 @@ function hydrateFromUrl() {
 }
 
 document.addEventListener("click", (event) => {
+  const columnPreset = event.target.closest("[data-column-preset]");
+  if (columnPreset) {
+    columnDraft = [...(CATEGORY_COLUMN_PRESETS[state.appliedCategory]?.[columnPreset.dataset.columnPreset] || CATEGORY_DEFAULT_COLUMNS[state.appliedCategory])];
+    renderColumnConfigurator();
+  }
+  const columnMove = event.target.closest("[data-column-move]");
+  if (columnMove) {
+    const index = columnDraft.indexOf(columnMove.dataset.column);
+    const destination = columnMove.dataset.columnMove === "up" ? index - 1 : index + 1;
+    if (index >= 0 && destination >= 0 && destination < columnDraft.length) [columnDraft[index], columnDraft[destination]] = [columnDraft[destination], columnDraft[index]];
+    renderColumnConfigurator();
+  }
+  const columnRemove = event.target.closest("[data-column-remove]");
+  if (columnRemove && columnDraft.length > 1) {
+    columnDraft = columnDraft.filter((column) => column !== columnRemove.dataset.columnRemove);
+    renderColumnConfigurator();
+  }
   const range = event.target.closest("[data-compare-range]");
   if (range && COMPARE_RANGE_OPTIONS.has(range.dataset.compareRange)) { compareRange = range.dataset.compareRange; drawCompareRange(); }
   const chartSeries = event.target.closest("[data-compare-series]");
@@ -898,6 +1000,17 @@ document.addEventListener("focusin", (event) => scheduleDetailPrefetch(event.tar
 
 document.addEventListener("change", (event) => {
   const target = event.target;
+  if (target.matches("[data-column-choice]")) {
+    const column = target.dataset.columnChoice;
+    if (target.checked && !columnDraft.includes(column)) {
+      if (columnDraft.length >= MAX_RESULT_COLUMNS) { target.checked = false; showToast(`Choose up to ${MAX_RESULT_COLUMNS} columns`); }
+      else columnDraft.push(column);
+    } else if (!target.checked && columnDraft.includes(column)) {
+      if (columnDraft.length === 1) { target.checked = true; showToast("Keep at least one column"); }
+      else columnDraft = columnDraft.filter((candidate) => candidate !== column);
+    }
+    renderColumnConfigurator();
+  }
   if (target.matches("#compareBenchmark")) { compareBenchmarkVisible = target.checked; drawCompareRange(); }
   if (target.matches('[data-filter="flag"]')) { target.checked ? state.flags.add(target.value) : state.flags.delete(target.value); runSearch(); }
   if (target.matches('[data-filter="risk"]')) { target.checked ? state.risks.add(target.value) : state.risks.delete(target.value); runSearch(); }
@@ -938,7 +1051,9 @@ el("clearCompare").addEventListener("click", () => { state.compare.clear(); rend
 el("saveScreenButton").addEventListener("click", () => { el("saveName").value = state.q ? state.q.slice(0, 60) : `${state.category} screen`; el("saveModal").showModal(); });
 el("saveForm").addEventListener("submit", (event) => { event.preventDefault(); saveCurrentScreen(el("saveName").value.trim()); el("saveModal").close(); });
 el("dismissInterpretation").addEventListener("click", () => { el("interpretation").hidden = true; });
-el("columnsButton").addEventListener("click", () => { document.body.classList.toggle("compact-columns"); el("columnsButton").textContent = document.body.classList.contains("compact-columns") ? "▦ Standard view" : "▦ Compact view"; showToast(document.body.classList.contains("compact-columns") ? "Compact view applied" : "Standard view restored"); });
+el("columnsButton").addEventListener("click", openColumnConfigurator);
+el("resetColumns").addEventListener("click", () => { columnDraft = [...CATEGORY_DEFAULT_COLUMNS[state.appliedCategory]]; renderColumnConfigurator(); });
+el("applyColumns").addEventListener("click", applyColumnDraft);
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); el("searchInput").focus(); }
   if (event.key === "Escape" && state.detailMode === "panel" && el("detailDrawer").classList.contains("open")) closeDrawer();
@@ -950,6 +1065,7 @@ window.addEventListener("popstate", () => {
   openDetail(slug, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });
 });
 
+state.columnPreferences = loadColumnPreferences();
 hydrateFromUrl();
 el("flagGovernance").innerHTML = PRIMARY_FLAGS.map((flag) => `<div class="governance-row"><span class="badge ${FLAG_COLORS[flag]}">${escapeHtml(flag)}</span><div><strong>${escapeHtml(FLAG_DEFINITIONS[flag].owner)}</strong><small>${escapeHtml(FLAG_DEFINITIONS[flag].definition)}</small></div></div>`).join("");
 renderCategories();

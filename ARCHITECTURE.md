@@ -10,6 +10,7 @@
 6. The server calculates facets and globally sorts the full matching set.
 7. Only the requested 25-row list-and-compare projection and facet counts return first; detail-only fields remain behind `/api/detail`.
 8. After the rows paint, one cached `/api/snapshots` request enriches only those visible records with vehicle-specific market values, decision metrics and compact trend series. There are no per-row calls, and the search response stays below its existing payload budget.
+9. The client resolves result columns through a category allowlist. Layouts are capped at five data columns, stored per vehicle in the browser, and encoded into saved screens and shareable URLs. Category-specific metric identifiers prevent fields such as custody fee or forward P/E from crossing into incompatible vehicles.
 9. `/api/detail` fetches one record by validated identifier or canonical public slug and returns shared core fields plus a vehicle-specific profile schema.
 
 ## Research profile navigation

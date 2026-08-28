@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { BRAND_LOGOS } from "../lib/brand-logos.js";
 
-const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js"];
+const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js", "lib/column-config.js"];
 
 test("public source is masked and contains no client-context remnants", async () => {
   const source = (await Promise.all(files.map((file) => readFile(new URL(`../${file}`, import.meta.url), "utf8")))).join("\n");
@@ -80,20 +80,30 @@ test("comparison chart stays lazy, local and additive to the decision table", as
   assert.match(app, /\/api\/history\?ids=/);
   assert.match(app, /Rebased|normalizeComparisonPoints/);
   assert.match(css, /\.compare-chart-stage \{ height: 315px/);
+  assert.match(app, /class="compare-series-swatch"[^>]+background-color:\$\{COMPARE_COLORS\[index\]\}/);
+  assert.match(css, /benchmark-sp500[^\n]+border-top: 2px dashed var\(--series-color\)/);
   assert.match(build, /lightweight-charts\.standalone\.production\.mjs/);
 });
 
-test("results table renders compact vehicle-aware market snapshots", async () => {
+test("results table uses capped, vehicle-aware configurable columns", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.match(html, /id="marketHeaderPrimary"/);
-  assert.match(app, /const MARKET_HEADERS/);
+  const config = await readFile(new URL("../lib/column-config.js", import.meta.url), "utf8");
+  assert.match(html, /id="columnsModal"/);
+  assert.match(html, /id="resultsHeader"/);
+  assert.match(app, /function renderColumnConfigurator/);
+  assert.match(app, /columns: selectedColumns\(\), columnCategory: state\.appliedCategory/);
+  assert.match(app, /params\.set\("columns", columns\.join\(","\)\)/);
+  assert.match(config, /MAX_RESULT_COLUMNS = 5/);
+  assert.match(config, /Precious Metals[^\n]+custodyFee/);
+  assert.doesNotMatch(config.match(/Equities: \[[^\n]+/)[0], /custodyFee/);
   assert.match(app, /function marketSparkline/);
   assert.match(app, /\/api\/snapshots\?/);
   assert.match(app, /requestAnimationFrame\(\(\) => loadMarketSnapshots/);
   assert.match(css, /\.market-sparkline \{/);
-  assert.match(css, /\.compact-columns \.results-table \.col-trend/);
+  assert.doesNotMatch(css, /\.compact-columns/);
+  assert.match(css, /\.column-config-grid/);
 });
 
 test("every allowlisted brand mark is local, unique and present", async () => {

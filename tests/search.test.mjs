@@ -241,7 +241,8 @@ test("search snapshots expose decision-useful fields by vehicle", () => {
   for (const [category, labels] of expectations) {
     const [item] = searchCatalog({ category, pageSize: 1 }).items;
     const snapshot = getMarketSnapshots([item.id])[item.id];
-    assert.deepEqual([snapshot.primary.label, snapshot.keyA.label, snapshot.keyB.label], labels);
+    const featured = snapshot.featured.map((metric) => snapshot.metrics[metric]);
+    assert.deepEqual([snapshot.primary.label, ...featured.map((metric) => metric.label)], labels);
     assert.equal(snapshot.trend.points.length, 14);
   }
 });
