@@ -138,15 +138,23 @@ test("numeric distribution filters stay adaptive, lightweight and shareable", as
   assert.doesNotMatch(html, /id="maxMinimum"|id="maxFee"/);
   assert.match(app, /function renderRangeFilters/);
   assert.match(app, /data-range-slider/);
+  assert.match(app, /import noUiSlider from "\/vendor\/nouislider\.mjs"/);
+  assert.match(app, /behaviour: "tap-drag-smooth-steps"/);
+  assert.match(app, /change\.compactRange[\s\S]+runSearch\(\)/);
+  assert.match(app, /data-range-group\]\[open\]/);
   assert.match(app, /document\.addEventListener\("focusout"[\s\S]+data-range-number[\s\S]+runSearch\(\)/);
   assert.match(app, /event\.key !== "Enter"[\s\S]+target\.blur\(\)/);
   assert.match(app, /serializeRanges\(state\.ranges\)/);
   assert.match(css, /\.distribution-bars/);
-  assert.match(css, /\.dual-range-track/);
+  assert.match(css, /\.range-slider\.noUi-target/);
+  assert.match(css, /\.range-value-row/);
+  assert.doesNotMatch(css, /\.dual-range-track/);
   assert.match(config, /Fixed Income[\s\S]+yieldToWorst/);
   assert.match(config, /Precious Metals[\s\S]+custody fee/i);
   assert.match(catalog, /baselineRangeFacetCache/);
   assert.match(build, /"range-config\.js"/);
+  assert.match(build, /nouislider\.min\.mjs/);
+  assert.match(html, /vendor\/nouislider\.css/);
 });
 
 test("compare closes from its backdrop while preserving explicit controls", async () => {

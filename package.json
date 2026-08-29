@@ -15,6 +15,7 @@
   },
   "license": "UNLICENSED",
   "dependencies": {
-    "lightweight-charts": "5.2.1"
+    "lightweight-charts": "5.2.1",
+    "nouislider": "^15.8.1"
   }
 }

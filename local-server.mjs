@@ -43,6 +43,10 @@ const server = createServer(async (request, response) => {
     ? "index.html"
     : url.pathname === "/vendor/lightweight-charts.mjs"
       ? "node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.mjs"
+      : url.pathname === "/vendor/nouislider.mjs"
+        ? "node_modules/nouislider/dist/nouislider.min.mjs"
+        : url.pathname === "/vendor/nouislider.css"
+          ? "node_modules/nouislider/dist/nouislider.min.css"
       : url.pathname.slice(1);
   const safePath = normalize(requested).replace(/^(\.\.(\/|\\|$))+/, "");
   const path = join(root, safePath);

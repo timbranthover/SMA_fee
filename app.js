@@ -3,6 +3,7 @@ import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
 import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
+import noUiSlider from "/vendor/nouislider.mjs";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -246,12 +247,23 @@ function rangeEstimate(facet, minimum, maximum) {
   }, 0);
 }
 
+function rangeAffixes(definition) {
+  if (definition.format === "currency") return { prefix: "$", suffix: "" };
+  if (definition.format === "percent") return { prefix: "", suffix: "%" };
+  if (definition.format === "multiple") return { prefix: "", suffix: "×" };
+  if (definition.format === "months") return { prefix: "", suffix: "mo" };
+  if (definition.format === "years") return { prefix: "", suffix: "yr" };
+  return { prefix: "", suffix: "" };
+}
+
+function rangeInputValue(value, definition) {
+  return Number(Number(value).toFixed(definition.digits));
+}
+
 function rangeModule(definition, facet, open) {
   const selection = effectiveRange(definition.field, facet);
   const maximumBin = Math.max(...facet.bins, 1);
   const span = facet.max - facet.min || 1;
-  const start = Math.max(0, Math.min(100, ((selection.min - facet.min) / span) * 100));
-  const end = Math.max(0, Math.min(100, ((selection.max - facet.min) / span) * 100));
   const bars = facet.bins.map((count, index) => {
     const center = facet.min + ((index + .5) / facet.bins.length) * span;
     const selected = center >= selection.min && center <= selection.max;
@@ -259,23 +271,61 @@ function rangeModule(definition, facet, open) {
     return `<i class="distribution-bar ${selected ? "selected" : ""}" style="--bar-height:${height}%" data-bin-count="${count}" data-bin-index="${index}"></i>`;
   }).join("");
   const active = Boolean(state.ranges[definition.field]);
+  const affixes = rangeAffixes(definition);
+  const numberField = (bound, label, value) => `<label class="range-number-control">
+    <span class="sr-only">${escapeHtml(label)} ${escapeHtml(definition.label)}</span>
+    ${affixes.prefix ? `<span class="range-affix">${affixes.prefix}</span>` : ""}
+    <input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="${bound}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${value}" inputmode="decimal" />
+    ${affixes.suffix ? `<span class="range-affix">${affixes.suffix}</span>` : ""}
+  </label>`;
   return `<details class="filter-group distribution-group" data-range-group="${escapeHtml(definition.field)}" ${open ? "open" : ""}>
     <summary><span class="range-summary-title">${escapeHtml(definition.label)}<small data-range-summary>${escapeHtml(rangeSummary(definition, facet))}</small></span><span class="filter-chevron">⌃</span></summary>
-    <div class="distribution-filter" style="--range-start:${start}%;--range-end:${end}%">
-      <div class="distribution-meta"><span data-range-count>${formatCount(state.total)} matches</span><button type="button" data-reset-range="${escapeHtml(definition.field)}" ${active ? "" : "hidden"}>Reset</button></div>
-      <div class="distribution-bars" aria-hidden="true">${bars}</div>
-      <div class="dual-range-track">
-        <span></span>
-        <input type="range" data-range-slider="${escapeHtml(definition.field)}" data-range-bound="min" aria-label="Minimum ${escapeHtml(definition.label)}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.min}" />
-        <input type="range" data-range-slider="${escapeHtml(definition.field)}" data-range-bound="max" aria-label="Maximum ${escapeHtml(definition.label)}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.max}" />
+    <div class="distribution-filter">
+      <div class="distribution-plot">
+        <div class="distribution-bars" aria-hidden="true">${bars}</div>
+        <div class="range-slider" data-range-slider="${escapeHtml(definition.field)}"></div>
       </div>
-      <div class="range-value-fields">
-        <label><span>From</span><input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="min" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.min}" /></label>
-        <label><span>To</span><input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="max" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.max}" /></label>
+      <div class="range-value-row">
+        ${numberField("min", "Minimum", rangeInputValue(selection.min, definition))}
+        <span class="range-separator">to</span>
+        ${numberField("max", "Maximum", rangeInputValue(selection.max, definition))}
+        <button type="button" data-reset-range="${escapeHtml(definition.field)}" ${active ? "" : "hidden"}>Reset</button>
       </div>
-      <div class="distribution-foot"><span>Median ${escapeHtml(formatRangeValue(facet.median, definition))}</span><span>${formatCount(facet.valueCount)} with data</span></div>
+      <div class="distribution-foot"><span>Median ${escapeHtml(formatRangeValue(facet.median, definition))}</span><span data-range-count>${formatCount(state.total)} matches</span></div>
     </div>
   </details>`;
+}
+
+function initializeRangeSlider(definition, facet) {
+  const group = document.querySelector(`[data-range-group="${CSS.escape(definition.field)}"]`);
+  const target = group?.querySelector(`[data-range-slider="${CSS.escape(definition.field)}"]`);
+  if (!group || !target || target.noUiSlider) return;
+  const selection = effectiveRange(definition.field, facet);
+  noUiSlider.create(target, {
+    start: [selection.min, selection.max],
+    connect: true,
+    step: definition.step,
+    range: { min: facet.min, max: facet.max },
+    behaviour: "tap-drag-smooth-steps",
+    animate: true,
+    animationDuration: 160,
+    keyboardSupport: true,
+    handleAttributes: [
+      { "aria-label": `Minimum ${definition.label}` },
+      { "aria-label": `Maximum ${definition.label}` },
+    ],
+    ariaFormat: { to: (value) => formatRangeValue(value, definition), from: Number },
+  });
+  target.noUiSlider.on("start.compactRange", () => group.classList.add("is-adjusting"));
+  target.noUiSlider.on("slide.compactRange", (_values, _handle, unencoded) => {
+    setRangeSelection(definition.field, unencoded[0], unencoded[1], { syncSlider: false });
+  });
+  target.noUiSlider.on("change.compactRange", (_values, _handle, unencoded) => {
+    setRangeSelection(definition.field, unencoded[0], unencoded[1], { syncSlider: false });
+    group.classList.remove("is-adjusting");
+    runSearch();
+  });
+  target.noUiSlider.on("end.compactRange", () => group.classList.remove("is-adjusting"));
 }
 
 function renderRangeFilters() {
@@ -287,21 +337,20 @@ function renderRangeFilters() {
   const definitions = rangeDefinitions(category).filter(({ field }) => facets[field]);
   const defaultOpen = categoryChanged ? definitions[0]?.field : null;
   updateHtml(container, definitions.map((definition) => rangeModule(definition, facets[definition.field], previousOpen.has(definition.field) || definition.field === defaultOpen)).join(""));
+  definitions.forEach((definition) => initializeRangeSlider(definition, facets[definition.field]));
   rangeCategoryRendered = category;
 }
 
-function refreshRangeControl(field) {
+function refreshRangeControl(field, { syncSlider = true } = {}) {
   const definition = rangeDefinitions(state.appliedCategory).find((entry) => entry.field === field);
   const facet = state.facets?.ranges?.[field];
   const group = document.querySelector(`[data-range-group="${CSS.escape(field)}"]`);
   if (!definition || !facet || !group) return;
   const selection = effectiveRange(field, facet);
   const span = facet.max - facet.min || 1;
-  const start = Math.max(0, Math.min(100, ((selection.min - facet.min) / span) * 100));
-  const end = Math.max(0, Math.min(100, ((selection.max - facet.min) / span) * 100));
-  group.querySelector(".distribution-filter").style.cssText = `--range-start:${start}%;--range-end:${end}%`;
-  group.querySelectorAll(`[data-range-slider="${CSS.escape(field)}"]`).forEach((input) => { input.value = selection[input.dataset.rangeBound]; });
-  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => { input.value = selection[input.dataset.rangeBound]; });
+  const slider = group.querySelector(`[data-range-slider="${CSS.escape(field)}"]`);
+  if (syncSlider && slider?.noUiSlider) slider.noUiSlider.set([selection.min, selection.max], false);
+  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => { input.value = rangeInputValue(selection[input.dataset.rangeBound], definition); });
   const reset = group.querySelector("[data-reset-range]");
   reset.hidden = !state.ranges[field];
   group.querySelector("[data-range-summary]").textContent = rangeSummary(definition, facet);
@@ -311,6 +360,20 @@ function refreshRangeControl(field) {
     const center = facet.min + ((Number(bar.dataset.binIndex) + .5) / facet.bins.length) * span;
     bar.classList.toggle("selected", center >= selection.min && center <= selection.max);
   });
+}
+
+function setRangeSelection(field, rawMinimum, rawMaximum, options = {}) {
+  const facet = state.facets?.ranges?.[field];
+  if (!facet) return;
+  const minimum = Math.max(facet.min, Math.min(facet.max, Number(rawMinimum)));
+  const maximum = Math.max(minimum, Math.min(facet.max, Number(rawMaximum)));
+  if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return;
+  const next = {};
+  if (minimum !== facet.min) next.min = minimum;
+  if (maximum !== facet.max) next.max = maximum;
+  if (Number.isFinite(next.min) || Number.isFinite(next.max)) state.ranges[field] = next;
+  else delete state.ranges[field];
+  refreshRangeControl(field, options);
 }
 
 function updateRangeSelection(field, bound, rawValue) {
@@ -1172,9 +1235,16 @@ function scheduleDetailPrefetch(target) {
 document.addEventListener("pointerover", (event) => scheduleDetailPrefetch(event.target));
 document.addEventListener("focusin", (event) => scheduleDetailPrefetch(event.target));
 
+document.addEventListener("toggle", (event) => {
+  const group = event.target.closest?.("[data-range-group]");
+  if (!group?.open) return;
+  group.parentElement.querySelectorAll("[data-range-group][open]").forEach((candidate) => {
+    if (candidate !== group) candidate.open = false;
+  });
+}, true);
+
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (target.matches("[data-range-slider]")) updateRangeSelection(target.dataset.rangeSlider, target.dataset.rangeBound, target.value);
   if (target.matches("[data-range-number]") && target.value !== "") updateRangeSelection(target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
 });
 
@@ -1195,10 +1265,6 @@ document.addEventListener("keydown", (event) => {
 
 document.addEventListener("change", (event) => {
   const target = event.target;
-  if (target.matches("[data-range-slider]")) {
-    updateRangeSelection(target.dataset.rangeSlider, target.dataset.rangeBound, target.value);
-    runSearch();
-  }
   if (target.matches("[data-column-choice]")) {
     const column = target.dataset.columnChoice;
     if (target.checked && !columnDraft.includes(column)) {

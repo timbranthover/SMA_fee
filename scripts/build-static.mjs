@@ -25,3 +25,13 @@ await cp(
   new URL("node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.mjs", projectRoot),
   new URL("vendor/lightweight-charts.mjs", outputDirectory),
 );
+await Promise.all([
+  cp(
+    new URL("node_modules/nouislider/dist/nouislider.min.mjs", projectRoot),
+    new URL("vendor/nouislider.mjs", outputDirectory),
+  ),
+  cp(
+    new URL("node_modules/nouislider/dist/nouislider.min.css", projectRoot),
+    new URL("vendor/nouislider.css", outputDirectory),
+  ),
+]);
