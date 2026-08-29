@@ -28,7 +28,30 @@ try {
   assert.equal(await page.locator(".product-monogram.logo-failed").count(), 0);
   assert.equal(await page.getByText("Client context", { exact: true }).count(), 0);
   assert.equal(await page.locator("[data-nextjs-dialog], .vite-error-overlay").count(), 0);
+  assert.equal(await page.locator("#rangeFilters [data-range-group]").count(), 2);
+  assert.equal(await page.locator("#rangeFilters [data-range-group][open]").count(), 1);
+  assert.equal(await page.locator("#rangeFilters [data-range-group][open] .distribution-bar").count(), 12);
   await page.screenshot({ path: "/tmp/investment-screener-home.png", fullPage: true });
+
+  const equitiesResponse = page.waitForResponse((response) => response.url().includes("/api/search") && response.status() === 200);
+  await page.locator('[data-category="Equities"]').click();
+  await equitiesResponse;
+  await page.waitForFunction(() => document.querySelector("#resultsTitle")?.textContent === "Equities");
+  assert.equal(await page.locator("#rangeFilters [data-range-group]").count(), 3);
+  assert.match(await page.locator("#rangeFilters").innerText(), /Forward P\/E/);
+  const forwardMaximum = page.locator('[data-range-number="forwardPE"][data-range-bound="max"]');
+  const rangeResponse = page.waitForResponse((response) => response.url().includes("/api/search") && response.url().includes("ranges=") && response.status() === 200);
+  await forwardMaximum.fill("24");
+  await forwardMaximum.press("Tab");
+  await rangeResponse;
+  assert.match(await page.locator("#activeChips").innerText(), /Forward P\/E/);
+  assert.match(page.url(), /ranges=/);
+  const resetResponse = page.waitForResponse((response) => response.url().includes("/api/search") && response.status() === 200);
+  await page.locator('[data-reset-range="forwardPE"]').click();
+  await resetResponse;
+  const allResponse = page.waitForResponse((response) => response.url().includes("/api/search") && response.status() === 200);
+  await page.locator('[data-category="All"]').click();
+  await allResponse;
 
   await page.locator("#searchInput").fill("moderate tax-aware SMA under 50 bps");
   await page.locator("#searchForm .search-button").click();

@@ -2,6 +2,7 @@ import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY
 import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
 import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
+import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -16,8 +17,7 @@ const state = {
   flags: new Set(),
   risks: new Set(),
   statuses: new Set(),
-  maxMinimum: undefined,
-  maxFee: undefined,
+  ranges: {},
   sort: "name-asc",
   sortExplicit: false,
   cursor: 0,
@@ -54,6 +54,7 @@ const compareSeries = new Map();
 const compareRangeData = new Map();
 const compareHistoryCache = new Map();
 let columnDraft = [];
+let rangeCategoryRendered = null;
 
 const elementCache = new Map();
 const el = (id) => {
@@ -119,6 +120,16 @@ function formatMinimum(value) {
 }
 function formatFee(value) { return value === null || value === undefined ? "—" : `${Number(value).toFixed(value < 0.1 ? 2 : 2)}%`; }
 function formatReturn(value) { return value === null || value === undefined ? "—" : `${value >= 0 ? "+" : ""}${Number(value).toFixed(1)}%`; }
+function formatRangeValue(value, definition) {
+  if (!Number.isFinite(Number(value))) return "—";
+  const numeric = Number(value);
+  if (definition.format === "currency") return formatMinimum(numeric);
+  if (definition.format === "percent") return `${numeric.toFixed(definition.digits)}%`;
+  if (definition.format === "multiple") return `${numeric.toFixed(definition.digits)}×`;
+  if (definition.format === "months") return `${numeric.toFixed(0)} mo`;
+  if (definition.format === "years") return `${numeric.toFixed(0)} yr`;
+  return numeric.toFixed(definition.digits);
+}
 function formatChartReturn(value) { return value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${Number(value).toFixed(1)}%`; }
 function monogram(item) { return item.symbol?.slice(0, 3) || item.name.split(" ").slice(0, 2).map((part) => part[0]).join(""); }
 function productClass(category) { return category === "SMAs" ? "sma" : category === "Fixed Income" ? "fixed" : category === "Equities" ? "equity" : ""; }
@@ -211,13 +222,135 @@ function renderFilterOptions() {
   document.querySelectorAll('[data-filter="status"]').forEach((input) => { input.checked = state.statuses.has(input.value); });
 }
 
+function effectiveRange(field, facet) {
+  const selected = state.ranges[field] || {};
+  return {
+    min: Number.isFinite(selected.min) ? selected.min : facet.min,
+    max: Number.isFinite(selected.max) ? selected.max : facet.max,
+  };
+}
+
+function rangeSummary(definition, facet) {
+  const selected = state.ranges[definition.field];
+  if (!selected) return `Median ${formatRangeValue(facet.median, definition)}`;
+  if (Number.isFinite(selected.min) && Number.isFinite(selected.max)) return `${formatRangeValue(selected.min, definition)}–${formatRangeValue(selected.max, definition)}`;
+  if (Number.isFinite(selected.min)) return `≥ ${formatRangeValue(selected.min, definition)}`;
+  return `≤ ${formatRangeValue(selected.max, definition)}`;
+}
+
+function rangeEstimate(facet, minimum, maximum) {
+  const span = facet.max - facet.min || 1;
+  return facet.bins.reduce((total, count, index) => {
+    const center = facet.min + ((index + .5) / facet.bins.length) * span;
+    return center >= minimum && center <= maximum ? total + count : total;
+  }, 0);
+}
+
+function rangeModule(definition, facet, open) {
+  const selection = effectiveRange(definition.field, facet);
+  const maximumBin = Math.max(...facet.bins, 1);
+  const span = facet.max - facet.min || 1;
+  const start = Math.max(0, Math.min(100, ((selection.min - facet.min) / span) * 100));
+  const end = Math.max(0, Math.min(100, ((selection.max - facet.min) / span) * 100));
+  const bars = facet.bins.map((count, index) => {
+    const center = facet.min + ((index + .5) / facet.bins.length) * span;
+    const selected = center >= selection.min && center <= selection.max;
+    const height = Math.max(7, Math.round((count / maximumBin) * 100));
+    return `<i class="distribution-bar ${selected ? "selected" : ""}" style="--bar-height:${height}%" data-bin-count="${count}" data-bin-index="${index}"></i>`;
+  }).join("");
+  const active = Boolean(state.ranges[definition.field]);
+  return `<details class="filter-group distribution-group" data-range-group="${escapeHtml(definition.field)}" ${open ? "open" : ""}>
+    <summary><span class="range-summary-title">${escapeHtml(definition.label)}<small data-range-summary>${escapeHtml(rangeSummary(definition, facet))}</small></span><span class="filter-chevron">⌃</span></summary>
+    <div class="distribution-filter" style="--range-start:${start}%;--range-end:${end}%">
+      <div class="distribution-meta"><span data-range-count>${formatCount(state.total)} matches</span><button type="button" data-reset-range="${escapeHtml(definition.field)}" ${active ? "" : "hidden"}>Reset</button></div>
+      <div class="distribution-bars" aria-hidden="true">${bars}</div>
+      <div class="dual-range-track">
+        <span></span>
+        <input type="range" data-range-slider="${escapeHtml(definition.field)}" data-range-bound="min" aria-label="Minimum ${escapeHtml(definition.label)}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.min}" />
+        <input type="range" data-range-slider="${escapeHtml(definition.field)}" data-range-bound="max" aria-label="Maximum ${escapeHtml(definition.label)}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.max}" />
+      </div>
+      <div class="range-value-fields">
+        <label><span>From</span><input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="min" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.min}" /></label>
+        <label><span>To</span><input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="max" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${selection.max}" /></label>
+      </div>
+      <div class="distribution-foot"><span>Median ${escapeHtml(formatRangeValue(facet.median, definition))}</span><span>${formatCount(facet.valueCount)} with data</span></div>
+    </div>
+  </details>`;
+}
+
+function renderRangeFilters() {
+  const category = state.appliedCategory;
+  const facets = state.facets?.ranges || {};
+  const container = el("rangeFilters");
+  const previousOpen = new Set([...container.querySelectorAll("[data-range-group][open]")].map((group) => group.dataset.rangeGroup));
+  const categoryChanged = rangeCategoryRendered !== category;
+  const definitions = rangeDefinitions(category).filter(({ field }) => facets[field]);
+  const defaultOpen = categoryChanged ? definitions[0]?.field : null;
+  updateHtml(container, definitions.map((definition) => rangeModule(definition, facets[definition.field], previousOpen.has(definition.field) || definition.field === defaultOpen)).join(""));
+  rangeCategoryRendered = category;
+}
+
+function refreshRangeControl(field) {
+  const definition = rangeDefinitions(state.appliedCategory).find((entry) => entry.field === field);
+  const facet = state.facets?.ranges?.[field];
+  const group = document.querySelector(`[data-range-group="${CSS.escape(field)}"]`);
+  if (!definition || !facet || !group) return;
+  const selection = effectiveRange(field, facet);
+  const span = facet.max - facet.min || 1;
+  const start = Math.max(0, Math.min(100, ((selection.min - facet.min) / span) * 100));
+  const end = Math.max(0, Math.min(100, ((selection.max - facet.min) / span) * 100));
+  group.querySelector(".distribution-filter").style.cssText = `--range-start:${start}%;--range-end:${end}%`;
+  group.querySelectorAll(`[data-range-slider="${CSS.escape(field)}"]`).forEach((input) => { input.value = selection[input.dataset.rangeBound]; });
+  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => { input.value = selection[input.dataset.rangeBound]; });
+  const reset = group.querySelector("[data-reset-range]");
+  reset.hidden = !state.ranges[field];
+  group.querySelector("[data-range-summary]").textContent = rangeSummary(definition, facet);
+  const estimate = rangeEstimate(facet, selection.min, selection.max);
+  group.querySelector("[data-range-count]").textContent = state.ranges[field] ? `≈ ${formatCount(estimate)} matches` : `${formatCount(state.total)} matches`;
+  group.querySelectorAll("[data-bin-index]").forEach((bar) => {
+    const center = facet.min + ((Number(bar.dataset.binIndex) + .5) / facet.bins.length) * span;
+    bar.classList.toggle("selected", center >= selection.min && center <= selection.max);
+  });
+}
+
+function updateRangeSelection(field, bound, rawValue) {
+  const facet = state.facets?.ranges?.[field];
+  if (!facet) return;
+  if (rawValue === "") {
+    const next = { ...(state.ranges[field] || {}) };
+    delete next[bound];
+    if (Number.isFinite(next.min) || Number.isFinite(next.max)) state.ranges[field] = next;
+    else delete state.ranges[field];
+    refreshRangeControl(field);
+    return;
+  }
+  const current = effectiveRange(field, facet);
+  const value = Math.max(facet.min, Math.min(facet.max, Number(rawValue)));
+  if (!Number.isFinite(value)) return;
+  const next = { ...(state.ranges[field] || {}) };
+  if (bound === "min") next.min = Math.min(value, current.max);
+  else next.max = Math.max(value, current.min);
+  if (next.min === facet.min) delete next.min;
+  if (next.max === facet.max) delete next.max;
+  if (Number.isFinite(next.min) || Number.isFinite(next.max)) state.ranges[field] = next;
+  else delete state.ranges[field];
+  refreshRangeControl(field);
+}
+
 function activeFilterEntries() {
   const values = [];
   state.flags.forEach((flag) => values.push([`flag:${flag}`, flag]));
   state.risks.forEach((risk) => values.push([`risk:${risk}`, `${risk} risk`]));
   state.statuses.forEach((status) => values.push([`status:${status}`, status === "New" ? "New to shelf" : status]));
-  if (Number.isFinite(state.maxMinimum)) values.push(["maxMinimum", `Minimum ≤ ${formatMinimum(state.maxMinimum)}`]);
-  if (Number.isFinite(state.maxFee)) values.push(["maxFee", `Fee ≤ ${state.maxFee}%`]);
+  for (const definition of rangeDefinitions(state.appliedCategory)) {
+    const selected = state.ranges[definition.field];
+    if (!selected) continue;
+    let label = definition.label;
+    if (Number.isFinite(selected.min) && Number.isFinite(selected.max)) label += ` ${formatRangeValue(selected.min, definition)}–${formatRangeValue(selected.max, definition)}`;
+    else if (Number.isFinite(selected.min)) label += ` ≥ ${formatRangeValue(selected.min, definition)}`;
+    else label += ` ≤ ${formatRangeValue(selected.max, definition)}`;
+    values.push([`range:${definition.field}`, label]);
+  }
   return values;
 }
 
@@ -383,8 +516,8 @@ function buildSearchUrl() {
   if (state.flags.size) params.set("flags", [...state.flags].join(","));
   if (state.risks.size) params.set("risks", [...state.risks].join(","));
   if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
-  if (Number.isFinite(state.maxMinimum)) params.set("maxMinimum", String(state.maxMinimum));
-  if (Number.isFinite(state.maxFee)) params.set("maxFee", String(state.maxFee));
+  const ranges = serializeRanges(state.ranges);
+  if (ranges) params.set("ranges", ranges);
   params.set("sort", state.sort);
   params.set("cursor", String(state.cursor));
   params.set("pageSize", "25");
@@ -418,8 +551,8 @@ function syncUrl() {
   if (state.flags.size) params.set("flags", [...state.flags].join(","));
   if (state.risks.size) params.set("risks", [...state.risks].join(","));
   if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
-  if (Number.isFinite(state.maxMinimum)) params.set("maxMinimum", String(state.maxMinimum));
-  if (Number.isFinite(state.maxFee)) params.set("maxFee", String(state.maxFee));
+  const ranges = serializeRanges(state.ranges);
+  if (ranges) params.set("ranges", ranges);
   if (state.sortExplicit || state.sort !== defaultSort(Boolean(state.q))) params.set("sort", state.sort);
   const columns = selectedColumns();
   const defaults = CATEGORY_DEFAULT_COLUMNS[state.appliedCategory] || CATEGORY_DEFAULT_COLUMNS.All;
@@ -462,6 +595,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     state.previousCursor = data.previousCursor;
     state.facets = data.facets;
     state.appliedCategory = data.appliedCategory || state.category;
+    state.ranges = normalizeRanges(data.appliedRanges || state.ranges, state.appliedCategory);
     if (state.pendingColumns && state.pendingColumns.category === state.appliedCategory) {
       setColumnsForCategory(state.appliedCategory, state.pendingColumns.columns, { persist: false });
       state.pendingColumns = null;
@@ -474,6 +608,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     renderInterpretation(data.interpreted);
     renderCategories();
     renderFilterOptions();
+    renderRangeFilters();
     renderActiveFilters();
     renderResults();
     updateHeader();
@@ -517,26 +652,21 @@ function cancelActiveSearch() {
 function applyQuickScreen(name) {
   state.q = "";
   state.flags.clear(); state.risks.clear(); state.statuses.clear();
-  state.maxFee = undefined; state.maxMinimum = undefined;
-  if (name === "muni") { state.q = "New York municipal income under 50 bps"; state.category = "Fixed Income"; state.flags.add("Tax-Aware"); state.risks.add("Conservative"); state.maxFee = .5; }
+  state.ranges = {};
+  if (name === "muni") { state.q = "New York municipal income under 50 bps"; state.category = "Fixed Income"; state.flags.add("Tax-Aware"); state.risks.add("Conservative"); }
   if (name === "core") { state.q = "core equity building blocks aligned with the CIO house view"; state.category = "ETFs"; state.flags.add("CIO House View"); state.risks.add("Moderate"); }
   if (name === "sustainable") { state.q = "sustainable investment solutions"; state.category = "All"; state.flags.add("Sustainable"); }
   if (name === "tax") { state.q = "tax-aware SMAs with direct indexing"; state.category = "SMAs"; state.flags.add("Tax-Aware"); state.flags.add("Direct Indexing"); state.risks.add("Moderate"); }
   el("searchInput").value = state.q;
-  el("maxMinimum").value = "";
-  el("maxFee").value = state.maxFee ?? "";
   runSearch();
 }
 
 function removeFilter(key) {
-  if (key === "maxMinimum") { state.maxMinimum = undefined; el("maxMinimum").value = ""; }
-  else if (key === "maxFee") { state.maxFee = undefined; el("maxFee").value = ""; }
-  else {
-    const [type, value] = key.split(":");
-    if (type === "flag") state.flags.delete(value);
-    if (type === "risk") state.risks.delete(value);
-    if (type === "status") state.statuses.delete(value);
-  }
+  const [type, value] = key.split(":");
+  if (type === "range") delete state.ranges[value];
+  if (type === "flag") state.flags.delete(value);
+  if (type === "risk") state.risks.delete(value);
+  if (type === "status") state.statuses.delete(value);
   runSearch();
 }
 
@@ -901,14 +1031,16 @@ function applySavedScreen(id) {
   state.flags = new Set(screen.state.flags || []);
   state.risks = new Set(screen.state.risks || []);
   state.statuses = new Set(screen.state.statuses || []);
-  state.maxMinimum = screen.state.maxMinimum;
-  state.maxFee = screen.state.maxFee;
+  const legacyRanges = {
+    ...(Number.isFinite(screen.state.maxMinimum) ? { minimum: { max: screen.state.maxMinimum } } : {}),
+    ...(Number.isFinite(screen.state.maxFee) ? { fee: { max: screen.state.maxFee } } : {}),
+  };
+  const savedRanges = screen.state.ranges || legacyRanges;
+  state.ranges = state.category === "All" && state.q ? savedRanges : normalizeRanges(savedRanges, state.category);
   state.sort = SORTS.includes(screen.state.sort) && isSortAllowed(screen.state.sort, state.category, Boolean(state.q)) ? screen.state.sort : defaultSort(Boolean(state.q));
   state.sortExplicit = Boolean(screen.state.sort && state.sort === screen.state.sort);
   state.pendingColumns = Array.isArray(screen.state.columns) ? { category: screen.state.columnCategory || screen.state.category || "All", columns: screen.state.columns } : null;
   el("searchInput").value = state.q;
-  el("maxMinimum").value = state.maxMinimum ?? "";
-  el("maxFee").value = state.maxFee ?? "";
   el("savedModal").close();
   runSearch();
 }
@@ -919,7 +1051,7 @@ function saveCurrentScreen(name) {
     id: `screen-${Date.now()}`,
     name,
     subtitle: `${state.category}${state.flags.size ? ` · ${[...state.flags].join(" · ")}` : ""}`,
-    state: { category: state.category, q: state.q, flags: [...state.flags], risks: [...state.risks], statuses: [...state.statuses], maxMinimum: state.maxMinimum, maxFee: state.maxFee, sort: state.sort, columns: selectedColumns(), columnCategory: state.appliedCategory },
+    state: { category: state.category, q: state.q, flags: [...state.flags], risks: [...state.risks], statuses: [...state.statuses], ranges: state.ranges, sort: state.sort, columns: selectedColumns(), columnCategory: state.appliedCategory },
   });
   setSavedScreens(screens);
   showToast(`Saved “${name}”`);
@@ -934,10 +1066,14 @@ function hydrateFromUrl() {
   state.flags = new Set((params.get("flags") || "").split(",").filter((value) => PRIMARY_FLAGS.includes(value)));
   state.risks = new Set((params.get("risks") || "").split(",").filter((value) => RISKS.includes(value)));
   state.statuses = new Set((params.get("statuses") || "").split(",").filter((value) => STATUSES.includes(value)));
-  const maxMinimum = Number(params.get("maxMinimum"));
-  const maxFee = Number(params.get("maxFee"));
-  state.maxMinimum = params.has("maxMinimum") && Number.isFinite(maxMinimum) && maxMinimum >= 0 ? maxMinimum : undefined;
-  state.maxFee = params.has("maxFee") && Number.isFinite(maxFee) && maxFee >= 0 && maxFee <= 10 ? maxFee : undefined;
+  const legacyMinimum = Number(params.get("maxMinimum"));
+  const legacyFee = Number(params.get("maxFee"));
+  const legacyRanges = {
+    ...(params.has("maxMinimum") && Number.isFinite(legacyMinimum) && legacyMinimum >= 0 ? { minimum: { max: legacyMinimum } } : {}),
+    ...(params.has("maxFee") && Number.isFinite(legacyFee) && legacyFee >= 0 && legacyFee <= 10 ? { fee: { max: legacyFee } } : {}),
+  };
+  const urlRanges = params.has("ranges") ? parseRanges(params.get("ranges")) : legacyRanges;
+  state.ranges = state.category === "All" && state.q ? urlRanges : normalizeRanges(urlRanges, state.category);
   const sort = params.get("sort");
   state.sort = sort && SORTS.includes(sort) && isSortAllowed(sort, state.category, Boolean(state.q)) ? sort : defaultSort(Boolean(state.q));
   state.sortExplicit = Boolean(sort && state.sort === sort);
@@ -947,8 +1083,6 @@ function hydrateFromUrl() {
     state.pendingColumns = { category: safeColumnCategory, columns: params.get("columns").split(",") };
   }
   el("searchInput").value = state.q;
-  el("maxMinimum").value = state.maxMinimum ?? "";
-  el("maxFee").value = state.maxFee ?? "";
   renderSortControl(state.category);
 }
 
@@ -987,7 +1121,7 @@ document.addEventListener("click", (event) => {
     drawCompareRange();
   }
   const category = event.target.closest("[data-category]");
-  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; normalizeActiveSort(); runSearch(); }
+  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.ranges = {}; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; normalizeActiveSort(); runSearch(); }
   const screen = event.target.closest("[data-screen]");
   if (screen) applyQuickScreen(screen.dataset.screen);
   const detail = event.target.closest("[data-detail-id]");
@@ -998,6 +1132,8 @@ document.addEventListener("click", (event) => {
   }
   const remove = event.target.closest("[data-remove-filter]");
   if (remove) removeFilter(remove.dataset.removeFilter);
+  const resetRange = event.target.closest("[data-reset-range]");
+  if (resetRange) { delete state.ranges[resetRange.dataset.resetRange]; runSearch(); }
   const removeCompare = event.target.closest("[data-remove-compare]");
   if (removeCompare) toggleCompare(removeCompare.dataset.removeCompare, false);
   if (event.target.closest("[data-close-drawer]") || event.target === el("drawerBackdrop")) closeDrawer();
@@ -1036,8 +1172,18 @@ function scheduleDetailPrefetch(target) {
 document.addEventListener("pointerover", (event) => scheduleDetailPrefetch(event.target));
 document.addEventListener("focusin", (event) => scheduleDetailPrefetch(event.target));
 
+document.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target.matches("[data-range-slider]")) updateRangeSelection(target.dataset.rangeSlider, target.dataset.rangeBound, target.value);
+  if (target.matches("[data-range-number]") && target.value !== "") updateRangeSelection(target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
+});
+
 document.addEventListener("change", (event) => {
   const target = event.target;
+  if (target.matches("[data-range-slider], [data-range-number]")) {
+    updateRangeSelection(target.dataset.rangeSlider || target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
+    runSearch();
+  }
   if (target.matches("[data-column-choice]")) {
     const column = target.dataset.columnChoice;
     if (target.checked && !columnDraft.includes(column)) {
@@ -1077,9 +1223,7 @@ el("searchInput").addEventListener("input", () => {
   debouncedSearch();
 });
 el("sortSelect").addEventListener("change", (event) => { state.sort = event.target.value; state.sortExplicit = true; runSearch(); });
-el("maxMinimum").addEventListener("change", (event) => { state.maxMinimum = event.target.value === "" ? undefined : Number(event.target.value); runSearch(); });
-el("maxFee").addEventListener("change", (event) => { state.maxFee = event.target.value === "" ? undefined : Number(event.target.value); runSearch(); });
-el("clearAll").addEventListener("click", () => { state.q = ""; state.category = "All"; state.appliedCategory = "All"; state.flags.clear(); state.risks.clear(); state.statuses.clear(); state.maxMinimum = undefined; state.maxFee = undefined; state.sort = defaultSort(false); state.sortExplicit = false; el("searchInput").value = ""; el("maxMinimum").value = ""; el("maxFee").value = ""; runSearch(); });
+el("clearAll").addEventListener("click", () => { state.q = ""; state.category = "All"; state.appliedCategory = "All"; state.flags.clear(); state.risks.clear(); state.statuses.clear(); state.ranges = {}; state.sort = defaultSort(false); state.sortExplicit = false; el("searchInput").value = ""; runSearch(); });
 el("prevPage").addEventListener("click", () => { if (state.previousCursor !== null) { state.cursor = state.previousCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("nextPage").addEventListener("click", () => { if (state.nextCursor !== null) { state.cursor = state.nextCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("compareButton").addEventListener("click", renderCompareModal);

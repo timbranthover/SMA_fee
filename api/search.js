@@ -1,4 +1,5 @@
 import { searchCatalog } from "../lib/catalog.js";
+import { parseRanges } from "../lib/range-config.js";
 
 function arrayParam(value) {
   if (!value) return [];
@@ -18,6 +19,7 @@ export function inputFromQuery(query = {}) {
     flags: arrayParam(query.flags),
     risks: arrayParam(query.risks),
     statuses: arrayParam(query.statuses),
+    ranges: parseRanges(query.ranges),
     maxMinimum: numericParam(query.maxMinimum),
     maxFee: numericParam(query.maxFee),
     location: query.location ? String(query.location) : undefined,

@@ -7,7 +7,8 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - A deterministic 130,428-record mock catalog exists in server memory.
 - Search uses exact ticker/CUSIP priority, field-weighted whole-word relevance, strict multi-term matching and a controlled name/manager typo fallback.
 - Combined filters, exact facets and global sorting run against the complete catalog; sorting adapts to the active vehicle and visible quantitative columns, and each text result explains why it matched.
-- The initial shelf, unfiltered category pages and curated ticker/CUSIP/name lookups use exact precomputed paths; category-specific searches build only the relevant deterministic shard.
+- Numeric criteria expose compact 12-bucket distributions, medians, exact bounds and live match previews. The criteria are vehicle-aware, persisted in saved/shareable screens and evaluated against the complete matched set.
+- Category-specific searches build only the relevant deterministic shard; curated ticker, CUSIP and exact-name lookups avoid broad catalog scans.
 - API responses are capped at 25 investments; the browser never downloads the universe.
 - Result columns adapt to the selected vehicle and add cached price/NAV, trend and decision metrics in one post-render batch rather than per-row requests. Users can choose, order and persist up to five valid fields or apply a vehicle-specific Research, Performance, Income, Risk, or Cost preset; incompatible fields are excluded by configuration.
 - Natural-language phrases are converted to an explicit allowlist of governed filters.
@@ -15,8 +16,8 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - Each investment has a vehicle-specific research profile covering its current illustrative value, benchmarked performance, composition, risk, costs, operating terms and UPS research.
 - A normal result click opens that profile in a large in-context research canvas; every profile also has a stable `/investment/:slug` URL that supports new tabs and direct sharing.
 - Detail, comparison, saved screens, saved investments and shareable screen URLs work.
-- Inputs are validated and invalid categories, flags, risk levels and pagination values return HTTP 400.
-- The browser aborts stale requests, waits 260 ms for typing intent and delays loading chrome for 180 ms so fast results replace in place without flicker. Profile requests are cached and prefetched only after brief hover/focus intent.
+- Inputs are validated and invalid categories, flags, risk levels, numeric ranges and pagination values return HTTP 400.
+- The browser aborts stale requests, waits 260 ms for typing intent and delays loading chrome for 180 ms so fast results replace in place without flicker. Range dragging stays local and requests only on commit; baseline distributions are cached per server instance. Profile requests are cached and prefetched only after brief hover/focus intent.
 - Search responses contain only list-and-compare fields; profile-only research data is retrieved from `/api/detail` after selection.
 
 The investment data, performance, flags, product availability and company identity are illustrative. This is not an investment or production entitlement system.

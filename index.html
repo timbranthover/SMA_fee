@@ -12,6 +12,7 @@
     <link rel="modulepreload" href="/lib/brand-logos.js" />
     <link rel="modulepreload" href="/lib/column-config.js" />
     <link rel="modulepreload" href="/lib/sort-config.js" />
+    <link rel="modulepreload" href="/lib/range-config.js" />
   </head>
   <body>
     <header class="global-header">
@@ -96,18 +97,7 @@
             <summary>Risk level <span>⌃</span></summary>
             <div class="filter-options" id="riskFilters"></div>
           </details>
-          <details class="filter-group">
-            <summary>Investment minimum <span>⌃</span></summary>
-            <div class="range-fields">
-              <label>Maximum<input type="number" id="maxMinimum" placeholder="No maximum" min="0" step="1000" /></label>
-            </div>
-          </details>
-          <details class="filter-group">
-            <summary>Fees <span>⌃</span></summary>
-            <div class="range-fields">
-              <label>Maximum (%)<input type="number" id="maxFee" placeholder="No maximum" min="0" max="10" step="0.05" /></label>
-            </div>
-          </details>
+          <div id="rangeFilters" aria-label="Numeric criteria"></div>
         </aside>
 
         <section class="results-panel" id="resultsPanel" aria-live="polite" aria-busy="false">

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { BRAND_LOGOS } from "../lib/brand-logos.js";
 
-const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js", "lib/column-config.js", "lib/sort-config.js"];
+const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js", "lib/column-config.js", "lib/sort-config.js", "lib/range-config.js"];
 
 test("public source is masked and contains no client-context remnants", async () => {
   const source = (await Promise.all(files.map((file) => readFile(new URL(`../${file}`, import.meta.url), "utf8")))).join("\n");
@@ -125,6 +125,26 @@ test("sorting is adaptive, column-aware and shareable", async () => {
   assert.match(config, /yieldToWorst/);
   assert.match(config, /defaultSort/);
   assert.match(build, /"sort-config\.js"/);
+});
+
+test("numeric distribution filters stay adaptive, lightweight and shareable", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const config = await readFile(new URL("../lib/range-config.js", import.meta.url), "utf8");
+  const catalog = await readFile(new URL("../lib/catalog.js", import.meta.url), "utf8");
+  const build = await readFile(new URL("../scripts/build-static.mjs", import.meta.url), "utf8");
+  assert.match(html, /id="rangeFilters"/);
+  assert.doesNotMatch(html, /id="maxMinimum"|id="maxFee"/);
+  assert.match(app, /function renderRangeFilters/);
+  assert.match(app, /data-range-slider/);
+  assert.match(app, /serializeRanges\(state\.ranges\)/);
+  assert.match(css, /\.distribution-bars/);
+  assert.match(css, /\.dual-range-track/);
+  assert.match(config, /Fixed Income[\s\S]+yieldToWorst/);
+  assert.match(config, /Precious Metals[\s\S]+custody fee/i);
+  assert.match(catalog, /baselineRangeFacetCache/);
+  assert.match(build, /"range-config\.js"/);
 });
 
 test("compare closes from its backdrop while preserving explicit controls", async () => {
