@@ -1178,10 +1178,25 @@ document.addEventListener("input", (event) => {
   if (target.matches("[data-range-number]") && target.value !== "") updateRangeSelection(target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
 });
 
+document.addEventListener("focusout", (event) => {
+  const target = event.target;
+  if (!target.matches("[data-range-number]")) return;
+  updateRangeSelection(target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
+  runSearch();
+});
+
+document.addEventListener("keydown", (event) => {
+  const target = event.target;
+  if (event.key !== "Enter" || !target.matches("[data-range-number]")) return;
+  event.preventDefault();
+  updateRangeSelection(target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
+  target.blur();
+});
+
 document.addEventListener("change", (event) => {
   const target = event.target;
-  if (target.matches("[data-range-slider], [data-range-number]")) {
-    updateRangeSelection(target.dataset.rangeSlider || target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
+  if (target.matches("[data-range-slider]")) {
+    updateRangeSelection(target.dataset.rangeSlider, target.dataset.rangeBound, target.value);
     runSearch();
   }
   if (target.matches("[data-column-choice]")) {
