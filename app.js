@@ -1236,13 +1236,12 @@ function scheduleDetailPrefetch(target) {
 document.addEventListener("pointerover", (event) => scheduleDetailPrefetch(event.target));
 document.addEventListener("focusin", (event) => scheduleDetailPrefetch(event.target));
 
-document.addEventListener("toggle", (event) => {
-  const group = event.target.closest?.("[data-range-group]");
-  if (!group?.open) return;
-  group.parentElement.querySelectorAll("[data-range-group][open]").forEach((candidate) => {
-    if (candidate !== group) candidate.open = false;
-  });
-}, true);
+document.addEventListener("click", (event) => {
+  const summary = event.target.closest?.("[data-range-group] > summary");
+  const group = summary?.parentElement;
+  if (!group || group.open) return;
+  group.parentElement.querySelectorAll("[data-range-group][open]").forEach((candidate) => { candidate.open = false; });
+});
 
 document.addEventListener("input", (event) => {
   const target = event.target;
