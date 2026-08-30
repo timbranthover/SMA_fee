@@ -259,7 +259,7 @@ function rangeModule(definition, facet, open) {
   const numberField = (bound, label, value) => `<label class="range-number-control range-bound-${bound}">
     <span class="sr-only">${escapeHtml(label)} ${escapeHtml(definition.label)}</span>
     ${affixes.prefix ? `<span class="range-affix">${affixes.prefix}</span>` : ""}
-    <input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="${bound}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${value}" inputmode="decimal" />
+    <span class="range-input-sizer" data-range-input-sizer data-value="${value}"><input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="${bound}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${value}" inputmode="decimal" /></span>
     ${affixes.suffix ? `<span class="range-affix">${affixes.suffix}</span>` : ""}
   </label>`;
   return `<details class="filter-group distribution-group ${active ? "has-range" : ""}" data-range-group="${escapeHtml(definition.field)}" ${open ? "open" : ""}>
@@ -332,7 +332,10 @@ function refreshRangeControl(field, { syncSlider = true } = {}) {
   const selection = effectiveRange(field, facet);
   const slider = group.querySelector(`[data-range-slider="${CSS.escape(field)}"]`);
   if (syncSlider && slider?.noUiSlider) slider.noUiSlider.set([selection.min, selection.max], false);
-  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => { input.value = rangeInputValue(selection[input.dataset.rangeBound], definition); });
+  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => {
+    input.value = rangeInputValue(selection[input.dataset.rangeBound], definition);
+    input.closest("[data-range-input-sizer]").dataset.value = input.value;
+  });
   const reset = group.querySelector("[data-reset-range]");
   reset.hidden = !state.ranges[field];
   group.classList.toggle("has-range", Boolean(state.ranges[field]));
@@ -1222,7 +1225,10 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (target.matches("[data-range-number]") && target.value !== "") updateRangeSelection(target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
+  if (target.matches("[data-range-number]")) {
+    target.closest("[data-range-input-sizer]").dataset.value = target.value || "0";
+    if (target.value !== "") updateRangeSelection(target.dataset.rangeNumber, target.dataset.rangeBound, target.value);
+  }
 });
 
 document.addEventListener("focusout", (event) => {

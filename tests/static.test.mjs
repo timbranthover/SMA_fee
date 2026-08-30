@@ -154,7 +154,10 @@ test("numeric range filters stay compact, adaptive and shareable", async () => {
   assert.match(css, /\.range-slider \.noUi-touch-area \{[^}]*inset: -9px;/);
   assert.match(css, /\.compact-range-values/);
   assert.match(app, /class="range-value-pair"/);
+  assert.match(app, /class="range-input-sizer" data-range-input-sizer data-value=/);
+  assert.match(app, /closest\("\[data-range-input-sizer\]"\)\.dataset\.value/);
   assert.match(css, /\.range-value-pair \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  assert.match(css, /\.range-input-sizer::after \{[^}]*content: attr\(data-value\)/);
   assert.match(css, /\.range-bound-min \{[^}]*justify-self: start/);
   assert.match(css, /\.range-bound-max \{[^}]*justify-self: end/);
   assert.match(css, /\.range-clear/);

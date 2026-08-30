@@ -158,7 +158,9 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .range-bound-max { justify-self: end; }
 .range-number-control:hover { border-bottom-color: #d2d2ce; }
 .range-number-control:focus-within { border-bottom-color: var(--red-dark); }
-.range-number-control input { min-width: 1.5ch; max-width: 8ch; width: 34px; field-sizing: content; border: 0; outline: 0; padding: 0; appearance: textfield; background: transparent; color: #1b1b1b; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: text; }
+.range-input-sizer { display: inline-grid; min-width: 1.5ch; max-width: 8ch; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.range-input-sizer::after { content: attr(data-value); grid-area: 1 / 1; min-width: 0; visibility: hidden; white-space: pre; }
+.range-number-control input { grid-area: 1 / 1; min-width: 100%; width: 0; border: 0; outline: 0; padding: 0; appearance: textfield; background: transparent; color: #1b1b1b; font: inherit; cursor: text; }
 .range-bound-min input { text-align: left; }
 .range-bound-max input { text-align: right; }
 .range-number-control input::-webkit-inner-spin-button, .range-number-control input::-webkit-outer-spin-button { margin: 0; appearance: none; }
