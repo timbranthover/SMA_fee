@@ -127,7 +127,7 @@ test("sorting is adaptive, column-aware and shareable", async () => {
   assert.match(build, /"sort-config\.js"/);
 });
 
-test("numeric distribution filters stay adaptive, lightweight and shareable", async () => {
+test("numeric range filters stay compact, adaptive and shareable", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
@@ -147,9 +147,13 @@ test("numeric distribution filters stay adaptive, lightweight and shareable", as
   assert.match(app, /document\.addEventListener\("focusout"[\s\S]+data-range-number[\s\S]+runSearch\(\)/);
   assert.match(app, /event\.key !== "Enter"[\s\S]+target\.blur\(\)/);
   assert.match(app, /serializeRanges\(state\.ranges\)/);
-  assert.match(css, /\.distribution-bars/);
+  assert.doesNotMatch(app, /distribution-bars|distribution-foot|rangeEstimate/);
+  assert.doesNotMatch(css, /\.distribution-bars|\.distribution-foot/);
   assert.match(css, /\.range-slider\.noUi-target/);
-  assert.match(css, /\.range-value-row/);
+  assert.match(css, /\.compact-range-values/);
+  assert.match(css, /\.range-clear/);
+  assert.match(app, /aria-label="Clear \$\{escapeHtml\(definition\.label\)\} range"/);
+  assert.match(app, /if \(!selected\) return "All values"/);
   assert.doesNotMatch(css, /\.dual-range-track/);
   assert.match(config, /Fixed Income[\s\S]+yieldToWorst/);
   assert.match(config, /Precious Metals[\s\S]+custody fee/i);
