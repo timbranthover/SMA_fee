@@ -137,7 +137,8 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .distribution-group:not([open]) summary > .range-summary-title { transform: none; }
 .range-summary-title small { overflow: hidden; color: #888; font-size: 8px; font-weight: 400; letter-spacing: 0; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .distribution-filter { display: grid; gap: 8px; padding: 0 2px 10px; }
-.compact-range-values { display: flex; align-items: center; gap: 3px; min-height: 20px; }
+.compact-range-values { display: flex; align-items: center; min-height: 20px; }
+.range-value-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; column-gap: 8px; width: 100%; margin: 0 6px; }
 .range-track-wrap { display: flex; align-items: center; height: 12px; margin: 0 6px; }
 .range-slider.noUi-target { position: relative; width: 100%; height: 3px; border: 0; border-radius: 99px; background: #d7d7d3; box-shadow: inset 0 1px 1px rgba(0,0,0,.06); cursor: pointer; }
 .range-slider .noUi-connects { border-radius: 99px; overflow: visible; }
@@ -152,15 +153,19 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .range-slider .noUi-connect { cursor: grab; }
 .range-slider .noUi-connect:active { cursor: grabbing; }
 .range-slider.noUi-state-tap .noUi-connect, .range-slider.noUi-state-tap .noUi-origin { transition: transform .16s cubic-bezier(.2,.8,.2,1); }
-.range-number-control { display: inline-flex; align-items: center; min-width: 0; height: 20px; padding: 0 2px; border: 0; border-bottom: 1px solid transparent; color: #777; }
+.range-number-control { display: inline-flex; align-items: center; min-width: 0; height: 20px; padding: 0; border: 0; border-bottom: 1px solid transparent; color: #777; }
+.range-bound-min { justify-self: start; }
+.range-bound-max { justify-self: end; }
 .range-number-control:hover { border-bottom-color: #d2d2ce; }
 .range-number-control:focus-within { border-bottom-color: var(--red-dark); }
-.range-number-control input { min-width: 0; width: 34px; border: 0; outline: 0; padding: 0; appearance: textfield; background: transparent; color: #1b1b1b; text-align: right; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: text; }
+.range-number-control input { min-width: 1.5ch; max-width: 8ch; width: 34px; field-sizing: content; border: 0; outline: 0; padding: 0; appearance: textfield; background: transparent; color: #1b1b1b; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: text; }
+.range-bound-min input { text-align: left; }
+.range-bound-max input { text-align: right; }
 .range-number-control input::-webkit-inner-spin-button, .range-number-control input::-webkit-outer-spin-button { margin: 0; appearance: none; }
 .range-number-control input::-ms-clear, .range-number-control input::-ms-reveal { display: none; width: 0; height: 0; }
 .range-affix, .range-separator { color: #777; font-size: 8px; }
-.range-separator { margin: 0 1px; }
-.range-clear { display: grid; place-items: center; width: 20px; height: 20px; margin-left: auto; border: 0; border-radius: 50%; padding: 0; background: transparent; color: #777; font-size: 13px; line-height: 1; cursor: pointer; }
+.range-separator { justify-self: center; }
+.range-clear { display: grid; flex: 0 0 20px; place-items: center; width: 20px; height: 20px; margin-left: 0; border: 0; border-radius: 50%; padding: 0; background: transparent; color: #777; font-size: 13px; line-height: 1; cursor: pointer; }
 .range-clear:hover { background: #f0f0ed; color: #222; }
 .range-clear:focus-visible { outline: 2px solid var(--red-dark); outline-offset: 1px; }
 .range-clear[hidden] { display: none; }

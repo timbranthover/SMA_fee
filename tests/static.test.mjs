@@ -153,6 +153,10 @@ test("numeric range filters stay compact, adaptive and shareable", async () => {
   assert.match(css, /\.range-slider\.noUi-horizontal \.noUi-handle \{[^}]*width: 14px;[^}]*background: #fff;/);
   assert.match(css, /\.range-slider \.noUi-touch-area \{[^}]*inset: -9px;/);
   assert.match(css, /\.compact-range-values/);
+  assert.match(app, /class="range-value-pair"/);
+  assert.match(css, /\.range-value-pair \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  assert.match(css, /\.range-bound-min \{[^}]*justify-self: start/);
+  assert.match(css, /\.range-bound-max \{[^}]*justify-self: end/);
   assert.match(css, /\.range-clear/);
   assert.match(app, /aria-label="Clear \$\{escapeHtml\(definition\.label\)\} range"/);
   assert.match(app, /if \(!selected\) return "All values"/);

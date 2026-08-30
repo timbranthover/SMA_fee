@@ -256,7 +256,7 @@ function rangeModule(definition, facet, open) {
   const selection = effectiveRange(definition.field, facet);
   const active = Boolean(state.ranges[definition.field]);
   const affixes = rangeAffixes(definition);
-  const numberField = (bound, label, value) => `<label class="range-number-control">
+  const numberField = (bound, label, value) => `<label class="range-number-control range-bound-${bound}">
     <span class="sr-only">${escapeHtml(label)} ${escapeHtml(definition.label)}</span>
     ${affixes.prefix ? `<span class="range-affix">${affixes.prefix}</span>` : ""}
     <input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="${bound}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${value}" inputmode="decimal" />
@@ -266,9 +266,11 @@ function rangeModule(definition, facet, open) {
     <summary><span class="range-summary-title">${escapeHtml(definition.label)}<small data-range-summary>${escapeHtml(rangeSummary(definition, facet))}</small></span><span class="filter-chevron">⌃</span></summary>
     <div class="distribution-filter">
       <div class="compact-range-values">
-        ${numberField("min", "Minimum", rangeInputValue(selection.min, definition))}
-        <span class="range-separator" aria-hidden="true">—</span>
-        ${numberField("max", "Maximum", rangeInputValue(selection.max, definition))}
+        <div class="range-value-pair">
+          ${numberField("min", "Minimum", rangeInputValue(selection.min, definition))}
+          <span class="range-separator" aria-hidden="true">—</span>
+          ${numberField("max", "Maximum", rangeInputValue(selection.max, definition))}
+        </div>
         <button class="range-clear" type="button" data-reset-range="${escapeHtml(definition.field)}" aria-label="Clear ${escapeHtml(definition.label)} range" title="Clear range" ${active ? "" : "hidden"}>×</button>
       </div>
       <div class="range-track-wrap"><div class="range-slider" data-range-slider="${escapeHtml(definition.field)}"></div></div>

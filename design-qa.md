@@ -1,48 +1,46 @@
-# Design QA — Compact Numeric Range Filter
+# Design QA — Numeric Range Value Alignment
 
-- Source visual truth: `/workspace/scratch/e1b81af706d5/upload/IMG_2197.jpeg`
-- Browser-rendered implementation screenshot: `/workspace/scratch/e1b81af706d5/design-qa-implementation.jpg`
-- Focused implementation crop: `/workspace/scratch/e1b81af706d5/design-qa-implementation-range.png`
-- Production URL: `https://ups-investment-screener.vercel.app/?category=Equities&ranges=forwardPE%3A%3A24`
+- Source visual truth: `/workspace/scratch/e1b81af706d5/upload/IMG_2199.jpeg`
+- Browser-rendered implementation: cloud-browser focused capture of `http://terminal.local:4173/`, Fees expanded
+- Production target: `https://ups-investment-screener.vercel.app`
 - Viewport: 1363 × 936 CSS px at device pixel ratio 1
-- Source pixels: 880 × 284
-- Implementation screenshot pixels: 1348 × 926; browser chrome/scrollbar account for the difference from the CSS viewport
-- Focused crop: 247 × 89 px, enlarged to 741 × 267 only for legible comparison
-- State: Equities; Forward P/E expanded; maximum set to 24.0×
+- Source pixels: 607 × 264
+- Implementation focused capture: 263 × 95 px (247 × 79 component plus 8px context on each side)
+- Density normalization: source is a high-zoom crop of the same desktop sidebar; comparison used the control's visible alignment rather than raw pixel scale
+- State: All investments; Fees expanded; full 0%–1.75% range
 
 ## Full-view comparison evidence
 
-The source is the rejected “before” state, not a fidelity target. It shows three competing layers: a histogram, oversized boxed inputs with individual clear affordances, and a footer repeating median and match count. The production screenshot preserves the surrounding screener and replaces only this control. The expanded group measures 79px total and 50px for its body, with no effect on the results table or neighboring accordions.
+The source shows the minimum, separator, and maximum packed into a left-biased cluster while the rail spans the full filter width. The revised browser-rendered screen preserves the surrounding screener, filter width, typography, accordion behavior, and 79px expanded height.
 
 ## Focused comparison evidence
 
-The implementation crop shows a single compact value row (`12× — 24×`), one small clear action, a two-pixel track, and ten-pixel handles. The selected segment remains UPS red; the untouched segment is neutral gray. The active range is also summarized beside the criterion label (`≤ 24.0×`). No histogram, median, duplicate match count, boxed fields, or text reset remains.
+The source and revised focused captures were reviewed together. In the revision, the minimum aligns exactly with the rail's left endpoint, the separator aligns with the rail center, and the maximum aligns exactly with the right endpoint. Measured offsets are 0px left, 0px center, and 0px right. The same geometry passed for all 11 investment-category configurations.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: Existing screener type system is unchanged. Numeric values use the existing compact UI face at 9px, bold, with tabular numerals; summary copy remains secondary at 8px.
-- Spacing and layout rhythm: Expanded control is 79px tall. The body uses an 8px internal gap, 20px precision row, and 12px slider hit area. Neighboring groups remain aligned.
-- Colors and visual tokens: Existing neutral line, text, and UPS red tokens are reused. Inactive full-range state is neutral; red appears only for an active selection.
-- Image and asset fidelity: No images or bespoke icons are introduced. The × clear action is text-native UI chrome; the existing noUiSlider handles remain code-rendered controls.
-- Copy and content: “All values” replaces the redundant median. Active ranges use ≤, ≥, or an en-dash range. “Reset,” the duplicate match count, and individual field clears are removed.
+- Fonts and typography: Existing font family, 9px bold tabular numerals, 8px secondary summary, and affix styling are unchanged. Inputs size to their content where supported and retain a safe fallback width.
+- Spacing and layout rhythm: Values now use a three-column endpoint grid with an 8px center gap and the same 6px rail inset. Expanded height remains 79px.
+- Colors and visual tokens: No color, border, shadow, or state-token changes.
+- Image and asset fidelity: No assets or icons were added or changed.
+- Copy and content: Labels, values, units, accessibility names, and clear behavior are unchanged.
 
 ## Interactions tested
 
-- Exact maximum entry updates the result set once on commit.
-- Result count changed from 22,584 to 12,306 for Forward P/E ≤ 24.0×.
-- URL persisted `ranges=forwardPE::24` and restored the open active control after reload.
-- The single clear action returned the URL and result count to the unfiltered state.
-- Only one numeric accordion remains open at a time.
-- Browser console contained no application warnings or errors; observed errors were isolated to the browser-testing extension.
+- Verified percent, dollar, multiple, month, and year value formats across all investment categories.
+- Verified keyboard adjustment updates the slider value, URL state, and filtered results.
+- Verified the minimum, separator, and maximum align at 0px offset from their corresponding rail anchors.
+- Browser console contained no application warnings or errors.
+- Automated suite: 52 tests passed.
 
 ## Findings
 
-No actionable P0, P1, or P2 findings remain. The cursor visible in the focused browser capture is test-environment chrome, not part of the product.
+No actionable P0, P1, or P2 findings remain. The pointer visible in the focused capture is cloud-browser test chrome, not part of the product.
 
 ## Comparison history
 
-- Initial source finding: excessive vertical height and redundant information from histogram bars, large inputs, multiple clears, Reset, median, and match count.
-- Fix: removed distribution rendering and estimation, compressed precision entry, reduced handle/track size, added one contextual clear action, and retained deferred search-on-release behavior.
-- Post-fix evidence: production group measures 79px; histogram and footer counts are zero; exact entry, reload, clearing, and server-rendered results all pass.
+- Initial finding: lower and upper values formed a compact left-biased cluster unrelated to the rail endpoints.
+- Fix: grouped values into a dedicated three-column grid, anchored minimum and maximum to opposite ends, centered the separator, and added content-aware input sizing.
+- Post-fix evidence: 0px endpoint and center offsets across all 11 category configurations; component height unchanged; keyboard behavior and tests pass.
 
 final result: passed
