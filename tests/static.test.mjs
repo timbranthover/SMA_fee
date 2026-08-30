@@ -150,6 +150,8 @@ test("numeric range filters stay compact, adaptive and shareable", async () => {
   assert.doesNotMatch(app, /distribution-bars|distribution-foot|rangeEstimate/);
   assert.doesNotMatch(css, /\.distribution-bars|\.distribution-foot/);
   assert.match(css, /\.range-slider\.noUi-target/);
+  assert.match(css, /\.range-slider\.noUi-horizontal \.noUi-handle \{[^}]*width: 14px;[^}]*background: #fff;/);
+  assert.match(css, /\.range-slider \.noUi-touch-area \{[^}]*inset: -9px;/);
   assert.match(css, /\.compact-range-values/);
   assert.match(css, /\.range-clear/);
   assert.match(app, /aria-label="Clear \$\{escapeHtml\(definition\.label\)\} range"/);
