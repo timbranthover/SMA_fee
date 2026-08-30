@@ -141,6 +141,7 @@ test("numeric distribution filters stay adaptive, lightweight and shareable", as
   assert.match(app, /import noUiSlider from "\/vendor\/nouislider\.mjs"/);
   assert.match(app, /behaviour: "tap-drag-smooth-steps"/);
   assert.match(app, /change\.compactRange[\s\S]+runSearch\(\)/);
+  assert.match(app, /function setRangeSelection[\s\S]+rangeInputValue/);
   assert.match(app, /data-range-group\]\[open\]/);
   assert.match(app, /document\.addEventListener\("focusout"[\s\S]+data-range-number[\s\S]+runSearch\(\)/);
   assert.match(app, /event\.key !== "Enter"[\s\S]+target\.blur\(\)/);

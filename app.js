@@ -364,9 +364,10 @@ function refreshRangeControl(field, { syncSlider = true } = {}) {
 
 function setRangeSelection(field, rawMinimum, rawMaximum, options = {}) {
   const facet = state.facets?.ranges?.[field];
-  if (!facet) return;
-  const minimum = Math.max(facet.min, Math.min(facet.max, Number(rawMinimum)));
-  const maximum = Math.max(minimum, Math.min(facet.max, Number(rawMaximum)));
+  const definition = rangeDefinitions(state.appliedCategory).find((entry) => entry.field === field);
+  if (!facet || !definition) return;
+  const minimum = rangeInputValue(Math.max(facet.min, Math.min(facet.max, Number(rawMinimum))), definition);
+  const maximum = rangeInputValue(Math.max(minimum, Math.min(facet.max, Number(rawMaximum))), definition);
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return;
   const next = {};
   if (minimum !== facet.min) next.min = minimum;
