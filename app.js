@@ -335,7 +335,8 @@ function renderRangeFilters() {
   const previousOpen = new Set([...container.querySelectorAll("[data-range-group][open]")].map((group) => group.dataset.rangeGroup));
   const categoryChanged = rangeCategoryRendered !== category;
   const definitions = rangeDefinitions(category).filter(({ field }) => facets[field]);
-  const defaultOpen = categoryChanged ? definitions[0]?.field : null;
+  const activeRange = definitions.find(({ field }) => state.ranges[field])?.field;
+  const defaultOpen = categoryChanged ? activeRange || definitions[0]?.field : null;
   updateHtml(container, definitions.map((definition) => rangeModule(definition, facets[definition.field], previousOpen.has(definition.field) || definition.field === defaultOpen)).join(""));
   definitions.forEach((definition) => initializeRangeSlider(definition, facets[definition.field]));
   rangeCategoryRendered = category;
