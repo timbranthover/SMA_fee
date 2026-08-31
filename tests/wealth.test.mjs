@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { getHouseholdProjection, parseHouseholdId } from "../api/wealth.js";
 import { createWealthRepository } from "../lib/wealth-repository.js";
-import { createWealthClientService } from "../lib/wealth-service.js";
+import { createWealthService } from "../lib/wealth-service.js";
 import { MORRISON_WEALTH_DATASET } from "../lib/wealth-source.js";
 
 const DEFAULT_HOUSEHOLD_ID = "household-morrison";
-const wealthClientService = createWealthClientService(MORRISON_WEALTH_DATASET);
-const defaultWorkspace = wealthClientService.getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
+const wealthService = createWealthService(MORRISON_WEALTH_DATASET);
+const defaultWorkspace = wealthService.getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
 const HOUSEHOLD = defaultWorkspace.household;
 const WEALTH_ALLOCATION = defaultWorkspace.allocation;
 const HOUSEHOLD_ACCOUNTS = defaultWorkspace.accounts;
@@ -64,12 +64,12 @@ test("wealth source is normalized while the service preserves the existing brows
   assert.equal("holdings" in rawAccount, false);
   assert.equal(rawAccount.householdId, DEFAULT_HOUSEHOLD_ID);
 
-  const workspace = wealthClientService.getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
+  const workspace = wealthService.getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
   assert.equal(workspace.household, HOUSEHOLD);
   assert.equal(workspace.accounts, HOUSEHOLD_ACCOUNTS);
   assert.equal(workspace.goals, HOUSEHOLD_GOALS);
   assert.deepEqual(workspace.concentrationReview, CONCENTRATION_REVIEW);
-  assert.deepEqual(wealthClientService.getRepositoryStats(), {
+  assert.deepEqual(wealthService.getRepositoryStats(), {
     advisors: 1,
     households: 1,
     accounts: 6,
@@ -95,7 +95,7 @@ test("household totals are derived from normalized records instead of duplicated
   changed.goals[4].tone = "good";
   changed.goals[4].fundedAmount = 1000000;
 
-  const workspace = createWealthClientService(changed).getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
+  const workspace = createWealthService(changed).getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
   assert.equal(workspace.household.financialAssets, HOUSEHOLD.financialAssets + 1000000);
   assert.equal(workspace.household.investableCash, HOUSEHOLD.investableCash + 100000);
   assert.equal(workspace.household.nonFinancialAssets, HOUSEHOLD.nonFinancialAssets + 500000);
