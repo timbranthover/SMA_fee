@@ -1,0 +1,39 @@
+name: Final Phase Two Lineage Cleanup
+
+on:
+  push:
+    branches: [phase2/my-book]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase2/my-book
+          fetch-depth: 0
+      - name: Derive book as-of from returned data
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app.js')
+          text = path.read_text()
+          old = '  el("bookUpdated").textContent = "Updated through Aug 21, 2026 · 9:42 AM ET";'
+          new = '  el("bookUpdated").textContent = data.items[0]?.asOf ? `Updated ${data.items[0].asOf}` : "Current client data";'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected book timestamp literal exactly once, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Remove one-shot workflow
+        run: rm .github/workflows/final-phase2-lineage.yml
+      - name: Commit cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Derive advisor book as-of from client data"
+          git push origin HEAD:phase2/my-book
