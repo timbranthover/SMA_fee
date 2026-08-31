@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node local-server.mjs",
-    "check": "node --check app.js && node --check lib/shared-config.js && node --check lib/brand-logos.js && node --check lib/column-config.js && node --check lib/sort-config.js && node --check lib/range-config.js && node --check lib/wealth-source.js && node --check lib/wealth-repository.js && node --check lib/wealth-service.js && node --check lib/wealth-data.js && node --check lib/catalog.js && node --check lib/history.js && node --check api/search.js && node --check api/detail.js && node --check api/history.js && node --check api/snapshots.js && node --check api/wealth.js && node --check local-server.mjs && node --check scripts/build-static.mjs",
+    "check": "node --check app.js && node --check lib/shared-config.js && node --check lib/brand-logos.js && node --check lib/column-config.js && node --check lib/sort-config.js && node --check lib/range-config.js && node --check lib/wealth-source.js && node --check lib/advisor-book-source.js && node --check lib/wealth-repository.js && node --check lib/wealth-service.js && node --check lib/wealth-data.js && node --check lib/catalog.js && node --check lib/history.js && node --check api/search.js && node --check api/detail.js && node --check api/history.js && node --check api/snapshots.js && node --check api/wealth.js && node --check local-server.mjs && node --check scripts/build-static.mjs",
     "test": "node --test tests/*.test.mjs",
     "build:static": "node scripts/build-static.mjs",
     "build": "npm run check && npm test && npm run build:static"
