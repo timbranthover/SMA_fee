@@ -70,7 +70,7 @@ replace_once(
     '  assert.equal("taxReserve" in scenario.economics, false);',
 )
 
-for path in ["lib/decision-service.js", "api/decision.js", "app.js", "tests/decision.test.mjs"]:
+for path in ["lib/decision-service.js", "api/decision.js", "app.js"]:
     source = Path(path).read_text()
     if "taxRate" in source or "taxReserve" in source or "Tax reserve assumption" in source or "Estimated tax reserve" in source:
         raise SystemExit(f"False tax-precision language remains in {path}")
