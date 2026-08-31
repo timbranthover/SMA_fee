@@ -10,8 +10,36 @@ page.on("pageerror", (error) => pageErrors.push(error.message));
 
 try {
   await page.goto("http://127.0.0.1:4173", { waitUntil: "networkidle" });
+  await page.waitForSelector("#wealthChart canvas");
+  await page.waitForFunction(() => document.querySelector("#wealthChartLoading")?.hidden === true);
+  assert.equal(await page.title(), "Advisor Workspace");
+  assert.match(await page.locator("#wealthView").innerText(), /Morrison Household/);
+  assert.match(await page.locator("#wealthView").innerText(), /\$12\.42M/);
+  assert.equal(await page.locator("[data-wealth-insight]").count(), 5);
+  assert.equal(await page.locator(".attention-panel").evaluate((element) => element.scrollWidth - element.clientWidth), 0);
+  await page.screenshot({ path: "/tmp/advisor-workspace-total-wealth.png", fullPage: true });
+
+  await page.getByRole("button", { name: /Apple concentration increased/ }).click();
+  await page.waitForSelector("#wealthDrawer.open");
+  await page.waitForTimeout(250);
+  assert.match(await page.locator("#wealthDrawer").innerText(), /Where the exposure sits/);
+  assert.match(await page.locator("#wealthDrawer").innerText(), /Illustrative household impact/);
+  assert.equal(await page.locator("#wealthDrawer .product-logo").evaluate((logo) => logo.complete && logo.naturalWidth > 0), true);
+  await page.locator('[data-household-scenario="concentration"]').click();
   await page.waitForSelector("#resultsBody tr[data-row-id]");
-  assert.equal(await page.title(), "Investment Screener");
+  assert.equal(await page.title(), "Investment Screener | Advisor Workspace");
+  assert.equal(await page.locator("#scenarioRibbon").isVisible(), true);
+  assert.match(await page.locator("#scenarioRibbon").innerText(), /Explore tax-aware diversification/);
+  assert.match(await page.locator("#activeChips").innerText(), /Tax-Aware/);
+  assert.match(await page.locator("#activeChips").innerText(), /Direct Indexing/);
+  await page.locator("#resultsBody [data-compare-id]").first().check();
+  await page.locator(".scenario-back").click();
+  assert.match(await page.locator('[data-insight-detail="concentration"]').innerText(), /1 diversification alternative selected/);
+
+  await page.locator('[data-workspace-view="investments"]').first().click();
+  const clearResponse = page.waitForResponse((response) => response.url().includes("/api/search") && response.status() === 200);
+  await page.locator("#clearAll").click();
+  await clearResponse;
   assert.equal(await page.locator("#resultsBody tr[data-row-id]").count(), 25);
   assert.match(await page.locator("body").innerText(), /130,428/);
   assert.equal(await page.locator("#sortSelect").inputValue(), "name-asc");

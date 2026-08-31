@@ -1,9 +1,14 @@
-# UPS Investment Screener
+# UPS Advisor Workspace
 
-Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstrates a responsive advisor search experience without loading the shelf into the browser.
+Desktop-first, masked vision prototype deployed on Vercel. It connects a synthetic Total Wealth household view to the existing institutional investment screener without obscuring how or why the handoff occurs.
 
 ## What is real in the demo
 
+- The default Total Wealth workspace contains one internally coherent synthetic household spanning accounts, held-away assets, liabilities, allocation, goals, cash needs and prioritized advisor work.
+- A concentrated Apple position opens an in-context household analysis with account location, cost basis, scenario impact, policy comparison and research context.
+- The analysis passes an explicit objective bundle into the existing screener. It never claims hidden suitability, eligibility or recommendation logic; the advisor can see and edit every resulting criterion.
+- The same locally bundled Lightweight Charts library powers both investable-wealth history and investment comparison, keeping the experience smooth without a remote charting or market-data dependency.
+- Selected diversification alternatives remain in memory when the advisor returns to Total Wealth, closing the loop from household fact to research activity.
 - A deterministic 130,428-record mock catalog exists in server memory.
 - Search uses exact ticker/CUSIP priority, field-weighted whole-word relevance, strict multi-term matching and a controlled name/manager typo fallback.
 - Combined filters, exact facets and global sorting run against the complete catalog; sorting adapts to the active vehicle and visible quantitative columns, and each text result explains why it matched.
@@ -21,7 +26,7 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - The browser aborts stale requests, waits 260 ms for typing intent and delays loading chrome for 180 ms so fast results replace in place without flicker. Range dragging stays local and requests only on commit; baseline distributions are cached per server instance. Profile requests are cached and prefetched only after brief hover/focus intent.
 - Search responses contain only list-and-compare fields; profile-only research data is retrieved from `/api/detail` after selection.
 
-The investment data, performance, flags, product availability and company identity are illustrative. This is not an investment or production entitlement system.
+The household, investment data, performance, flags, product availability and company identity are illustrative. This is not a financial plan, recommendation, investment or production entitlement system.
 
 ## Run and test
 
@@ -31,7 +36,7 @@ npm test
 npm run build
 ```
 
-Open `http://127.0.0.1:4173` after starting the local server.
+Open `http://127.0.0.1:4173` after starting the local server. The screener is also available directly at `/investments`.
 
 ## Production direction
 

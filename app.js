@@ -3,6 +3,7 @@ import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
 import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
+import { CONCENTRATION_REVIEW, HOUSEHOLD, HOUSEHOLD_ACCOUNTS, HOUSEHOLD_GOALS, HOUSEHOLD_HOLDINGS, HOUSEHOLD_INSIGHTS, WEALTH_ALLOCATION, WEALTH_HISTORY } from "/lib/wealth-data.js";
 import noUiSlider from "/vendor/nouislider.mjs";
 
 const number = new Intl.NumberFormat("en-US");
@@ -12,6 +13,8 @@ const COMPARE_COLORS = ["#b51f35", "#246a58", "#315f8f", "#9b7629"];
 const COMPARE_RANGE_OPTIONS = new Set(["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"]);
 
 const state = {
+  workspaceView: "wealth",
+  householdScenario: null,
   q: "",
   category: "All",
   appliedCategory: "All",
@@ -56,6 +59,10 @@ const compareRangeData = new Map();
 const compareHistoryCache = new Map();
 let columnDraft = [];
 let rangeCategoryRendered = null;
+let wealthChart = null;
+let wealthSeries = null;
+let wealthChartResizeObserver = null;
+let wealthRange = "1Y";
 
 const elementCache = new Map();
 const el = (id) => {
@@ -199,6 +206,192 @@ function showToast(message) {
   toast.hidden = false;
   window.clearTimeout(showToast.timeout);
   showToast.timeout = window.setTimeout(() => { toast.hidden = true; }, 2600);
+}
+
+function formatWealthCurrency(value, digits = 2) {
+  const absolute = Math.abs(Number(value) || 0);
+  const sign = value < 0 ? "−" : "";
+  if (absolute >= 1000000) return `${sign}$${(absolute / 1000000).toFixed(digits).replace(/\.00$/, "")}M`;
+  if (absolute >= 1000) return `${sign}$${Math.round(absolute / 1000)}K`;
+  return `${sign}${currency.format(absolute)}`;
+}
+
+function renderWealthWorkspace() {
+  updateHtml(el("wealthAllocationBar"), WEALTH_ALLOCATION.map((item) => `<span class="allocation-segment tone-${escapeHtml(item.tone)}" style="width:${item.value}%" title="${escapeHtml(item.label)} · ${item.value}%"></span>`).join(""));
+  updateHtml(el("wealthAllocationLegend"), WEALTH_ALLOCATION.map((item) => `<div><i class="tone-${escapeHtml(item.tone)}"></i><span>${escapeHtml(item.label)}</span><strong>${item.value}%</strong></div>`).join(""));
+  updateHtml(el("wealthAccountsBody"), HOUSEHOLD_ACCOUNTS.map((account) => `<tr><th><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.registration)} · ${escapeHtml(account.allocation)}</small></th><td>${formatWealthCurrency(account.value)}</td><td class="positive">+${account.change.toFixed(1)}%</td></tr>`).join(""));
+  updateHtml(el("wealthHoldingsBody"), HOUSEHOLD_HOLDINGS.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td class="${holding.weight > 15 ? "attention-value" : ""}">${holding.weight.toFixed(1)}%</td></tr>`).join(""));
+  updateHtml(el("wealthGoals"), HOUSEHOLD_GOALS.map((goal) => `<div class="goal-row"><div><strong>${escapeHtml(goal.name)}</strong><small>${escapeHtml(goal.timing)}</small></div><div class="goal-progress"><span><i style="width:${goal.progress}%"></i></span><small>${goal.progress}%</small></div><em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></div>`).join(""));
+  updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}</small><strong>${escapeHtml(insight.title)}</strong><em data-insight-detail="${escapeHtml(insight.id)}">${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(insight.action)} <b>›</b></span></button>`).join(""));
+  renderHouseholdProgress();
+}
+
+function renderHouseholdProgress() {
+  const progress = document.querySelector('[data-insight-detail="concentration"]');
+  if (!progress) return;
+  const selected = state.compare.size;
+  progress.textContent = selected ? `${selected} diversification ${selected === 1 ? "alternative" : "alternatives"} selected` : "$2.80M across two taxable accounts";
+}
+
+function wealthPointsForRange(range) {
+  const years = { "1Y": 1, "3Y": 3, "5Y": 5 }[range] || 1;
+  const cutoff = new Date("2026-08-21T00:00:00Z");
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - years);
+  return WEALTH_HISTORY.filter((point) => new Date(`${point.time}T00:00:00Z`) >= cutoff);
+}
+
+function drawWealthRange() {
+  if (!wealthSeries || !wealthChart) return;
+  wealthSeries.setData(wealthPointsForRange(wealthRange));
+  document.querySelectorAll("[data-wealth-range]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.wealthRange === wealthRange)));
+  el("wealthChartPeriod").textContent = { "1Y": "Aug 2025–Aug 2026", "3Y": "Aug 2023–Aug 2026", "5Y": "Aug 2021–Aug 2026" }[wealthRange];
+  wealthChart.timeScale().fitContent();
+}
+
+async function initializeWealthChart() {
+  if (wealthChart || state.workspaceView !== "wealth") return;
+  const container = el("wealthChart");
+  try {
+    const library = await loadCompareChartLibrary();
+    if (state.workspaceView !== "wealth" || wealthChart) return;
+    wealthChart = library.createChart(container, {
+      width: Math.max(640, container.clientWidth),
+      height: 224,
+      layout: { background: { type: library.ColorType.Solid, color: "#ffffff" }, textColor: "#787875", fontFamily: "Arial, Helvetica, sans-serif", fontSize: 10, attributionLogo: false },
+      grid: { vertLines: { color: "#f3f3f0" }, horzLines: { color: "#ececea" } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
+      timeScale: { borderColor: "#ddddda", fixLeftEdge: true, fixRightEdge: true, timeVisible: false, secondsVisible: false },
+      crosshair: { mode: library.CrosshairMode.Normal, vertLine: { color: "#8c8c88", width: 1, labelBackgroundColor: "#171717" }, horzLine: { color: "#b8b8b4", width: 1, labelBackgroundColor: "#171717" } },
+      localization: { priceFormatter: (value) => `$${Number(value).toFixed(2)}M` },
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { axisPressedMouseMove: false, mouseWheel: false, pinch: true },
+    });
+    wealthSeries = wealthChart.addSeries(library.AreaSeries, { lineColor: "#203f52", lineWidth: 2, topColor: "rgba(32, 63, 82, .18)", bottomColor: "rgba(32, 63, 82, .015)", priceLineVisible: false, lastValueVisible: true, crosshairMarkerRadius: 3 });
+    wealthChartResizeObserver = new ResizeObserver(([entry]) => wealthChart?.resize(Math.max(640, Math.round(entry.contentRect.width)), 224));
+    wealthChartResizeObserver.observe(container);
+    drawWealthRange();
+    el("wealthChartLoading").hidden = true;
+  } catch (error) {
+    el("wealthChartLoading").classList.add("error");
+    el("wealthChartLoading").querySelector("p").textContent = "Household history is temporarily unavailable.";
+  }
+}
+
+function investmentUrl() {
+  const params = new URLSearchParams();
+  if (state.q) params.set("q", state.q);
+  if (state.category !== "All") params.set("category", state.category);
+  if (state.flags.size) params.set("flags", [...state.flags].join(","));
+  if (state.risks.size) params.set("risks", [...state.risks].join(","));
+  if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
+  const ranges = serializeRanges(state.ranges);
+  if (ranges) params.set("ranges", ranges);
+  if (state.sortExplicit || state.sort !== defaultSort(Boolean(state.q))) params.set("sort", state.sort);
+  return params.size ? `/investments?${params}` : "/investments";
+}
+
+function setWorkspaceView(view, { updateHistory = true, replaceHistory = false } = {}) {
+  const next = view === "investments" ? "investments" : "wealth";
+  state.workspaceView = next;
+  el("wealthView").hidden = next !== "wealth";
+  el("investmentView").hidden = next !== "investments";
+  document.body.dataset.workspace = next;
+  document.querySelectorAll("[data-workspace-view]").forEach((button) => button.classList.toggle("active", button.dataset.workspaceView === next));
+  document.title = next === "wealth" ? "Advisor Workspace" : "Investment Screener | Advisor Workspace";
+  if (updateHistory && !profileFromPath()) {
+    const href = next === "wealth" ? "/" : investmentUrl();
+    history[replaceHistory ? "replaceState" : "pushState"]({ workspaceView: next }, "", href);
+  }
+  if (next === "wealth") {
+    renderHouseholdProgress();
+    requestAnimationFrame(initializeWealthChart);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+function closeWealthDrawer({ restoreFocus = true } = {}) {
+  el("wealthDrawer").classList.remove("open");
+  el("wealthDrawer").setAttribute("aria-hidden", "true");
+  el("wealthDrawerBackdrop").hidden = true;
+  document.body.classList.remove("wealth-drawer-open");
+  document.querySelector("main").inert = false;
+  document.querySelector(".global-header").inert = false;
+  if (restoreFocus) state.lastFocus?.focus?.();
+}
+
+function concentrationDrawer() {
+  const review = CONCENTRATION_REVIEW;
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PORTFOLIO RISK · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close concentration review">×</button></header>
+    <div class="wealth-drawer-body">
+      <section class="concentration-hero"><div class="concentration-name">${productMark({ ...review.holding, category: "Equities" })}<div><span>Single-stock concentration</span><h2 id="wealthDrawerTitle">Apple Inc.</h2><p>AAPL · Across two taxable accounts</p></div></div><div class="concentration-status"><span>Above policy</span><strong>${review.holding.weight.toFixed(1)}%</strong><small>12% household target</small></div></section>
+      <section class="concentration-metrics" aria-label="Concentration summary"><div><span>Market value</span><strong>${formatWealthCurrency(review.holding.value)}</strong><small>Largest household position</small></div><div><span>Unrealized gain</span><strong>${formatWealthCurrency(review.unrealizedGain)}</strong><small>${Math.round(review.unrealizedGain / review.costBasis * 100)}% above cost basis</small></div><div><span>Risk contribution</span><strong>31%</strong><small>Of modeled equity risk</small></div><div><span>Target release</span><strong>$1.37M</strong><small>To reach 12% target</small></div></section>
+      <section class="concentration-section"><div class="section-heading"><span>Exposure</span><h3>Position relative to policy</h3></div><div class="policy-track"><div class="policy-target" style="left:${review.targetWeight / 30 * 100}%"><span>12% target</span></div><div class="policy-current" style="width:${review.holding.weight / 30 * 100}%"></div></div><div class="policy-scale"><span>0%</span><span>Household policy range</span><span>30%</span></div></section>
+      <section class="concentration-section"><div class="section-heading"><span>Ownership</span><h3>Where the exposure sits</h3><p>Taxable location makes sequencing and realized gains material.</p></div><table class="concentration-table"><thead><tr><th>Account</th><th>Market value</th><th>Account weight</th><th>Unrealized gain</th></tr></thead><tbody>${review.accounts.map((account) => `<tr><th>${escapeHtml(account.name)}</th><td>${formatWealthCurrency(account.value)}</td><td>${account.weight.toFixed(1)}%</td><td>${formatWealthCurrency(account.gain)}</td></tr>`).join("")}</tbody></table></section>
+      <section class="concentration-section scenario-impact"><div class="section-heading"><span>Decision support</span><h3>Illustrative household impact</h3></div><table class="concentration-table"><thead><tr><th>Scenario</th><th>Position impact</th><th>Portfolio impact</th></tr></thead><tbody>${review.scenarios.map((scenario) => `<tr><th>${escapeHtml(scenario.name)}</th><td>${escapeHtml(scenario.holdingMove)}</td><td>${escapeHtml(scenario.portfolioMove)}</td></tr>`).join("")}</tbody></table></section>
+      <section class="concentration-research"><div><span>UPS RESEARCH · ${escapeHtml(review.research.reviewed)}</span><strong>${escapeHtml(review.research.status)}</strong><p>${escapeHtml(review.research.summary)}</p></div><button type="button" class="secondary-button" data-open-modal="researchModal">View research context</button></section>
+      <section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Explore implementation paths</h3><p>Carry the objective—not hidden client data—into the investment shelf.</p></div><button type="button" class="primary-button" data-household-scenario="concentration">Explore tax-aware diversification →</button></section>
+      <p class="wealth-disclosure">Illustrative household and scenario data · Not for investment decisions.</p>
+    </div>`;
+}
+
+function operationalDrawer(id) {
+  const templates = {
+    "capital-call": { eyebrow: "UPCOMING OBLIGATION", title: "$125K private-credit capital call", summary: "Funding is due Sep 8. Available cash fully covers the obligation without selling investments.", rows: [["Funding source", "Joint brokerage cash"], ["Cash available", "$410K"], ["Remaining after funding", "$285K"], ["Status", "Funding source identified"]] },
+    changes: { eyebrow: "FOLLOWED INVESTMENTS", title: "Three material changes", summary: "Research and shelf activity tied to investments already followed in this workspace.", rows: [["UPS Core Municipal Portfolio", "Research review completed · Aug 18"], ["Vanguard S&P 500 ETF", "Data refreshed · Aug 21"], ["Tax-Aware Direct Index SMA", "Shelf terms updated · Aug 19"]] },
+  };
+  const item = templates[id];
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">${escapeHtml(item.eyebrow)}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary)}</p><div class="operational-rows">${item.rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div><p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p></div>`;
+}
+
+function openWealthDrawer(id) {
+  state.lastFocus = document.activeElement;
+  el("wealthDrawerContent").innerHTML = id === "concentration" ? concentrationDrawer() : operationalDrawer(id);
+  el("wealthDrawerBackdrop").hidden = false;
+  el("wealthDrawer").classList.add("open");
+  el("wealthDrawer").setAttribute("aria-hidden", "false");
+  document.body.classList.add("wealth-drawer-open");
+  document.querySelector("main").inert = true;
+  document.querySelector(".global-header").inert = true;
+  requestAnimationFrame(() => el("wealthDrawer").querySelector("[data-close-wealth-drawer]")?.focus());
+}
+
+function showScenarioRibbon({ source, title, tags }) {
+  state.householdScenario = { source, title, tags };
+  el("scenarioSource").textContent = source;
+  el("scenarioTitle").textContent = title;
+  el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+  el("scenarioRibbon").hidden = false;
+}
+
+function applyHouseholdScenario(id) {
+  const scenarios = {
+    concentration: { source: "FROM CONCENTRATION REVIEW", title: "Explore tax-aware diversification", tags: ["Taxable assets", "Daily liquidity", "Reduce single-stock exposure"], category: "SMAs", q: "", flags: ["Tax-Aware", "Direct Indexing"], risks: ["Moderate"] },
+    cash: { source: "FROM LIQUIDITY REVIEW", title: "Explore cash alternatives", tags: ["$740K available", "Conservative", "Daily liquidity"], category: "Fixed Income", q: "short duration cash management", flags: [], risks: ["Conservative"] },
+    muni: { source: "FROM ALLOCATION REVIEW", title: "Restore municipal allocation", tags: ["New York", "Tax aware", "Fee under 0.50%"], category: "Fixed Income", q: "New York municipal income under 50 bps", flags: ["Tax-Aware"], risks: ["Conservative"] },
+  };
+  const scenario = scenarios[id];
+  if (!scenario) return;
+  closeWealthDrawer({ restoreFocus: false });
+  state.q = scenario.q;
+  state.category = scenario.category;
+  state.appliedCategory = scenario.category;
+  state.flags = new Set(scenario.flags);
+  state.risks = new Set(scenario.risks);
+  state.statuses.clear();
+  state.ranges = {};
+  state.sort = defaultSort(Boolean(state.q));
+  state.sortExplicit = false;
+  el("searchInput").value = state.q;
+  showScenarioRibbon(scenario);
+  setWorkspaceView("investments");
+  runSearch();
+}
+
+function handleWealthInsight(id) {
+  if (id === "concentration" || id === "capital-call" || id === "changes") { openWealthDrawer(id); return; }
+  if (id === "cash" || id === "muni") applyHouseholdScenario(id);
 }
 
 function renderCategories() {
@@ -594,6 +787,7 @@ async function loadMarketSnapshots(items) {
 }
 
 function syncUrl() {
+  if (state.workspaceView !== "investments" || profileFromPath()) return;
   const params = new URLSearchParams();
   if (state.q) params.set("q", state.q);
   if (state.category !== "All") params.set("category", state.category);
@@ -609,7 +803,7 @@ function syncUrl() {
     params.set("columns", columns.join(","));
     params.set("columnCategory", state.appliedCategory);
   }
-  if (!profileFromPath()) history.replaceState(null, "", params.size ? `/?${params}` : "/");
+  history.replaceState({ workspaceView: "investments" }, "", params.size ? `/investments?${params}` : "/investments");
 }
 
 async function runSearch({ preserveCursor = false } = {}) {
@@ -725,6 +919,7 @@ function renderCompareTray() {
   el("compareTrayCount").textContent = String(count);
   el("compareTray").hidden = count === 0;
   el("compareItems").innerHTML = [...state.compare.values()].map((item) => `<div class="compare-item"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(item.symbol)}</small><button data-remove-compare="${escapeHtml(item.id)}" aria-label="Remove ${escapeHtml(item.name)}">×</button></div>`).join("");
+  renderHouseholdProgress();
 }
 
 function toggleCompare(id, checked) {
@@ -814,7 +1009,7 @@ function renderResearchProfile(item) {
   ];
   el("drawerContent").innerHTML = `<header class="profile-hero">
       <div class="profile-utility">
-        ${pageMode ? `<a class="profile-back" href="/">← Back to screener</a>` : `<button class="profile-back" data-close-drawer>← Back to results</button>`}
+        ${pageMode ? `<a class="profile-back" href="/investments">← Back to screener</a>` : `<button class="profile-back" data-close-drawer>← Back to results</button>`}
         <div class="profile-stepper"><button data-profile-neighbor="${escapeHtml(previous?.id || "")}" ${previous ? "" : "disabled"} aria-label="Previous result">←</button><span>${currentIndex >= 0 ? `${currentIndex + 1} of ${state.items.length} on this page` : "Investment profile"}</span><button data-profile-neighbor="${escapeHtml(next?.id || "")}" ${next ? "" : "disabled"} aria-label="Next result">→</button></div>
         ${pageMode ? "" : `<a class="open-new-tab" href="${escapeHtml(profileHref(item))}" target="_blank" rel="noopener">Open in new tab ↗</a>`}
       </div>
@@ -873,7 +1068,7 @@ async function openDetail(id, { mode = "panel", pushHistory = true, replaceHisto
     if (replaceHistory || (pushHistory && href !== profileHref(item))) history.replaceState({ ...(history.state || {}), profileCanvas: mode === "panel", id: item.id }, "", profileHref(item));
   } catch (error) {
     if (request !== state.detailRequest) return;
-    el("drawerLoading").innerHTML = `<div class="profile-error"><strong>${escapeHtml(error.message)}</strong><p>Return to the screener and select another investment.</p>${mode === "page" ? `<a href="/">Back to screener</a>` : `<button data-close-drawer>Back to results</button>`}</div>`;
+    el("drawerLoading").innerHTML = `<div class="profile-error"><strong>${escapeHtml(error.message)}</strong><p>Return to the screener and select another investment.</p>${mode === "page" ? `<a href="/investments">Back to screener</a>` : `<button data-close-drawer>Back to results</button>`}</div>`;
   }
 }
 
@@ -887,7 +1082,7 @@ function closeDrawer({ fromHistory = false } = {}) {
   document.body.classList.remove("profile-panel-open");
   document.querySelector("main").inert = false;
   document.querySelector(".global-header").inert = false;
-  document.title = "Investment Screener";
+  document.title = state.workspaceView === "wealth" ? "Advisor Workspace" : "Investment Screener | Advisor Workspace";
   state.detailMode = null;
   state.detailHistoryPushed = false;
   state.currentDetail = null;
@@ -1100,6 +1295,7 @@ function applySavedScreen(id) {
   state.pendingColumns = Array.isArray(screen.state.columns) ? { category: screen.state.columnCategory || screen.state.category || "All", columns: screen.state.columns } : null;
   el("searchInput").value = state.q;
   el("savedModal").close();
+  setWorkspaceView("investments");
   runSearch();
 }
 
@@ -1117,6 +1313,7 @@ function saveCurrentScreen(name) {
 
 function hydrateFromUrl() {
   const params = new URLSearchParams(location.search);
+  state.workspaceView = profileFromPath() || /^\/investments\/?$/i.test(location.pathname) || params.size ? "investments" : "wealth";
   state.q = params.get("q") || "";
   const category = params.get("category") || "All";
   state.category = CATEGORY_ORDER.includes(category) ? category : "All";
@@ -1145,6 +1342,21 @@ function hydrateFromUrl() {
 }
 
 document.addEventListener("click", (event) => {
+  const workspaceView = event.target.closest("[data-workspace-view]");
+  if (workspaceView) {
+    if (el("savedModal").open) el("savedModal").close();
+    setWorkspaceView(workspaceView.dataset.workspaceView);
+  }
+  const wealthRangeButton = event.target.closest("[data-wealth-range]");
+  if (wealthRangeButton) { wealthRange = wealthRangeButton.dataset.wealthRange; drawWealthRange(); }
+  const wealthInsight = event.target.closest("[data-wealth-insight]");
+  if (wealthInsight) handleWealthInsight(wealthInsight.dataset.wealthInsight);
+  const wealthAction = event.target.closest("[data-wealth-action]");
+  if (wealthAction?.dataset.wealthAction === "accounts") el("householdAccounts")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (wealthAction?.dataset.wealthAction === "concentration") openWealthDrawer("concentration");
+  const householdScenario = event.target.closest("[data-household-scenario]");
+  if (householdScenario) applyHouseholdScenario(householdScenario.dataset.householdScenario);
+  if (event.target.closest("[data-close-wealth-drawer]") || event.target === el("wealthDrawerBackdrop")) closeWealthDrawer();
   const sortHeader = event.target.closest("[data-sort-header]");
   if (sortHeader) {
     state.sort = sortHeader.dataset.sortHeader;
@@ -1186,6 +1398,7 @@ document.addEventListener("click", (event) => {
   if (detail && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
     event.preventDefault();
     if (el("savedModal").open) el("savedModal").close();
+    if (state.workspaceView === "wealth") setWorkspaceView("investments", { updateHistory: false });
     openDetail(detail.dataset.detailId);
   }
   const remove = event.target.closest("[data-remove-filter]");
@@ -1198,7 +1411,7 @@ document.addEventListener("click", (event) => {
   const closeModal = event.target.closest("[data-close-modal]");
   if (closeModal) el(closeModal.dataset.closeModal).close();
   const openModal = event.target.closest("[data-open-modal]");
-  if (openModal) el(openModal.dataset.openModal).showModal();
+  if (openModal) { if (el("wealthDrawer").classList.contains("open")) closeWealthDrawer({ restoreFocus: false }); el(openModal.dataset.openModal).showModal(); }
   const openSaved = event.target.closest("[data-open-saved]");
   if (openSaved) { renderSavedScreens(); el("savedModal").showModal(); }
   const runSaved = event.target.closest("[data-run-saved]");
@@ -1317,18 +1530,26 @@ el("clearCompare").addEventListener("click", () => { state.compare.clear(); rend
 el("saveScreenButton").addEventListener("click", () => { el("saveName").value = state.q ? state.q.slice(0, 60) : `${state.category} screen`; el("saveModal").showModal(); });
 el("saveForm").addEventListener("submit", (event) => { event.preventDefault(); saveCurrentScreen(el("saveName").value.trim()); el("saveModal").close(); });
 el("dismissInterpretation").addEventListener("click", () => { el("interpretation").hidden = true; });
+el("dismissScenario").addEventListener("click", () => { state.householdScenario = null; el("scenarioRibbon").hidden = true; });
 el("columnsButton").addEventListener("click", openColumnConfigurator);
 el("resetColumns").addEventListener("click", () => { columnDraft = [...CATEGORY_DEFAULT_COLUMNS[state.appliedCategory]]; renderColumnConfigurator(); });
 el("applyColumns").addEventListener("click", applyColumnDraft);
 document.addEventListener("keydown", (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); el("searchInput").focus(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); if (state.workspaceView === "wealth") setWorkspaceView("investments"); el("searchInput").focus(); }
+  if (event.key === "Escape" && el("wealthDrawer").classList.contains("open")) closeWealthDrawer();
   if (event.key === "Escape" && state.detailMode === "panel" && el("detailDrawer").classList.contains("open")) closeDrawer();
 });
 
 window.addEventListener("popstate", () => {
   const slug = profileFromPath();
-  if (!slug) { closeDrawer({ fromHistory: true }); return; }
-  openDetail(slug, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });
+  if (slug) {
+    setWorkspaceView("investments", { updateHistory: false });
+    openDetail(slug, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });
+    return;
+  }
+  if (el("detailDrawer").classList.contains("open")) closeDrawer({ fromHistory: true });
+  const view = /^\/investments\/?$/i.test(location.pathname) || location.search ? "investments" : "wealth";
+  setWorkspaceView(view, { updateHistory: false });
 });
 
 state.columnPreferences = loadColumnPreferences();
@@ -1338,6 +1559,8 @@ renderCategories();
 renderFilterOptions();
 renderActiveFilters();
 renderSavedScreens();
+renderWealthWorkspace();
+setWorkspaceView(state.workspaceView, { updateHistory: false });
 const initialProfile = profileFromPath();
 runSearch({ preserveCursor: true }).finally(() => {
   if (initialProfile) openDetail(initialProfile, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });

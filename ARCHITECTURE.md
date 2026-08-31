@@ -1,5 +1,16 @@
 # Architecture
 
+## Advisor-workspace flow
+
+1. `/` opens a local, synthetic household projection assembled from a small governed demo-data module. No client data or external aggregation service is used.
+2. The browser lazily loads the same locally bundled Lightweight Charts module already used for comparison and draws only the selected 1Y, 3Y or 5Y investable-wealth window.
+3. A prioritized household insight opens an in-context analysis drawer. The concentration review keeps exposure, account location, cost basis, policy target, scenario impact and research standing visibly separate.
+4. Selecting an implementation path creates an explicit scenario bundle containing objective, category, flags and risk. It switches to `/investments`, paints the scenario in a persistent ribbon and executes the normal bounded search request.
+5. The screener remains independently usable and client-agnostic. Every passed criterion is visible and removable; no hidden client-fit or recommendation score is introduced.
+6. Existing comparison state survives navigation back to Total Wealth, allowing the original household insight to show how many diversification alternatives have been selected.
+
+The production version should replace the synthetic household module with a permissioned household BFF that joins mastered party/account relationships, portfolio accounting, financial planning and held-away aggregation. The browser-facing household contract should remain a bounded projection rather than a raw CRM or accounting payload.
+
 ## Demo request path
 
 1. The desktop browser sends only search text, allowlisted filters, sort and a 25-row cursor.

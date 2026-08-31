@@ -10,7 +10,7 @@ import { parseSnapshotIds } from "./api/snapshots.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
-const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".json": "application/json; charset=utf-8" };
+const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg" };
 
 function queryObject(searchParams) {
   return Object.fromEntries(searchParams.entries());
@@ -39,7 +39,7 @@ const server = createServer(async (request, response) => {
     try { return json(response, getComparisonHistory(parseHistoryIds(url.searchParams.get("ids")))); }
     catch (error) { return json(response, { error: error.message }, error instanceof RangeError ? (/not found/i.test(error.message) ? 404 : 400) : 500); }
   }
-  const requested = url.pathname === "/" || /^\/investment\/[^/]+\/?$/.test(url.pathname)
+  const requested = url.pathname === "/" || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
     ? "index.html"
     : url.pathname === "/vendor/lightweight-charts.mjs"
       ? "node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.mjs"
