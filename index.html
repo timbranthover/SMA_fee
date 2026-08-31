@@ -50,7 +50,7 @@
           <div><span>Financial assets</span><strong id="bookFinancialAssets">—</strong><small>Across the full book</small></div>
           <div><span>Client net worth</span><strong id="bookNetWorth">—</strong><small>Connected total wealth</small></div>
           <div><span>Deployable cash</span><strong id="bookCash">—</strong><small>Across relationships</small></div>
-          <div><span>Needs attention</span><strong class="book-watch" id="bookAttentionCount">—</strong><small>Priority or review items</small></div>
+          <div><span>Open decisions</span><strong class="book-watch" id="bookAttentionCount">—</strong><small>Across active relationships</small></div>
         </section>
 
         <div class="book-layout">
@@ -68,7 +68,7 @@
             </div>
             <div class="book-table-heading"><div><h2 id="bookHouseholdsTitle">Households</h2><p><strong id="bookResultCount">—</strong> relationships in this view</p></div><span id="bookViewStatus">Prioritized across your book</span></div>
             <div class="book-table-wrap">
-              <table class="book-table"><thead><tr><th>Household</th><th>Net worth</th><th>Financial assets</th><th>Cash</th><th>YTD</th><th>Goals</th><th>Needs attention</th></tr></thead><tbody id="bookBody"></tbody></table>
+              <table class="book-table"><thead><tr><th>Household</th><th>Net worth</th><th>Financial assets</th><th>Cash</th><th>YTD</th><th>Goals</th><th>Current focus</th></tr></thead><tbody id="bookBody"></tbody></table>
               <div class="book-loading" id="bookLoading" hidden><span></span><p>Updating your book…</p></div>
             </div>
             <div class="book-load-more" id="bookLoadMoreWrap" hidden><button type="button" id="bookLoadMore">Load more households</button><span id="bookLoadedCount"></span></div>
@@ -147,6 +147,8 @@
           </aside>
         </div>
       </section>
+
+      <section class="decision-view" id="decisionView" hidden><div id="decisionContent"></div></section>
 
       <section class="investment-view" id="investmentView" hidden>
       <div class="scenario-ribbon" id="scenarioRibbon" hidden>

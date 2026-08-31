@@ -58,8 +58,9 @@ const server = createServer(async (request, response) => {
         });
       } else {
         id = parseHouseholdId(url.searchParams.get("householdId"));
-        const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : "";
-        data = getAuthorizedWealthProjection(DEFAULT_ADVISOR_ID, id, view, entityId);
+        const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : view === "decision" ? url.searchParams.get("decisionId") : "";
+        const assumptions = view === "decision" ? Object.fromEntries(["targetWeight", "goalFundingAmount", "deployAmount", "fundingAmount", "implementationAmount"].map((key) => [key, url.searchParams.get(key)]).filter(([, value]) => value !== null && value !== "")) : {};
+        data = getAuthorizedWealthProjection(DEFAULT_ADVISOR_ID, id, view, entityId, assumptions);
       }
       return data === null
         ? json(response, { error: view === "book" ? "Advisor book not found" : "Household data not found" }, 404)
@@ -68,7 +69,7 @@ const server = createServer(async (request, response) => {
       return json(response, { error: error.message }, error instanceof RangeError ? 400 : 500);
     }
   }
-  const requested = url.pathname === "/" || /^\/household\/[^/]+\/?$/.test(url.pathname) || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
+  const requested = url.pathname === "/" || /^\/household\/[^/]+\/?$/.test(url.pathname) || /^\/household\/[^/]+\/decision\/[^/]+\/?$/.test(url.pathname) || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
     ? "index.html"
     : url.pathname === "/vendor/lightweight-charts.mjs"
       ? "node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.mjs"

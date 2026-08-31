@@ -84,6 +84,9 @@ test("wealth source is normalized while the service preserves the full internal 
     insights: 5,
     concentrationPolicies: 1,
     histories: 1,
+    decisions: 0,
+    actionPlans: 0,
+    actions: 0,
   });
 });
 
@@ -233,9 +236,10 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   assert.match(app, /loadConcentrationReview/);
   assert.match(app, /import\("\/vendor\/nouislider\.mjs"\)/);
   assert.doesNotMatch(app, /import noUiSlider from/);
-  assert.match(app, /data-household-scenario="concentration"/);
-  assert.match(app, /flags: \["Tax-Aware", "Direct Indexing"\]/);
-  assert.match(app, /Carry the objective—not hidden client data/);
+  assert.match(app, /function openDecision/);
+  assert.match(app, /loadHouseholdDecision/);
+  assert.match(app, /decisionFromPath/);
+  assert.match(app, /saveDecisionCandidates/);
   assert.match(app, /library\.AreaSeries/);
   assert.match(css, /\.wealth-layout/);
   assert.match(css, /\.wealth-drawer\.open/);

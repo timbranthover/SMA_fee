@@ -2,7 +2,7 @@ import { ADVISOR_BOOK_DATASET, DEFAULT_ADVISOR_ID } from "../lib/advisor-book-so
 import { createWealthService } from "../lib/wealth-service.js";
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/i;
-const PROJECTION_VIEWS = new Set(["book", "overview", "history", "concentration", "account", "goal"]);
+const PROJECTION_VIEWS = new Set(["book", "overview", "history", "concentration", "account", "goal", "decisions", "decision"]);
 const BOOK_FOCUS = new Set(["all", "priority", "cash", "goals", "upcoming", "held-away"]);
 const BOOK_SORT = new Set(["attention", "net-worth-desc", "cash-desc", "return-desc", "name-asc"]);
 const wealthService = createWealthService(ADVISOR_BOOK_DATASET);
@@ -46,7 +46,9 @@ export function getWealthProjection(idValue, viewValue = "overview", entityIdVal
   if (view === "history") return wealthService.getHouseholdHistory(householdId);
   if (view === "concentration") return wealthService.getHouseholdConcentrationReview(householdId);
   if (view === "account") return wealthService.getHouseholdAccount(householdId, parseId(entityIdValue, "accountId"));
-  return wealthService.getHouseholdGoal(householdId, parseId(entityIdValue, "goalId"));
+  if (view === "goal") return wealthService.getHouseholdGoal(householdId, parseId(entityIdValue, "goalId"));
+  if (view === "decisions") return wealthService.getHouseholdDecisions(householdId);
+  return wealthService.getHouseholdDecision(householdId, parseId(entityIdValue, "decisionId"), options);
 }
 
 export function getAuthorizedWealthProjection(principalAdvisorIdValue, idValue, viewValue = "overview", entityIdValue = "", options = {}) {
@@ -89,8 +91,9 @@ export default async function handler(request, response) {
       });
     } else {
       id = parseHouseholdId(url.searchParams.get("householdId"));
-      const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : "";
-      data = getAuthorizedWealthProjection(DEMO_PRINCIPAL_ADVISOR_ID, id, view, entityId);
+      const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : view === "decision" ? url.searchParams.get("decisionId") : "";
+      const assumptions = view === "decision" ? Object.fromEntries(["targetWeight", "goalFundingAmount", "deployAmount", "fundingAmount", "implementationAmount"].map((key) => [key, url.searchParams.get(key)]).filter(([, value]) => value !== null && value !== "")) : {};
+      data = getAuthorizedWealthProjection(DEMO_PRINCIPAL_ADVISOR_ID, id, view, entityId, assumptions);
     }
     if (data === null) return response.status(404).json({ error: view === "book" ? "Advisor book not found" : "Household data not found" });
 
