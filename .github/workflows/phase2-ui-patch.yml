@@ -16,6 +16,18 @@ jobs:
         with:
           ref: phase2/my-book
           fetch-depth: 0
+      - name: Harden regex replacement handling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/phase2_ui_patch.py')
+          text = path.read_text()
+          old = 'result, count = re.subn(pattern, new, text, count=1, flags=re.S)'
+          new = 'result, count = re.subn(pattern, lambda _match: new, text, count=1, flags=re.S)'
+          if text.count(old) != 1:
+              raise SystemExit('Expected regex helper source not found exactly once')
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Apply guarded UI patch
         run: python3 scripts/phase2_ui_patch.py
       - name: Remove one-shot patch artifacts
