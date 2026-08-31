@@ -1,0 +1,44 @@
+name: Phase Three Consolidate
+
+on:
+  push:
+    branches: [phase3/consolidated]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase3/consolidated
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply consolidated Phase Three product patch
+        run: python scripts/phase3-build.py
+      - run: npm ci
+      - name: Run full build
+        shell: bash
+        run: |
+          set +e
+          npm run build 2>&1 | tee /tmp/phase3-consolidated-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "--- FAILURE SUMMARY ---"
+            grep -nE "not ok|AssertionError|ERR_|error:|Error:|fail [1-9]|operator:" /tmp/phase3-consolidated-build.log | tail -n 100 || true
+          fi
+          exit "$status"
+      - name: Commit validated Phase Three integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ARCHITECTURE.md api/wealth.js app.js index.html lib/wealth-repository.js lib/wealth-service.js local-server.mjs package.json scripts/build-static.mjs styles.css
+          git diff --cached --quiet && { echo "No integration changes to commit"; exit 1; }
+          git commit -m "Build advisor decision and action layer"
+          git push origin HEAD:phase3/consolidated
