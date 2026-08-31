@@ -7,6 +7,7 @@ import { getInvestmentDetail, getMarketSnapshots } from "./lib/catalog.js";
 import { getComparisonHistory, parseHistoryIds } from "./lib/history.js";
 import { inputFromQuery } from "./api/search.js";
 import { parseSnapshotIds } from "./api/snapshots.js";
+import { getHouseholdProjection, parseHouseholdId } from "./api/wealth.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -38,6 +39,15 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/api/history") {
     try { return json(response, getComparisonHistory(parseHistoryIds(url.searchParams.get("ids")))); }
     catch (error) { return json(response, { error: error.message }, error instanceof RangeError ? (/not found/i.test(error.message) ? 404 : 400) : 500); }
+  }
+  if (url.pathname === "/api/wealth") {
+    try {
+      const householdId = parseHouseholdId(url.searchParams.get("householdId"));
+      const workspace = getHouseholdProjection(householdId);
+      return workspace ? json(response, { schemaVersion: 1, householdId, workspace }) : json(response, { error: "Household not found" }, 404);
+    } catch (error) {
+      return json(response, { error: error.message }, error instanceof RangeError ? 400 : 500);
+    }
   }
   const requested = url.pathname === "/" || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
     ? "index.html"
