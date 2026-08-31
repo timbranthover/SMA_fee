@@ -7,7 +7,7 @@ import { getInvestmentDetail, getMarketSnapshots } from "./lib/catalog.js";
 import { getComparisonHistory, parseHistoryIds } from "./lib/history.js";
 import { inputFromQuery } from "./api/search.js";
 import { parseSnapshotIds } from "./api/snapshots.js";
-import { getHouseholdProjection, parseHouseholdId } from "./api/wealth.js";
+import { getWealthProjection, parseHouseholdId, parseProjectionView } from "./api/wealth.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -17,8 +17,8 @@ function queryObject(searchParams) {
   return Object.fromEntries(searchParams.entries());
 }
 
-function json(response, data, status = 200) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+function json(response, data, status = 200, headers = {}) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...headers });
   response.end(JSON.stringify(data));
 }
 
@@ -41,10 +41,15 @@ const server = createServer(async (request, response) => {
     catch (error) { return json(response, { error: error.message }, error instanceof RangeError ? (/not found/i.test(error.message) ? 404 : 400) : 500); }
   }
   if (url.pathname === "/api/wealth") {
+    const startedAt = performance.now();
     try {
       const householdId = parseHouseholdId(url.searchParams.get("householdId"));
-      const workspace = getHouseholdProjection(householdId);
-      return workspace ? json(response, { schemaVersion: 1, householdId, workspace }) : json(response, { error: "Household not found" }, 404);
+      const view = parseProjectionView(url.searchParams.get("view"));
+      const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : "";
+      const data = getWealthProjection(householdId, view, entityId);
+      return data === null
+        ? json(response, { error: "Household data not found" }, 404)
+        : json(response, { schemaVersion: 1, householdId, view, data }, 200, { "Server-Timing": `wealth;dur=${Math.max(0.1, performance.now() - startedAt).toFixed(1)}` });
     } catch (error) {
       return json(response, { error: error.message }, error instanceof RangeError ? 400 : 500);
     }
