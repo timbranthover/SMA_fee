@@ -43,6 +43,7 @@ test("Morrison concentration decision produces explicit household-wide scenario 
   assert.ok(scenario.economics.release > 1_000_000);
   assert.ok(scenario.economics.realizedGain > 0);
   assert.equal("taxReserve" in scenario.economics, false);
+  assert.equal(scenario.after.cash, scenario.before.cash + scenario.economics.release - scenario.economics.goalFunding - scenario.economics.redeployAmount);
   assert.ok(scenario.after.concentrationPct < scenario.before.concentrationPct);
   assert.ok(scenario.after.stressLoss < scenario.before.stressLoss);
   assert.ok(scenario.after.goalProgress >= scenario.before.goalProgress);
@@ -59,6 +60,11 @@ test("liquidity and goal decisions model from real household cash and goals", ()
   const cashScenario = decisionService.modelDecisionScenario(cashHousehold.id, cashDecision.id, {});
   assert.ok(cashScenario.before.cash >= cashScenario.after.cash);
   assert.ok(cashScenario.implementation.amount >= 0);
+
+  const morrisonCashDecision = decisionService.getHouseholdDecisionSummary("household-morrison").decisions.find((decision) => decision.kind === "liquidity");
+  assert.ok(morrisonCashDecision);
+  const reserveProtected = decisionService.modelDecisionScenario("household-morrison", morrisonCashDecision.id, { reservePct: 15, deployAmount: 740000 });
+  assert.equal(reserveProtected.economics.deployAmount, 0);
 
   const goalHousehold = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "goals", pageSize: 200 }).items.find((item) => item.id !== "household-morrison");
   assert.ok(goalHousehold);

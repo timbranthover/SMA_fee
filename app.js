@@ -672,7 +672,7 @@ function formatDecisionDate(value) {
 }
 
 function decisionListDrawer(summary) {
-  const decisions = summary?.decisions || [];
+  const decisions = (summary?.decisions || []).filter((decision) => decision.status !== "Complete");
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD WORKFLOW · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close decisions">×</button></header><div class="wealth-drawer-body decision-list-drawer"><div class="drawer-section-heading"><span class="panel-kicker">OPEN DECISIONS</span><h2 id="wealthDrawerTitle">${summary?.openCount || 0} active across this relationship</h2><p>Each item is grounded in a household signal and can be modeled before anything moves toward implementation.</p></div><div class="decision-list">${decisions.map((decision) => { const plan = getDecisionPlan(decision.id); return `<button type="button" class="decision-list-item tone-${escapeHtml(decision.tone)}" data-decision-open="${escapeHtml(decision.id)}"><i></i><span><small>${escapeHtml(decision.priority)} · ${escapeHtml(plan?.status || decision.status)}</small><strong>${escapeHtml(decision.title)}</strong><em>${escapeHtml(decision.evidenceSummary)}</em></span><b>›</b></button>`; }).join("") || `<div class="drawer-empty">No open decisions for this household.</div>`}</div></div>`;
 }
 
@@ -788,6 +788,8 @@ function renderDecisionStudio() {
 
 function closeDecisionStudio({ restoreFocus = true } = {}) {
   decisionRequest += 1;
+  state.decisionController?.abort();
+  state.decisionController = null;
   state.decisionScenarioController?.abort();
   state.decisionScenarioController = null;
   window.clearTimeout(decisionModelTimer);
@@ -803,6 +805,9 @@ function closeDecisionStudio({ restoreFocus = true } = {}) {
 async function openDecisionStudio(decisionId) {
   if (!state.currentHouseholdId) return;
   const request = ++decisionRequest;
+  state.decisionController?.abort();
+  const controller = new AbortController();
+  state.decisionController = controller;
   state.lastFocus = document.activeElement;
   closeWealthDrawer({ restoreFocus: false });
   state.activeDecisionDetail = null;
@@ -814,8 +819,8 @@ async function openDecisionStudio(decisionId) {
   el("decisionStudio").setAttribute("aria-hidden", "false");
   document.body.classList.add("decision-studio-open");
   try {
-    const detail = await loadDecisionDetail(decisionId, state.currentHouseholdId);
-    if (request !== decisionRequest) return;
+    const detail = await loadDecisionDetail(decisionId, state.currentHouseholdId, { signal: controller.signal });
+    if (request !== decisionRequest || controller !== state.decisionController) return;
     const scenario = await modelDecisionScenario(decisionId, state.currentHouseholdId, detail.model.defaults);
     if (request !== decisionRequest) return;
     state.activeDecisionDetail = detail;
