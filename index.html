@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#0b0b0b" />
-    <title>Investment Screener</title>
+    <title>Advisor Workspace</title>
     <link rel="stylesheet" href="/vendor/nouislider.css" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="modulepreload" href="/app.js" />
@@ -15,7 +15,6 @@
     <link rel="modulepreload" href="/lib/sort-config.js" />
     <link rel="modulepreload" href="/lib/range-config.js" />
     <link rel="modulepreload" href="/lib/wealth-data.js" />
-    <link rel="modulepreload" href="/vendor/nouislider.mjs" />
   </head>
   <body>
     <header class="global-header">
@@ -26,7 +25,7 @@
         <span class="environment-badge">PROTOTYPE</span>
       </div>
       <nav class="global-nav" aria-label="Primary">
-        <button class="nav-item active" data-workspace-view="wealth">Total Wealth</button>
+        <button class="nav-item active" data-workspace-view="book">Total Wealth</button>
         <button class="nav-item" data-workspace-view="investments">Investments</button>
         <button class="nav-item" data-open-modal="researchModal">Research</button>
       </nav>
@@ -40,29 +39,68 @@
     </header>
 
     <main>
-      <section class="wealth-view" id="wealthView">
-        <header class="wealth-heading">
-          <div class="household-identity">
-            <span class="household-avatar" aria-hidden="true">MH</span>
-            <div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Morrison Household</h1><p>Primary relationship · New York · 6 financial accounts</p></div>
-            <button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button>
-          </div>
-          <div class="wealth-heading-meta"><span>Illustrative household</span><strong>Updated Aug 21, 2026 · 9:42 AM ET</strong></div>
+      <section class="book-view" id="bookView">
+        <header class="book-heading">
+          <div><span class="eyebrow">TOTAL WEALTH · MY BOOK</span><h1>My Book</h1><p id="bookSubtitle">Loading advisor relationships…</p></div>
+          <div class="book-heading-meta"><span>Advisor workspace</span><strong id="bookUpdated">Current client data</strong></div>
         </header>
 
-        <section class="wealth-summary-strip" aria-label="Household summary">
-          <div class="wealth-summary-primary"><span>Net worth</span><strong>$12.42M</strong><small><b>+$184K</b> year to date</small></div>
-          <div><span>Portfolio</span><strong>Moderate growth</strong><small>Within risk mandate</small></div>
-          <div><span>Liquidity</span><strong>$740K</strong><small>6.2% readily available</small></div>
-          <div><span>Concentration</span><strong class="wealth-watch">Apple · 23.4%</strong><small>Above 12% policy target</small></div>
-          <div><span>Goals</span><strong>4 of 5</strong><small>On track or funded</small></div>
+        <section class="book-summary-strip" aria-label="Advisor book summary">
+          <div class="book-summary-primary"><span>Households</span><strong id="bookHouseholdCount">—</strong><small>Active relationships</small></div>
+          <div><span>Financial assets</span><strong id="bookFinancialAssets">—</strong><small>Across the full book</small></div>
+          <div><span>Client net worth</span><strong id="bookNetWorth">—</strong><small>Connected total wealth</small></div>
+          <div><span>Deployable cash</span><strong id="bookCash">—</strong><small>Across relationships</small></div>
+          <div><span>Needs attention</span><strong class="book-watch" id="bookAttentionCount">—</strong><small>Priority or review items</small></div>
         </section>
+
+        <div class="book-layout">
+          <section class="book-panel book-households-panel" aria-labelledby="bookHouseholdsTitle">
+            <div class="book-toolbar">
+              <div class="book-search-wrap"><span class="search-symbol" aria-hidden="true"></span><label class="sr-only" for="bookSearch">Search households</label><input id="bookSearch" type="search" autocomplete="off" placeholder="Search household, location, risk profile or opportunity" /></div>
+              <label class="book-sort">Sort<select id="bookSort" aria-label="Sort households"><option value="attention">Needs attention</option><option value="net-worth-desc">Net worth</option><option value="cash-desc">Deployable cash</option><option value="return-desc">YTD return</option><option value="name-asc">Household name</option></select></label>
+            </div>
+            <div class="book-filter-row" role="group" aria-label="Filter advisor book">
+              <button type="button" class="active" data-book-focus="all">All households</button>
+              <button type="button" data-book-focus="priority">Priority risk <span id="bookFilterPriority">—</span></button>
+              <button type="button" data-book-focus="cash">Cash opportunities <span id="bookFilterCash">—</span></button>
+              <button type="button" data-book-focus="goals">Goal reviews <span id="bookFilterGoals">—</span></button>
+              <button type="button" data-book-focus="upcoming">Upcoming <span id="bookFilterUpcoming">—</span></button>
+            </div>
+            <div class="book-table-heading"><div><h2 id="bookHouseholdsTitle">Households</h2><p><strong id="bookResultCount">—</strong> relationships in this view</p></div><span id="bookViewStatus">Prioritized across your book</span></div>
+            <div class="book-table-wrap">
+              <table class="book-table"><thead><tr><th>Household</th><th>Net worth</th><th>Financial assets</th><th>Cash</th><th>YTD</th><th>Goals</th><th>Needs attention</th></tr></thead><tbody id="bookBody"></tbody></table>
+              <div class="book-loading" id="bookLoading" hidden><span></span><p>Updating your book…</p></div>
+            </div>
+            <div class="book-load-more" id="bookLoadMoreWrap" hidden><button type="button" id="bookLoadMore">Load more households</button><span id="bookLoadedCount"></span></div>
+          </section>
+
+          <aside class="book-intelligence-panel" aria-labelledby="bookIntelligenceTitle">
+            <div class="book-intelligence-heading"><span class="panel-kicker">TODAY ACROSS YOUR BOOK</span><h2 id="bookIntelligenceTitle">Where to focus</h2><p>Material portfolio, liquidity and planning signals across client relationships.</p></div>
+            <div class="book-intelligence-list">
+              <button type="button" data-book-focus="priority"><i class="book-signal red"></i><span><small>Priority risk</small><strong id="bookIntelPriority">— households</strong></span><b>›</b></button>
+              <button type="button" data-book-focus="cash"><i class="book-signal green"></i><span><small>Deployable cash</small><strong id="bookIntelCash">— households</strong></span><b>›</b></button>
+              <button type="button" data-book-focus="goals"><i class="book-signal amber"></i><span><small>Planning</small><strong id="bookIntelGoals">— goal reviews</strong></span><b>›</b></button>
+              <button type="button" data-book-focus="upcoming"><i class="book-signal blue"></i><span><small>Upcoming</small><strong id="bookIntelUpcoming">— obligations</strong></span><b>›</b></button>
+              <button type="button" data-book-focus="held-away"><i class="book-signal slate"></i><span><small>Full balance sheet</small><strong id="bookIntelHeldAway">— with held-away assets</strong></span><b>›</b></button>
+            </div>
+            <div class="book-intelligence-note"><span>BOOK VIEW</span><p>Select any relationship to enter the same Total Wealth experience, with only that household's data loaded.</p></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="wealth-view" id="wealthView" hidden>
+        <header class="wealth-heading" id="wealthHeading">
+          <div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">—</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Household</h1><p>Loading relationship…</p></div><button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button></div></div>
+          <div class="wealth-heading-meta"><span>Illustrative household</span><strong>Loading current data…</strong></div>
+        </header>
+
+        <section class="wealth-summary-strip" id="wealthSummaryStrip" aria-label="Household summary"></section>
 
         <div class="wealth-layout">
           <div class="wealth-main-column">
             <section class="wealth-panel wealth-performance-panel" aria-labelledby="wealthPerformanceTitle">
               <div class="wealth-panel-header">
-                <div><span class="panel-kicker">INVESTABLE WEALTH</span><h2 id="wealthPerformanceTitle">$11.98M</h2><p><strong>+8.7%</strong> time-weighted return · <span>+$260K net flows</span></p></div>
+                <div><span class="panel-kicker">INVESTABLE WEALTH</span><h2 id="wealthPerformanceTitle">—</h2><p id="wealthPerformanceMeta">Loading portfolio data…</p></div>
                 <div class="wealth-chart-actions">
                   <div class="wealth-range-group" role="group" aria-label="Wealth history timeframe">
                     <button type="button" data-wealth-range="1Y" aria-pressed="true">1Y</button>
@@ -78,7 +116,7 @@
               </div>
               <div class="wealth-chart-footer"><span id="wealthChartPeriod">Aug 2025–Aug 2026</span><span>Illustrative values · Includes net flows</span></div>
               <div class="allocation-overview">
-                <div class="allocation-heading"><strong>Current allocation</strong><span>$11.98M financial assets</span></div>
+                <div class="allocation-heading"><strong>Current allocation</strong><span id="wealthAllocationTotal">— financial assets</span></div>
                 <div class="allocation-bar" id="wealthAllocationBar" aria-label="Household asset allocation"></div>
                 <div class="allocation-legend" id="wealthAllocationLegend"></div>
               </div>
@@ -90,7 +128,7 @@
                 <div class="wealth-table-wrap"><table class="wealth-table"><thead><tr><th>Account</th><th>Value</th><th>YTD</th></tr></thead><tbody id="wealthAccountsBody"></tbody></table></div>
               </section>
               <section class="wealth-panel positions-panel" aria-labelledby="positionsTitle">
-                <div class="wealth-panel-header compact"><div><span class="panel-kicker">EXPOSURE</span><h2 id="positionsTitle">Top positions</h2></div><button class="panel-action" type="button" data-wealth-action="concentration">Review risk</button></div>
+                <div class="wealth-panel-header compact"><div><span class="panel-kicker">EXPOSURE</span><h2 id="positionsTitle">Top positions</h2></div><button class="panel-action" id="reviewRiskButton" type="button" data-wealth-action="concentration">Review risk</button></div>
                 <div class="wealth-table-wrap"><table class="wealth-table positions-table"><thead><tr><th>Holding</th><th>Value</th><th>Weight</th></tr></thead><tbody id="wealthHoldingsBody"></tbody></table></div>
               </section>
             </div>
@@ -98,12 +136,12 @@
 
           <aside class="wealth-side-column">
             <section class="wealth-panel attention-panel" aria-labelledby="attentionTitle">
-              <div class="attention-heading"><div><span class="panel-kicker">TODAY</span><h2 id="attentionTitle">Needs attention</h2></div><span class="attention-count">5</span></div>
-              <p class="attention-intro">Material changes and opportunities across this household.</p>
+              <div class="attention-heading"><div><span class="panel-kicker">TODAY</span><h2 id="attentionTitle">Needs attention</h2></div><span class="attention-count" id="wealthAttentionCount">—</span></div>
+              <p class="attention-intro" id="wealthAttentionIntro">Material changes and opportunities across this household.</p>
               <div class="attention-list" id="wealthInsights"></div>
             </section>
             <section class="wealth-panel goals-panel" aria-labelledby="goalsTitle">
-              <div class="wealth-panel-header compact"><div><span class="panel-kicker">PLANNING</span><h2 id="goalsTitle">Goals</h2></div><span class="goal-summary">4 / 5</span></div>
+              <div class="wealth-panel-header compact"><div><span class="panel-kicker">PLANNING</span><h2 id="goalsTitle">Goals</h2></div><span class="goal-summary" id="wealthGoalSummary">—</span></div>
               <div class="goals-list" id="wealthGoals"></div>
             </section>
           </aside>
@@ -112,7 +150,7 @@
 
       <section class="investment-view" id="investmentView" hidden>
       <div class="scenario-ribbon" id="scenarioRibbon" hidden>
-        <button type="button" class="scenario-back" data-workspace-view="wealth">← Morrison Household</button>
+        <button type="button" class="scenario-back" id="scenarioBack">← Household</button>
         <div><span id="scenarioSource">FROM CONCENTRATION REVIEW</span><strong id="scenarioTitle">Explore tax-aware diversification</strong></div>
         <div class="scenario-tags" id="scenarioTags"><span>Taxable assets</span><span>Daily liquidity</span><span>Reduce single-stock exposure</span></div>
         <button type="button" class="scenario-dismiss" id="dismissScenario" aria-label="Dismiss household context">×</button>
