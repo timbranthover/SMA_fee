@@ -1,0 +1,105 @@
+import { writeFile } from "node:fs/promises";
+
+const SOURCE_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
+const OUTPUT_URL = new URL("../lib/equity-universe.js", import.meta.url);
+const EXCHANGES = new Map([
+  ["Nasdaq", "NASDAQ"],
+  ["NYSE", "NYSE"],
+  ["CBOE", "Cboe"],
+  ["OTC", "OTC"],
+]);
+const CURATED_TICKERS = new Set(["AAPL", "MSFT", "NVDA", "JPM", "NEE"]);
+const EXACT_NAMES = new Map([
+  ["1 800 FLOWERS COM INC", "1-800-FLOWERS.COM, Inc."],
+  ["3D SYSTEMS CORP", "3D Systems Corporation"],
+  ["3I GROUP PLC", "3i Group plc"],
+  ["3M CO", "3M Company"],
+  ["8X8 INC", "8x8, Inc."],
+  ["AMAZON COM INC", "Amazon.com, Inc."],
+  ["ADVANCED MICRO DEVICES INC", "Advanced Micro Devices, Inc."],
+  ["ALPHABET INC.", "Alphabet Inc."],
+  ["BERKSHIRE HATHAWAY INC", "Berkshire Hathaway Inc."],
+  ["COCA COLA CO", "The Coca-Cola Company"],
+  ["ELI LILLY & CO", "Eli Lilly and Company"],
+  ["EXXON MOBIL CORP", "Exxon Mobil Corporation"],
+  ["JOHNSON & JOHNSON", "Johnson & Johnson"],
+  ["META PLATFORMS, INC.", "Meta Platforms, Inc."],
+  ["PROCTER & GAMBLE CO", "The Procter & Gamble Company"],
+  ["TESLA, INC.", "Tesla, Inc."],
+  ["VISA INC.", "Visa Inc."],
+  ["WALMART INC.", "Walmart Inc."],
+]);
+const UPPERCASE_TOKENS = new Set(["ADR", "AG", "ASA", "B.V.", "LLC", "LP", "N.V.", "NV", "PLC", "REIT", "S.A.", "SA", "SE", "UK", "US", "USA"]);
+const SMALL_WORDS = new Set(["a", "an", "and", "at", "by", "for", "in", "of", "on", "the", "to"]);
+
+function titleWord(word, index) {
+  const upper = word.toUpperCase();
+  if (UPPERCASE_TOKENS.has(upper)) return upper;
+  const lower = word.toLowerCase();
+  if (index > 0 && SMALL_WORDS.has(lower)) return lower;
+  return lower.replace(/(^|[-'/(])([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`);
+}
+
+function cleanIssuerName(value) {
+  const official = String(value)
+    .replace(/\s+\/\s*(?:DE|NEW|MA|CA|CAN|TX|NY|OH|UK)\s*\/?$/i, "")
+    .replace(/\s*\/\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const exact = EXACT_NAMES.get(official.toUpperCase());
+  if (exact) return exact;
+  const letters = official.match(/[a-z]/gi) || [];
+  const uppercaseRatio = letters.length ? letters.filter((letter) => letter === letter.toUpperCase()).length / letters.length : 0;
+  const cased = uppercaseRatio < 0.8 ? official : official.split(" ").map(titleWord).join(" ");
+  return cased
+    .replace(/\bInc\.?$/i, "Inc.")
+    .replace(/\bCorp\.?$/i, "Corp.")
+    .replace(/\bCo\.?$/i, "Co.")
+    .replace(/\bLtd\.?$/i, "Ltd.");
+}
+
+function isOperatingSecurity(name, ticker, allTickers) {
+  if (/\b(acquisition|blank check|warrant|units?|rights?)\b/i.test(name)) return false;
+  if (/\b(?:ETF|ETN|exchange[- ]traded fund|closed[- ]end fund)\b/i.test(name)) return false;
+  if (/\bfund\b/i.test(name)) return false;
+  if (/^Sprott Physical\b/i.test(name)) return false;
+  if (/(?:-WT|-WS|-UN|-RT)$/i.test(ticker)) return false;
+  if (ticker.length > 1 && /[WUR]$/.test(ticker) && allTickers.has(ticker.slice(0, -1))) return false;
+  if (/(?:W|U|R)$/i.test(ticker) && /(?:acquisition|capital|ventures|merger)/i.test(name)) return false;
+  return true;
+}
+
+const response = await fetch(SOURCE_URL, {
+  headers: {
+    Accept: "application/json",
+    "User-Agent": process.env.SEC_USER_AGENT || "UPS Investment Screener prototype https://github.com/timbranthover/SMA_fee",
+  },
+});
+if (!response.ok) throw new Error(`SEC equity reference download failed: ${response.status}`);
+const payload = await response.json();
+const tickerIndex = payload.fields.indexOf("ticker");
+const nameIndex = payload.fields.indexOf("name");
+const cikIndex = payload.fields.indexOf("cik");
+const exchangeIndex = payload.fields.indexOf("exchange");
+if ([tickerIndex, nameIndex, cikIndex, exchangeIndex].some((index) => index < 0)) throw new Error("SEC equity reference fields changed");
+
+const seenTickers = new Set();
+const rows = [];
+const allTickers = new Set(payload.data.map((row) => String(row[tickerIndex] || "").trim().toUpperCase()).filter(Boolean));
+for (const sourceRow of payload.data) {
+  const ticker = String(sourceRow[tickerIndex] || "").trim().toUpperCase();
+  const sourceName = String(sourceRow[nameIndex] || "").trim();
+  const exchange = EXCHANGES.get(sourceRow[exchangeIndex]);
+  if (!ticker || !sourceName || !exchange || CURATED_TICKERS.has(ticker) || seenTickers.has(ticker)) continue;
+  if (!isOperatingSecurity(sourceName, ticker, allTickers)) continue;
+  seenTickers.add(ticker);
+  rows.push([ticker, cleanIssuerName(sourceName), exchange, Number(sourceRow[cikIndex])]);
+}
+
+const nameCounts = new Map();
+for (const [, name] of rows) nameCounts.set(name.toLowerCase(), (nameCounts.get(name.toLowerCase()) || 0) + 1);
+const uniqueRows = rows.map(([ticker, name, exchange, cik]) => [ticker, nameCounts.get(name.toLowerCase()) > 1 ? `${name} — ${ticker}` : name, exchange, cik]);
+const generatedDate = new Date().toISOString().slice(0, 10);
+const output = `// Generated by scripts/refresh-equity-universe.mjs from the SEC company ticker and exchange reference.\n// Issuer names, tickers, exchanges and CIKs are sourced; all other demo fields remain illustrative.\nexport const EQUITY_REFERENCE_SOURCE = ${JSON.stringify(SOURCE_URL)};\nexport const EQUITY_REFERENCE_AS_OF = ${JSON.stringify(generatedDate)};\nexport const EQUITY_UNIVERSE = Object.freeze(${JSON.stringify(uniqueRows)});\n`;
+await writeFile(OUTPUT_URL, output);
+console.log(`Wrote ${uniqueRows.length.toLocaleString("en-US")} SEC-referenced equities to ${OUTPUT_URL.pathname}`);

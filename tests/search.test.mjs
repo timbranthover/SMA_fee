@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CATEGORY_ORDER, FLAG_DEFINITIONS, getInvestmentDetail, getMarketSnapshots, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
+import { CATEGORY_ORDER, EQUITY_REFERENCE_AS_OF, EQUITY_REFERENCE_SOURCE, FLAG_DEFINITIONS, getInvestmentDetail, getMarketSnapshots, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
+import { EQUITY_UNIVERSE } from "../lib/equity-universe.js";
 import searchHandler, { inputFromQuery } from "../api/search.js";
 import detailHandler from "../api/detail.js";
 import snapshotHandler from "../api/snapshots.js";
@@ -19,6 +20,42 @@ test("category facets are calculated from the indexed records", () => {
   const result = searchCatalog({});
   assert.equal(result.facets.categories.Equities, 22584);
   assert.equal(result.facets.categories["Fixed Income"], 93571);
+});
+
+test("the equity shelf uses a broad real issuer reference without repeated placeholder rows", () => {
+  assert.ok(EQUITY_UNIVERSE.length >= 8000);
+  assert.equal(EQUITY_REFERENCE_AS_OF, "2026-08-31");
+  assert.match(EQUITY_REFERENCE_SOURCE, /^https:\/\/www\.sec\.gov\//);
+  const result = searchCatalog({ category: "Equities" });
+  assert.equal(result.items.length, 25);
+  assert.equal(new Set(result.items.map((item) => item.name)).size, 25);
+  assert.equal(new Set(result.items.map((item) => item.symbol)).size, 25);
+  assert.ok(result.items.every((item) => !/Apex Digital Systems/i.test(item.name)));
+  assert.ok(result.items.every((item) => !/\b(?:ETF|ETN|Fund)\b/i.test(item.name)));
+  assert.ok(result.items.every((item) => item.id.startsWith("eq-")));
+});
+
+test("SEC-referenced equities support ticker, issuer-name, profile and snapshot flows", () => {
+  const ticker = searchCatalog({ q: "AMZN" });
+  const issuer = searchCatalog({ q: "Amazon.com" });
+  assert.equal(ticker.total, 1);
+  assert.equal(ticker.items[0].name, "Amazon.com, Inc.");
+  assert.equal(ticker.items[0].matchReason, "Exact ticker match");
+  assert.ok(issuer.items.some((item) => item.symbol === "AMZN"));
+  const detail = getInvestmentDetail("AMZN");
+  assert.equal(detail.symbol, "AMZN");
+  assert.equal(detail.canonicalSlug, "AMZN");
+  assert.match(detail.controls.data.source, /SEC issuer reference/);
+  assert.equal(detail.profile.keyFacts.find((fact) => fact.label === "Primary market").value, "NASDAQ");
+  assert.equal(getMarketSnapshots([detail.id])[detail.id].primary.label, "Market price");
+});
+
+test("all equity records retain unique names, tickers and stable identifiers", () => {
+  const equities = getSearchIndex("Equities");
+  assert.equal(equities.length, 22584);
+  assert.equal(new Set(equities.map((item) => item.name)).size, equities.length);
+  assert.equal(new Set(equities.map((item) => item.symbol)).size, equities.length);
+  assert.equal(new Set(equities.map((item) => item.id)).size, equities.length);
 });
 
 test("fast shelf facets stay aligned with the complete index", () => {
@@ -53,10 +90,11 @@ test("search summaries omit detail-only data and stay lightweight", () => {
 
 test("text search never fabricates unrelated rows", () => {
   const result = searchCatalog({ q: "Apple" });
-  assert.equal(result.total, 1);
+  assert.ok(result.total >= 1);
   assert.equal(result.items[0].symbol, "AAPL");
   assert.equal(result.items[0].brandKey, "apple");
   assert.equal(result.items[0].matchReason, "Matched on product name");
+  assert.ok(result.items.every((item) => /apple/i.test(item.name)));
   assert.equal(result.searchMode, "strict");
 });
 
@@ -85,7 +123,8 @@ test("multiword manager search requires every meaningful term", () => {
 test("whole-word matching does not confuse Vest with Investments", () => {
   const result = searchCatalog({ q: "Vest" });
   assert.ok(result.total > 0);
-  assert.ok(result.items.every((item) => item.manager === "Cboe Vest"));
+  assert.ok(result.items.every((item) => /\bvest/i.test(`${item.name} ${item.manager}`)));
+  assert.ok(result.items.some((item) => item.manager === "Cboe Vest"));
   assert.ok(result.items.every((item) => item.manager !== "Parnassus Investments"));
 });
 
@@ -93,7 +132,7 @@ test("typeahead prefixes work while typo correction remains controlled", () => {
   const prefix = searchCatalog({ q: "Micros" });
   const typo = searchCatalog({ q: "Microsft" });
   const unrelated = searchCatalog({ q: "quantum banana" });
-  assert.ok(prefix.items.length > 0 && prefix.items.every((item) => /microsoft/i.test(`${item.name} ${item.manager}`)));
+  assert.ok(prefix.items.length > 0 && prefix.items.every((item) => /\bmicros/i.test(`${item.name} ${item.manager}`)));
   assert.equal(prefix.searchMode, "strict");
   assert.equal(typo.items[0].symbol, "MSFT");
   assert.equal(typo.searchMode, "fuzzy");

@@ -10,7 +10,7 @@ Desktop-first, masked vision prototype deployed on Vercel. It connects a synthet
 - The analysis passes an explicit objective bundle into the existing screener. It never claims hidden suitability, eligibility or recommendation logic; the advisor can see and edit every resulting criterion.
 - The same locally bundled Lightweight Charts library powers both investable-wealth history and investment comparison, keeping the experience smooth without a remote charting or market-data dependency.
 - Selected diversification alternatives remain in memory when the advisor returns to Total Wealth, closing the loop from household fact to research activity.
-- A deterministic 130,428-record mock catalog exists in server memory.
+- A deterministic 130,428-record mock catalog exists in server memory. Its equity sleeve begins with nearly 9,000 real SEC-referenced issuer names, tickers, exchanges and CIKs, then uses uniquely named illustrative records to preserve the prototype's stated global-universe scale.
 - Search uses exact ticker/CUSIP priority, field-weighted whole-word relevance, strict multi-term matching and a controlled name/manager typo fallback.
 - Combined filters, exact facets and global sorting run against the complete catalog; sorting adapts to the active vehicle and visible quantitative columns, and each text result explains why it matched.
 - Numeric criteria expose compact 12-bucket distributions, medians, exact bounds and live match previews. The criteria are vehicle-aware, persisted in saved/shareable screens and evaluated against the complete matched set.
@@ -27,7 +27,7 @@ Desktop-first, masked vision prototype deployed on Vercel. It connects a synthet
 - The browser aborts stale requests, waits 260 ms for typing intent and delays loading chrome for 180 ms so fast results replace in place without flicker. Range dragging stays local and requests only on commit; baseline distributions are cached per server instance. Profile requests are cached and prefetched only after brief hover/focus intent.
 - Search responses contain only list-and-compare fields; profile-only research data is retrieved from `/api/detail` after selection.
 
-The household, investment data, performance, flags, product availability and company identity are illustrative. This is not a financial plan, recommendation, investment or production entitlement system.
+SEC-referenced equity identity fields are sourced from the SEC company ticker and exchange association file. The household, market values, performance, fundamentals, flags, research, product availability and remaining company identity are illustrative. This is not a financial plan, recommendation, investment or production entitlement system.
 
 ## Run and test
 
@@ -35,6 +35,7 @@ The household, investment data, performance, flags, product availability and com
 npm run dev
 npm test
 npm run build
+npm run refresh:equities # intentionally refresh the checked-in SEC issuer reference snapshot
 ```
 
 Open `http://127.0.0.1:4173` after starting the local server. The screener is also available directly at `/investments`.
