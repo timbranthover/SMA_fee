@@ -278,7 +278,7 @@ function bookPriorityMarkup(item) {
 
 function renderBookSummary(data) {
   el("bookSubtitle").textContent = `${data.metrics.householdCount} households · one connected view of your client book`;
-  el("bookUpdated").textContent = "Updated through Aug 21, 2026 · 9:42 AM ET";
+  el("bookUpdated").textContent = data.items[0]?.asOf ? `Updated ${data.items[0].asOf}` : "Current client data";
   el("bookHouseholdCount").textContent = formatCount(data.metrics.householdCount);
   el("bookFinancialAssets").textContent = formatWealthCurrency(data.metrics.financialAssets);
   el("bookNetWorth").textContent = formatWealthCurrency(data.metrics.netWorth);
