@@ -1,4 +1,4 @@
-name: Phase Three Consolidate
+name: Phase Three Polish
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  integrate:
+  polish:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -20,27 +20,25 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Apply consolidated Phase Three product patch
-        run: python scripts/phase3-build.py
-      - name: Align existing repository contract test
-        run: python scripts/phase3-test-compat.py
+      - name: Remove false tax precision
+        run: python scripts/phase3-polish.py
       - run: npm ci
       - name: Run full build
         shell: bash
         run: |
           set +e
-          npm run build 2>&1 | tee /tmp/phase3-consolidated-build.log
+          npm run build 2>&1 | tee /tmp/phase3-polish-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             echo "--- FAILURE SUMMARY ---"
-            grep -nE "not ok|AssertionError|ERR_|error:|Error:|fail [1-9]|operator:" /tmp/phase3-consolidated-build.log | tail -n 100 || true
+            grep -nE "not ok|AssertionError|ERR_|error:|Error:|fail [1-9]|operator:" /tmp/phase3-polish-build.log | tail -n 100 || true
           fi
           exit "$status"
-      - name: Commit validated Phase Three integration
+      - name: Commit validated polish
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ARCHITECTURE.md api/wealth.js app.js index.html lib/wealth-repository.js lib/wealth-service.js local-server.mjs package.json scripts/build-static.mjs styles.css tests/wealth.test.mjs
-          git diff --cached --quiet && { echo "No integration changes to commit"; exit 1; }
-          git commit -m "Build advisor decision and action layer"
+          git add api/decision.js app.js lib/decision-service.js tests/decision.test.mjs
+          git diff --cached --quiet && { echo "No polish changes to commit"; exit 1; }
+          git commit -m "Keep decision scenarios evidence-based"
           git push origin HEAD:phase3/consolidated
