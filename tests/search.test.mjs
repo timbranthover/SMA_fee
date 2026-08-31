@@ -48,6 +48,7 @@ test("search summaries omit detail-only data and stay lightweight", () => {
   assert.equal("description" in result.items[0], false);
   assert.equal("benchmark" in result.items[0], false);
   assert.ok(Buffer.byteLength(JSON.stringify(result)) < 12000);
+  assert.match(result.items[0].researchStatus.label, /Approved|Under review|Not rated/);
 });
 
 test("text search never fabricates unrelated rows", () => {
@@ -205,6 +206,24 @@ test("detail responses contain governed metadata without client fields", () => {
   assert.equal("eligibility" in detail, false);
   assert.ok(detail.flags.includes("Model Delivered"));
   assert.equal(detail.flags.includes("Model Enabled"), false);
+  assert.equal(detail.controls.research.label, "Approved · Qualitative");
+  assert.equal(detail.controls.shelf.label, "Available");
+  assert.equal(detail.controls.operations.label, "Operationally ready");
+  assert.equal(detail.controls.data.source, "Strategy Master");
+  assert.equal(detail.controls.changes.length, 3);
+  assert.deepEqual(detail.controls.changes.map((change) => change.type), ["Data", "Research", "Shelf"]);
+});
+
+test("research, shelf and operational controls remain separate", () => {
+  const limited = getInvestmentDetail("alt-bcred");
+  assert.equal(limited.controls.shelf.label, "Limited capacity");
+  assert.equal(limited.controls.operations.label, "Capacity constrained");
+  assert.notEqual(limited.controls.research.label, limited.controls.shelf.label);
+
+  const newlyAdded = getInvestmentDetail("sma-ups-climate");
+  assert.equal(newlyAdded.controls.shelf.label, "New to shelf");
+  assert.equal(newlyAdded.controls.research.label, "Under review");
+  assert.equal(newlyAdded.controls.research.owner, "Product Due Diligence");
 });
 
 test("standalone profile slugs and vehicle-specific research are complete", () => {

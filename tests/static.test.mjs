@@ -66,6 +66,9 @@ test("investment profiles support a shared canvas and standalone URLs", async ()
   assert.match(app, /<th>Excess<\/th>/);
   assert.match(app, /profile-data-table paired-facts/);
   assert.match(css, /\.profile-data-table \{/);
+  assert.match(app, /class="profile-control-band"/);
+  assert.match(app, /id="profile-changes"/);
+  assert.match(css, /\.change-log \{/);
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investment/:slug" && rule.destination === "/"));
 });
 

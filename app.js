@@ -406,6 +406,11 @@ function renderActiveFilters() {
 
 function badge(flag) { return `<span class="badge ${FLAG_COLORS[flag] || "blue"}">${escapeHtml(flag)}</span>`; }
 
+function researchStatus(status) {
+  if (!status) return "";
+  return `<span class="result-research-status ${escapeHtml(status.tone)}"><i aria-hidden="true"></i>${escapeHtml(status.label)}</span>`;
+}
+
 function visibleFlags(flags) {
   const selected = [...state.flags].filter((flag) => flags.includes(flag));
   return [...selected, ...flags.filter((flag) => !selected.includes(flag))].slice(0, Math.max(2, selected.length));
@@ -491,7 +496,7 @@ function renderResults() {
     const checked = state.compare.has(item.id);
     return `<tr data-row-id="${escapeHtml(item.id)}">
       <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
-      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
+      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${researchStatus(item.researchStatus)}${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
       ${columns.map((column) => `<td class="result-data-column col-${escapeHtml(column)} ${column === "primary" ? "market-primary" : ""}">${renderResultColumn(item, column)}</td>`).join("")}
       <td class="action-cell"><a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a></td>
     </tr>`;
@@ -795,14 +800,16 @@ function breakdownRows(items) {
 
 function renderResearchProfile(item) {
   const profile = item.profile;
+  const controls = item.controls;
   const selected = state.compare.has(item.id);
   const saved = isInvestmentSaved(item.id);
   const pageMode = state.detailMode === "page";
   const currentIndex = state.items.findIndex((candidate) => candidate.id === item.id);
   const previous = currentIndex > 0 ? state.items[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < state.items.length - 1 ? state.items[currentIndex + 1] : null;
+  const controlCell = (label, control, secondary) => `<div class="profile-control-cell"><span>${escapeHtml(label)}</span><strong class="control-tone-${escapeHtml(control.tone)}"><i aria-hidden="true"></i>${escapeHtml(control.label)}</strong><small>${escapeHtml(secondary)}</small></div>`;
   const navigation = [
-    ["Overview", "profile-overview"], ["Performance", "profile-performance"], [profile.composition.title, "profile-composition"],
+    ["Overview", "profile-overview"], ["Recent changes", "profile-changes"], ["Performance", "profile-performance"], [profile.composition.title, "profile-composition"],
     ["Risk", "profile-risk"], ["Fees & operations", "profile-fees"], ["UPS research", "profile-research"],
   ];
   el("drawerContent").innerHTML = `<header class="profile-hero">
@@ -816,10 +823,17 @@ function renderResearchProfile(item) {
         <div class="profile-quote"><small>${escapeHtml(profile.quote.label)}</small><strong>${escapeHtml(profile.quote.value)}</strong><span class="quote-change ${escapeHtml(profile.quote.changeTone)}">${escapeHtml(profile.quote.change)}</span><div><small>${escapeHtml(profile.quote.secondaryLabel)}</small><b>${escapeHtml(profile.quote.secondaryValue)}</b></div><em>${escapeHtml(profile.quote.asOf)}</em></div>
       </div>
       <div class="profile-actions"><button class="secondary-button" data-save-investment="${escapeHtml(item.id)}">${saved ? "★ Saved" : "☆ Save"}</button><button class="primary-button" data-drawer-compare="${escapeHtml(item.id)}">${selected ? "Remove from compare" : "＋ Add to compare"}</button></div>
+      <div class="profile-control-band" aria-label="Research, shelf, operations and data status">
+        ${controlCell("Research", controls.research, `Reviewed ${controls.research.reviewed} · Next ${controls.research.nextReview}`)}
+        ${controlCell("Shelf", controls.shelf, controls.shelf.detail)}
+        ${controlCell("Operations", controls.operations, controls.operations.detail)}
+        ${controlCell("Data", controls.data, `${controls.data.detail} · ${controls.data.source}`)}
+      </div>
     </header>
     <nav class="profile-nav" aria-label="Investment profile sections">${navigation.map(([label, section]) => `<button data-profile-section="${section}">${escapeHtml(label)}</button>`).join("")}</nav>
     <div class="profile-body">
       <section class="profile-section" id="profile-overview"><div class="section-heading"><span>Decision snapshot</span><h3>Investment overview</h3><p>Mandate, benchmark and key characteristics in one underwriting view.</p></div><div class="overview-layout"><div class="profile-description"><h4>Mandate</h4><p>${escapeHtml(item.description)}</p><dl><div><dt>Objective</dt><dd>${escapeHtml(item.objective)}</dd></div><div><dt>Benchmark</dt><dd>${escapeHtml(item.benchmark)}</dd></div></dl></div><div class="snapshot-table"><div class="table-caption"><strong>Key facts</strong><span>As of ${escapeHtml(item.asOf)}</span></div>${pairedFactsTable(profile.keyFacts)}</div></div></section>
+      <section class="profile-section changes-section" id="profile-changes"><div class="section-heading"><span>Monitoring</span><h3>Recent changes</h3><p>Material research, shelf and data activity in one reviewable history.</p></div><div class="change-log">${controls.changes.map((change) => `<article class="change-row"><time>${escapeHtml(change.date)}</time><span class="change-type">${escapeHtml(change.type)}</span><div><h4>${escapeHtml(change.title)}</h4><p>${escapeHtml(change.summary)}</p></div><small>${escapeHtml(change.owner)}</small></article>`).join("")}</div></section>
       <section class="profile-section" id="profile-performance"><div class="section-heading"><span>Track record</span><h3>${escapeHtml(profile.performance.title)}</h3><p>${escapeHtml(profile.performance.subtitle)}</p></div><div class="performance-layout"><div class="profile-chart"><div class="chart-legend"><span class="investment">Investment</span><span class="benchmark">${escapeHtml(item.benchmark)}</span></div>${chartSvg(profile.performance.series, profile.performance.benchmarkSeries)}</div><table class="performance-table"><thead><tr><th>Period</th><th>Investment</th><th>Benchmark</th><th>Excess</th></tr></thead><tbody>${profile.performance.rows.map((row) => { const excess = Number((row.investment - row.benchmark).toFixed(2)); return `<tr><th>${escapeHtml(row.period)}</th><td>${formatReturn(row.investment)}</td><td>${formatReturn(row.benchmark)}</td><td class="${excess >= 0 ? "positive" : "negative"}">${formatReturn(excess)}</td></tr>`; }).join("")}</tbody></table></div></section>
       <section class="profile-section" id="profile-composition"><div class="section-heading"><span>Exposure</span><h3>${escapeHtml(profile.composition.title)}</h3><p>${escapeHtml(profile.composition.subtitle)}</p></div><div class="composition-layout"><div><div class="table-caption"><strong>Exposure mix</strong><span>Illustrative %</span></div>${breakdownRows(profile.composition.breakdown)}</div><div class="characteristic-list"><div class="table-caption"><strong>${profile.composition.holdings.length ? "Key holdings / characteristics" : "Analytical context"}</strong></div>${profile.composition.holdings.length ? holdingsTable(profile.composition.holdings) : `<p>Review fundamentals, valuation, growth and capital-return measures alongside current research.</p>`}</div></div></section>
       <section class="profile-section" id="profile-risk"><div class="section-heading"><span>Decision context</span><h3>Risk & analytical measures</h3><p>Each measure is paired with its analytical meaning and comparison basis.</p></div>${metricTable(profile.riskMetrics, "risk-table")}</section>

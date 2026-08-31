@@ -47,5 +47,6 @@ Warm searches are designed to remain under the one-second interaction budget in 
 - **Governance:** centrally owned flag definitions with effective dates, evidence, approver, geography/program scope and full change history.
 - **Performance:** CDN-cache safe public metadata, short server result caches, request cancellation, query budgets, slow-query telemetry and load tests at expected advisor concurrency.
 - **Controls:** SSO, least-privilege service identities, audit events, document entitlements, data lineage, disaster recovery and security/compliance review.
+- **Product controls:** research standing, shelf availability, operational readiness and data freshness are separate versioned states. Each state requires an owner, source, effective date and immutable change history; the prototype now models this API contract with illustrative data.
 
 Do not copy the demo’s generated catalog into production. Preserve its bounded request/response contract and replace the implementation behind it.

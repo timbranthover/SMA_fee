@@ -14,6 +14,7 @@ Desktop-first, masked investment-shelf prototype deployed on Vercel. It demonstr
 - Natural-language phrases are converted to an explicit allowlist of governed filters.
 - Curated company and manager marks are served locally, with deterministic identity matching and monogram fallbacks.
 - Each investment has a vehicle-specific research profile covering its current illustrative value, benchmarked performance, composition, risk, costs, operating terms and UPS research.
+- Every profile separates research standing, shelf availability, operational readiness and data freshness, with ownership, review dates and a compact recent-change history.
 - A normal result click opens that profile in a large in-context research canvas; every profile also has a stable `/investment/:slug` URL that supports new tabs and direct sharing.
 - Detail, comparison, saved screens, saved investments and shareable screen URLs work.
 - Inputs are validated and invalid categories, flags, risk levels, numeric ranges and pagination values return HTTP 400.
