@@ -22,14 +22,14 @@ jobs:
           import re
 
           def replace_once(text, old, new, label):
-              if old not in text:
-                  raise SystemExit(f"Expected source for {label} was not found; refusing to continue.")
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected one source match for {label}; found {text.count(old)}. Refusing to continue.")
               return text.replace(old, new, 1)
 
           def sub_once(text, pattern, replacement, label):
               updated, count = re.subn(pattern, lambda _: replacement, text, count=1, flags=re.S)
               if count != 1:
-                  raise SystemExit(f"Expected source for {label} was not found uniquely; refusing to continue.")
+                  raise SystemExit(f"Expected one source match for {label}; found {count}. Refusing to continue.")
               return updated
 
           app_path = Path("app.js")
@@ -39,20 +39,13 @@ jobs:
           index = index_path.read_text()
           styles = styles_path.read_text()
 
-          app = replace_once(
-              app,
+          app = replace_once(app,
               '  if (definition.format === "currency") return formatMinimum(numeric);',
               '  if (definition.format === "currency") return currency.format(numeric);',
-              "currency range summaries",
-          )
+              "currency range summaries")
 
-          app = replace_once(
-              app,
-              '''function rangeInputValue(value, definition) {
-            return Number(Number(value).toFixed(definition.digits));
-          }
-
-          function rangeModule(definition, facet, open) {''',
+          app = sub_once(app,
+              r'function rangeInputValue\(value, definition\) \{\s*return Number\(Number\(value\)\.toFixed\(definition\.digits\)\);\s*\}',
               '''function rangeInputValue(value, definition) {
             return Number(Number(value).toFixed(definition.digits));
           }
@@ -66,14 +59,10 @@ jobs:
             const normalized = definition.format === "currency" ? String(value).replace(/,/g, "") : String(value);
             const numeric = Number(normalized);
             return Number.isFinite(numeric) ? numeric : NaN;
-          }
+          }''',
+              "currency range input helpers")
 
-          function rangeModule(definition, facet, open) {''',
-              "currency range input helpers",
-          )
-
-          app = sub_once(
-              app,
+          app = sub_once(app,
               r'  const numberField = \(bound, label, value\) => `<label class="range-number-control range-bound-\$\{bound\}">.*?</label>`;',
               '''  const numberField = (bound, label, value) => {
             const displayValue = rangeInputDisplayValue(value, definition);
@@ -85,94 +74,61 @@ jobs:
               ${affixes.suffix ? `<span class="range-affix">${affixes.suffix}</span>` : ""}
             </label>`;
           };''',
-              "currency range inputs",
-          )
+              "currency range inputs")
 
-          app = replace_once(
-              app,
-              '''  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => {
-            input.value = rangeInputValue(selection[input.dataset.rangeBound], definition);
-            input.closest("[data-range-input-sizer]").dataset.value = input.value;
-          });''',
-              '''  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => {
-            input.value = rangeInputDisplayValue(selection[input.dataset.rangeBound], definition);
-            input.closest("[data-range-input-sizer]").dataset.value = input.value;
-          });''',
-              "range refresh formatting",
-          )
+          app = replace_once(app,
+              '    input.value = rangeInputValue(selection[input.dataset.rangeBound], definition);',
+              '    input.value = rangeInputDisplayValue(selection[input.dataset.rangeBound], definition);',
+              "range refresh formatting")
 
-          app = replace_once(
-              app,
-              '''function updateRangeSelection(field, bound, rawValue) {
-            const facet = state.facets?.ranges?.[field];
-            if (!facet) return;''',
+          app = sub_once(app,
+              r'(function updateRangeSelection\(field, bound, rawValue\) \{\s*const facet = state\.facets\?\.ranges\?\.\[field\];)\s*if \(!facet\) return;',
               '''function updateRangeSelection(field, bound, rawValue) {
             const facet = state.facets?.ranges?.[field];
             const definition = rangeDefinitions(state.appliedCategory).find((entry) => entry.field === field);
             if (!facet || !definition) return;''',
-              "range input definition lookup",
-          )
+              "range input definition lookup")
 
-          app = replace_once(
-              app,
-              '''  const current = effectiveRange(field, facet);
-            const value = Math.max(facet.min, Math.min(facet.max, Number(rawValue)));
-            if (!Number.isFinite(value)) return;''',
+          app = sub_once(app,
+              r'  const current = effectiveRange\(field, facet\);\s*const value = Math\.max\(facet\.min, Math\.min\(facet\.max, Number\(rawValue\)\)\);\s*if \(!Number\.isFinite\(value\)\) return;',
               '''  const current = effectiveRange(field, facet);
             const parsed = parseRangeInputValue(rawValue, definition);
             if (!Number.isFinite(parsed)) return;
             const value = Math.max(facet.min, Math.min(facet.max, parsed));''',
-              "range input comma parsing",
-          )
+              "range input comma parsing")
 
-          app = replace_once(
-              app,
-              '''function renderWealthWorkspace() {
-            updateHtml(el("wealthAllocationBar"), wealthAllocationSvg(WEALTH_ALLOCATION));''',
+          app = replace_once(app,
+              'function renderWealthWorkspace() {',
               '''function goalProgressMeter(goal) {
             const progress = Math.max(0, Math.min(100, Number(goal.progress) || 0));
             return `<span class="goal-progress"><progress class="goal-progress-meter goal-progress-${escapeHtml(goal.tone)}" max="100" value="${progress}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress><small>${progress}%</small></span>`;
           }
 
-          function renderWealthWorkspace() {
-            updateHtml(el("wealthAllocationBar"), wealthAllocationSvg(WEALTH_ALLOCATION));''',
-              "goal progress renderer",
-          )
+          function renderWealthWorkspace() {''',
+              "goal progress renderer")
 
-          app = replace_once(
-              app,
+          app = replace_once(app,
               '<span class="goal-progress"><span><i style="width:${goal.progress}%"></i></span><small>${goal.progress}%</small></span>',
               '${goalProgressMeter(goal)}',
-              "goal list progress bars",
-          )
+              "goal list progress bars")
 
-          app = replace_once(
-              app,
+          app = replace_once(app,
               '<div class="goal-funding-track"><i style="width:${goal.progress}%"></i></div>',
               '<progress class="goal-funding-track goal-progress-${escapeHtml(goal.tone)}" max="100" value="${Math.max(0, Math.min(100, Number(goal.progress) || 0))}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress>',
-              "goal detail progress bar",
-          )
+              "goal detail progress bar")
 
-          index = replace_once(
-              index,
-              '        <button class="nav-item" data-open-saved>Saved</button>\n',
-              '',
-              "top-level Saved navigation",
-          )
+          index = sub_once(index,
+              r'\s*<button class="nav-item" data-open-saved>Saved</button>\n',
+              '\n',
+              "top-level Saved navigation")
 
-          styles = replace_once(
-              styles,
+          styles = replace_once(styles,
               '  .global-nav .nav-item:nth-child(4) { display: none; }',
               '  .global-nav .nav-item:nth-child(3) { display: none; }',
-              "responsive Research navigation",
-          )
+              "responsive Research navigation")
 
-          styles = replace_once(
-              styles,
-              '''.goal-progress { display: grid; grid-template-columns: 1fr 24px; align-items: center; gap: 5px; }
-          .goal-progress > span { height: 3px; overflow: hidden; background: #e5e5e1; }
-          .goal-progress i { display: block; height: 100%; background: #4b8067; }
-          .goal-progress small { color: #777; font-size: 7px; }''',
+          styles = sub_once(styles,
+              r'\.goal-progress \{[^}]+\}\s*\.goal-progress > span \{[^}]+\}\s*\.goal-progress i \{[^}]+\}\s*\.goal-progress small \{[^}]+\}',
               '''.goal-progress { display: grid; grid-template-columns: 1fr 24px; align-items: center; gap: 5px; }
           .goal-progress-meter { display: block; width: 100%; height: 3px; appearance: none; border: 0; background: #e5e5e1; }
           .goal-progress-meter::-webkit-progress-bar { background: #e5e5e1; }
@@ -181,21 +137,17 @@ jobs:
           .goal-progress-meter.goal-progress-watch::-webkit-progress-value { background: #b07b21; }
           .goal-progress-meter.goal-progress-watch::-moz-progress-bar { background: #b07b21; }
           .goal-progress small { color: #777; font-size: 7px; }''',
-              "goal list progress styling",
-          )
+              "goal list progress styling")
 
-          styles = replace_once(
-              styles,
-              '''.goal-funding-track { height: 9px; margin-top: 16px; overflow: hidden; background: #deded9; }
-          .goal-funding-track i { display: block; height: 100%; background: #4b8067; }''',
+          styles = sub_once(styles,
+              r'\.goal-funding-track \{[^}]+\}\s*\.goal-funding-track i \{[^}]+\}',
               '''.goal-funding-track { display: block; width: 100%; height: 9px; margin-top: 16px; appearance: none; border: 0; background: #deded9; }
           .goal-funding-track::-webkit-progress-bar { background: #deded9; }
           .goal-funding-track::-webkit-progress-value { background: #4b8067; }
           .goal-funding-track::-moz-progress-bar { background: #4b8067; }
           .goal-funding-track.goal-progress-watch::-webkit-progress-value { background: #b07b21; }
           .goal-funding-track.goal-progress-watch::-moz-progress-bar { background: #b07b21; }''',
-              "goal detail progress styling",
-          )
+              "goal detail progress styling")
 
           app_path.write_text(app)
           index_path.write_text(index)
