@@ -187,16 +187,22 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   const wealthApi = await readFile(new URL("../api/wealth.js", import.meta.url), "utf8");
   const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 
-  assert.match(html, /id="wealthView"/);
+  assert.match(html, /id="bookView"/);
+  assert.match(html, /id="wealthView" hidden/);
   assert.match(html, /id="investmentView" hidden/);
-  assert.match(html, /data-workspace-view="wealth">Total Wealth/);
+  assert.match(html, /data-workspace-view="book">Total Wealth/);
+  assert.match(html, /id="bookSearch"/);
+  assert.match(html, /id="bookBody"/);
   assert.match(html, /data-workspace-view="investments">Investments/);
   assert.match(html, /id="scenarioRibbon"/);
   assert.match(html, /id="wealthDrawer"/);
   assert.match(app, /function setWorkspaceView/);
   assert.match(app, /function ensureInvestmentWorkspaceLoaded/);
-  assert.match(app, /state\.workspaceView === "investments" \? ensureInvestmentWorkspaceLoaded\(\) : Promise\.resolve\(\)/);
-  assert.match(app, /loadWealthHistory\(\)/);
+  assert.match(app, /function loadBook/);
+  assert.match(app, /function openHousehold/);
+  assert.match(app, /loadAdvisorBook/);
+  assert.match(app, /ensureInvestmentWorkspaceLoaded/);
+  assert.match(app, /loadWealthHistory\(householdId\)/);
   assert.match(app, /loadHouseholdAccount/);
   assert.match(app, /loadHouseholdGoal/);
   assert.match(app, /loadConcentrationReview/);
@@ -209,16 +215,19 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   assert.match(css, /\.wealth-layout/);
   assert.match(css, /\.wealth-drawer\.open/);
 
+  assert.match(browserWealth, /loadAdvisorBook/);
   assert.match(browserWealth, /loadHouseholdOverview/);
   assert.match(browserWealth, /loadWealthHistory/);
   assert.match(browserWealth, /loadConcentrationReview/);
   assert.doesNotMatch(browserWealth, /wealth-source|wealth-repository|wealth-service/);
   assert.match(wealthApi, /PROJECTION_VIEWS/);
+  assert.match(wealthApi, /getAdvisorBook/);
   assert.match(wealthApi, /Server-Timing/);
   assert.match(wealthApi, /private, no-store/);
   assert.match(wealthApi, /Vary/);
   assert.match(build, /"wealth-data\.js"/);
   assert.doesNotMatch(build, /"wealth-source\.js"|"wealth-repository\.js"|"wealth-service\.js"/);
 
+  assert.ok(vercel.rewrites.some((rule) => rule.source === "/household/:id" && rule.destination === "/"));
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investments" && rule.destination === "/"));
 });
