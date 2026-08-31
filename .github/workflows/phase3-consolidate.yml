@@ -22,6 +22,8 @@ jobs:
           cache: npm
       - name: Apply consolidated Phase Three product patch
         run: python scripts/phase3-build.py
+      - name: Align existing repository contract test
+        run: python scripts/phase3-test-compat.py
       - run: npm ci
       - name: Run full build
         shell: bash
@@ -38,7 +40,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ARCHITECTURE.md api/wealth.js app.js index.html lib/wealth-repository.js lib/wealth-service.js local-server.mjs package.json scripts/build-static.mjs styles.css
+          git add ARCHITECTURE.md api/wealth.js app.js index.html lib/wealth-repository.js lib/wealth-service.js local-server.mjs package.json scripts/build-static.mjs styles.css tests/wealth.test.mjs
           git diff --cached --quiet && { echo "No integration changes to commit"; exit 1; }
           git commit -m "Build advisor decision and action layer"
           git push origin HEAD:phase3/consolidated
