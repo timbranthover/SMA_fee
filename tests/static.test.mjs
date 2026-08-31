@@ -141,7 +141,8 @@ test("numeric range filters stay compact, adaptive and shareable", async () => {
   assert.doesNotMatch(html, /id="maxMinimum"|id="maxFee"/);
   assert.match(app, /function renderRangeFilters/);
   assert.match(app, /data-range-slider/);
-  assert.match(app, /import noUiSlider from "\/vendor\/nouislider\.mjs"/);
+  assert.match(app, /import\("\/vendor\/nouislider\.mjs"\)/);
+  assert.doesNotMatch(app, /import noUiSlider from/);
   assert.match(app, /behaviour: "tap-drag-smooth-steps"/);
   assert.match(app, /change\.compactRange[\s\S]+runSearch\(\)/);
   assert.match(app, /function setRangeSelection[\s\S]+rangeInputValue/);
