@@ -1,8 +1,8 @@
 import { MORRISON_WEALTH_DATASET } from "../lib/wealth-source.js";
-import { createWealthClientService } from "../lib/wealth-service.js";
+import { createWealthService } from "../lib/wealth-service.js";
 
 const HOUSEHOLD_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/i;
-const wealthService = createWealthClientService(MORRISON_WEALTH_DATASET);
+const wealthService = createWealthService(MORRISON_WEALTH_DATASET);
 
 export function parseHouseholdId(value) {
   const householdId = String(value || "").trim();
