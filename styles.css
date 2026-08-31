@@ -226,8 +226,9 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .wealth-drawer { position: fixed; top: 58px; right: 0; bottom: 0; z-index: 70; width: min(860px, calc(100vw - 250px)); overflow-y: auto; background: #fff; box-shadow: -18px 0 52px rgba(0,0,0,.22); transform: translateX(105%); transition: transform .22s ease; }
 .wealth-drawer.open { transform: translateX(0); }
 .wealth-drawer-header { position: sticky; top: 0; z-index: 3; min-height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.97); }
-.wealth-drawer-header .eyebrow { margin-bottom: 4px; font-size: 7px; }
-.wealth-drawer-back { border: 0; background: transparent; padding: 0; color: #444; font-size: 9px; font-weight: 700; }
+.wealth-drawer-header > div { min-width: 0; display: flex; align-items: center; gap: 18px; }
+.wealth-drawer-header .eyebrow { margin: 0; font-size: 7px; white-space: nowrap; }
+.wealth-drawer-back { flex: none; border: 0; background: transparent; padding: 0; color: #444; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .wealth-drawer-close { width: 31px; height: 31px; border: 1px solid var(--line); border-radius: 50%; background: #fff; font-size: 17px; }
 .wealth-drawer-body { padding: 0 34px 34px; }
 .concentration-hero { min-height: 126px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border-bottom: 1px solid var(--line); }
