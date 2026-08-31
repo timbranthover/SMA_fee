@@ -11,6 +11,7 @@ const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 const chartDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const COMPARE_COLORS = ["#b51f35", "#246a58", "#315f8f", "#9b7629"];
 const COMPARE_RANGE_OPTIONS = new Set(["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"]);
+const WEALTH_ALLOCATION_COLORS = Object.freeze({ navy: "#203f52", blue: "#4f7892", teal: "#5b9082", amber: "#b28a4d", gray: "#aaa9a3", slate: "#747b7d" });
 
 const state = {
   workspaceView: "wealth",
@@ -216,8 +217,22 @@ function formatWealthCurrency(value, digits = 2) {
   return `${sign}${currency.format(absolute)}`;
 }
 
+function wealthAllocationSvg(items) {
+  const segments = items.map((item) => ({ ...item, value: Math.max(0, Number(item.value) || 0) })).filter((item) => item.value > 0);
+  const total = segments.reduce((sum, item) => sum + item.value, 0);
+  if (!total) return "";
+  let offset = 0;
+  const summary = segments.map((item) => `${item.label} ${item.value}%`).join(", ");
+  const rects = segments.map((item) => {
+    const x = offset;
+    offset += item.value;
+    return `<rect x="${x}" y="0" width="${item.value}" height="8" fill="${WEALTH_ALLOCATION_COLORS[item.tone] || WEALTH_ALLOCATION_COLORS.slate}"><title>${escapeHtml(item.label)} · ${item.value}%</title></rect>`;
+  }).join("");
+  return `<svg width="100%" height="8" viewBox="0 0 ${total} 8" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(`Current allocation: ${summary}`)}">${rects}</svg>`;
+}
+
 function renderWealthWorkspace() {
-  updateHtml(el("wealthAllocationBar"), WEALTH_ALLOCATION.map((item) => `<span class="allocation-segment tone-${escapeHtml(item.tone)}" style="width:${item.value}%" title="${escapeHtml(item.label)} · ${item.value}%"></span>`).join(""));
+  updateHtml(el("wealthAllocationBar"), wealthAllocationSvg(WEALTH_ALLOCATION));
   updateHtml(el("wealthAllocationLegend"), WEALTH_ALLOCATION.map((item) => `<div><i class="tone-${escapeHtml(item.tone)}"></i><span>${escapeHtml(item.label)}</span><strong>${item.value}%</strong></div>`).join(""));
   updateHtml(el("wealthAccountsBody"), HOUSEHOLD_ACCOUNTS.map((account) => `<tr class="wealth-clickable-row"><th><button type="button" class="wealth-row-link" data-wealth-account="${escapeHtml(account.id)}"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.registration)} · ${escapeHtml(account.allocation)}</small></button></th><td>${formatWealthCurrency(account.value)}</td><td class="positive">+${account.change.toFixed(1)}%</td></tr>`).join(""));
   updateHtml(el("wealthHoldingsBody"), HOUSEHOLD_HOLDINGS.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td class="${holding.weight > 15 ? "attention-value" : ""}">${holding.weight.toFixed(1)}%</td></tr>`).join(""));
