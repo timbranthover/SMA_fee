@@ -4,6 +4,7 @@ import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMN
 import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
 import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
+import { addDecisionCandidates, getDecisionPlan, getHouseholdPlanSummary, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, saveDecisionPlan, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -16,6 +17,12 @@ const state = {
   workspaceView: "book",
   householdScenario: null,
   currentHouseholdId: null,
+  decisionSummary: null,
+  activeDecisionDetail: null,
+  activeDecisionScenario: null,
+  activeDecisionPlan: null,
+  decisionController: null,
+  decisionScenarioController: null,
   bookController: null,
   bookQuery: "",
   bookFocus: "all",
@@ -87,6 +94,8 @@ let HOUSEHOLD_INSIGHTS = [];
 let householdRequest = 0;
 let bookSearchTimer = null;
 let bookPrefetchTimer = null;
+let decisionRequest = 0;
+let decisionModelTimer = null;
 
 const elementCache = new Map();
 const el = (id) => {
@@ -272,8 +281,14 @@ function goalProgressMeter(goal) {
 }
 
 function bookPriorityMarkup(item) {
-  if (!item.priority) return `<span class="book-priority-none">No material exception</span>`;
-  return `<span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong>${escapeHtml(item.priority.title)}</strong><small>${escapeHtml(item.priority.detail)}</small></span></span>`;
+  const localPlan = getHouseholdPlanSummary(item.id);
+  const planStatus = localPlan?.status || (item.planCount ? item.decisionStatus : null);
+  const parts = [];
+  if (planStatus) parts.push(`<span class="book-plan-pill"><i></i>${escapeHtml(planStatus)}</span>`);
+  if (item.priority) parts.push(`<span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong>${escapeHtml(item.priority.title)}</strong><small>${escapeHtml(item.priority.detail)}</small></span></span>`);
+  else if (item.openDecisionCount) parts.push(`<span class="book-priority-none"><strong>${item.openDecisionCount} open ${item.openDecisionCount === 1 ? "decision" : "decisions"}</strong><small>Relationship workflow active</small></span>`);
+  else parts.push(`<span class="book-priority-none">No material exception</span>`);
+  return `<span class="book-attention-stack">${parts.join("")}</span>`;
 }
 
 function renderAdvisorIdentity({ displayName, initials, workspaceLabel } = {}) {
@@ -291,29 +306,31 @@ function renderBookSummary(data) {
   el("bookFinancialAssets").textContent = formatWealthCurrency(data.metrics.financialAssets);
   el("bookNetWorth").textContent = formatWealthCurrency(data.metrics.netWorth);
   el("bookCash").textContent = formatWealthCurrency(data.metrics.investableCash);
-  el("bookAttentionCount").textContent = formatCount(data.metrics.attentionHouseholds);
+  el("bookOpenDecisionCount").textContent = formatCount(data.metrics.openDecisions || 0);
   const counts = data.focusCounts || {};
   const countMap = {
+    bookFilterDecisions: counts.decisions,
     bookFilterPriority: counts.priority,
     bookFilterCash: counts.cash,
     bookFilterGoals: counts.goals,
     bookFilterUpcoming: counts.upcoming,
   };
   Object.entries(countMap).forEach(([id, value]) => { el(id).textContent = formatCount(value || 0); });
+  el("bookIntelDecisions").textContent = `${formatCount(data.metrics.openDecisions || 0)} active`;
+  el("bookIntelPlans").textContent = `${formatCount(data.metrics.plansInProgress || 0)} active plans`;
   el("bookIntelPriority").textContent = `${formatCount(counts.priority || 0)} households`;
   el("bookIntelCash").textContent = `${formatCount(counts.cash || 0)} households`;
   el("bookIntelGoals").textContent = `${formatCount(counts.goals || 0)} goal reviews`;
   el("bookIntelUpcoming").textContent = `${formatCount(counts.upcoming || 0)} obligations`;
-  el("bookIntelHeldAway").textContent = `${formatCount(counts["held-away"] || 0)} with held-away assets`;
 }
 
 function renderBookRows() {
-  const rows = state.bookItems.map((item) => `<tr data-book-household-row="${escapeHtml(item.id)}"><th><button type="button" class="book-household-link" data-household-id="${escapeHtml(item.id)}"><span class="book-avatar">${escapeHtml(item.initials)}</span><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.location)} · ${item.accountCount} accounts · ${escapeHtml(item.riskProfile)}</small></span><b>›</b></button></th><td>${formatWealthCurrency(item.netWorth)}</td><td>${formatWealthCurrency(item.financialAssets)}</td><td><strong>${formatWealthCurrency(item.cash)}</strong><small>${item.cashPct.toFixed(1)}%</small></td><td class="${item.ytdReturn >= 0 ? "positive" : "negative"}">${item.ytdReturn >= 0 ? "+" : ""}${item.ytdReturn.toFixed(1)}%</td><td>${item.goalsOnTrack} / ${item.goalsTotal}</td><td>${bookPriorityMarkup(item)}</td></tr>`).join("");
+  const rows = state.bookItems.map((item) => `<tr data-book-household-row="${escapeHtml(item.id)}"><th><button type="button" class="book-household-link" data-household-id="${escapeHtml(item.id)}"><span class="book-avatar">${escapeHtml(item.initials)}</span><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.location)} · ${item.accountCount} accounts · ${escapeHtml(item.riskProfile)}${item.openDecisionCount ? ` · ${item.openDecisionCount} open` : ""}</small></span><b>›</b></button></th><td>${formatWealthCurrency(item.netWorth)}</td><td>${formatWealthCurrency(item.financialAssets)}</td><td><strong>${formatWealthCurrency(item.cash)}</strong><small>${item.cashPct.toFixed(1)}%</small></td><td class="${item.ytdReturn >= 0 ? "positive" : "negative"}">${item.ytdReturn >= 0 ? "+" : ""}${item.ytdReturn.toFixed(1)}%</td><td>${item.goalsOnTrack} / ${item.goalsTotal}</td><td>${bookPriorityMarkup(item)}</td></tr>`).join("");
   updateHtml(el("bookBody"), rows || `<tr><td colspan="7" class="book-empty"><strong>No households match this view</strong><span>Try another search or focus filter.</span></td></tr>`);
   el("bookResultCount").textContent = formatCount(state.bookTotal);
   el("bookLoadedCount").textContent = state.bookItems.length < state.bookTotal ? `${formatCount(state.bookItems.length)} shown` : `${formatCount(state.bookTotal)} shown`;
   el("bookLoadMoreWrap").hidden = state.bookNextCursor === null;
-  const focusLabels = { all: "Prioritized across your book", priority: "Households with priority risk", cash: "Households with deployable cash", goals: "Households with goal reviews", upcoming: "Households with upcoming obligations", "held-away": "Relationships with held-away assets" };
+  const focusLabels = { all: "Prioritized across your book", decisions: "Relationships with open decisions", plans: "Relationships with plans in motion", priority: "Households with priority risk", cash: "Households with deployable cash", goals: "Households with goal reviews", upcoming: "Households with upcoming obligations", "held-away": "Relationships with held-away assets" };
   el("bookViewStatus").textContent = focusLabels[state.bookFocus] || focusLabels.all;
   document.querySelectorAll("[data-book-focus]").forEach((button) => button.classList.toggle("active", button.dataset.bookFocus === state.bookFocus));
 }
@@ -374,6 +391,11 @@ async function openHousehold(householdId, { updateHistory = true, replaceHistory
   const request = ++householdRequest;
   closeWealthDrawer({ restoreFocus: false });
   state.currentHouseholdId = householdId;
+  state.decisionSummary = null;
+  state.activeDecisionDetail = null;
+  state.activeDecisionScenario = null;
+  state.activeDecisionPlan = null;
+  closeDecisionStudio({ restoreFocus: false });
   resetWealthChart();
   renderHouseholdLoading(householdId);
   setWorkspaceView("wealth", { updateHistory, replaceHistory });
@@ -382,6 +404,7 @@ async function openHousehold(householdId, { updateHistory = true, replaceHistory
     if (request !== householdRequest || state.currentHouseholdId !== householdId) return;
     assignHouseholdOverview(overview);
     renderWealthWorkspace();
+    hydrateDecisionSummary(householdId, request);
     document.title = `${HOUSEHOLD.name} | Advisor Workspace`;
     requestAnimationFrame(initializeWealthChart);
   } catch (error) {
@@ -390,12 +413,27 @@ async function openHousehold(householdId, { updateHistory = true, replaceHistory
   }
 }
 
+async function hydrateDecisionSummary(householdId, request) {
+  try {
+    const summary = await loadDecisionSummary(householdId);
+    if (request !== householdRequest || state.currentHouseholdId !== householdId) return;
+    state.decisionSummary = summary;
+    renderWealthWorkspace();
+  } catch {
+    if (request !== householdRequest || state.currentHouseholdId !== householdId) return;
+    state.decisionSummary = { householdId, openCount: 0, planCount: 0, decisions: [] };
+    renderWealthWorkspace();
+  }
+}
+
 function renderWealthWorkspace() {
   if (!HOUSEHOLD) return;
   renderAdvisorIdentity({ displayName: HOUSEHOLD.advisor, initials: HOUSEHOLD.advisorInitials, workspaceLabel: HOUSEHOLD.advisorWorkspace });
   const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.id === "concentration" || insight.id.endsWith("-concentration"));
   const topHolding = HOUSEHOLD_HOLDINGS[0];
-  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button></div></div><div class="wealth-heading-meta"><span>Illustrative household</span><strong>Updated ${escapeHtml(HOUSEHOLD.asOf)}</strong></div>`);
+  const decisionByInsight = new Map((state.decisionSummary?.decisions || []).map((decision) => [decision.sourceInsightId, decision]));
+  const openDecisionCount = state.decisionSummary?.openCount;
+  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button></div></div><div class="wealth-heading-meta"><div class="wealth-heading-status"><span>Illustrative household</span><strong>Updated ${escapeHtml(HOUSEHOLD.asOf)}</strong></div><div class="household-heading-actions"><button class="panel-action" type="button" data-wealth-action="meeting">Prepare meeting</button><button class="panel-action decision-count-button" type="button" data-wealth-action="decisions">Open decisions <b>${openDecisionCount ?? "—"}</b></button><button class="panel-action" type="button" data-wealth-action="timeline">Timeline</button></div></div>`);
   const largestPosition = topHolding ? `${escapeHtml(topHolding.symbol)} · ${topHolding.weight.toFixed(1)}%` : "—";
   updateHtml(el("wealthSummaryStrip"), `<div class="wealth-summary-primary"><span>Net worth</span><strong>${formatWealthCurrency(HOUSEHOLD.netWorth)}</strong><small><b>${formatSignedWealthCurrency(HOUSEHOLD.ytdChange)}</b> year to date</small></div><div><span>Portfolio</span><strong>${escapeHtml(HOUSEHOLD.riskProfile)}</strong><small>Household risk profile</small></div><div><span>Liquidity</span><strong>${formatWealthCurrency(HOUSEHOLD.investableCash)}</strong><small>${HOUSEHOLD.liquidityPct.toFixed(1)}% readily available</small></div><div><span>Largest position</span><strong class="${concentration ? "wealth-watch" : ""}">${largestPosition}</strong><small>${concentration ? escapeHtml(concentration.detail) : "Within monitored household exposure"}</small></div><div><span>Goals</span><strong>${HOUSEHOLD.goalsOnTrack} of ${HOUSEHOLD.goalsTotal}</strong><small>On track or funded</small></div>`);
   el("wealthPerformanceTitle").textContent = formatWealthCurrency(HOUSEHOLD.financialAssets);
@@ -410,7 +448,10 @@ function renderWealthWorkspace() {
   updateHtml(el("wealthAccountsBody"), HOUSEHOLD_ACCOUNTS.map((account) => `<tr class="wealth-clickable-row"><th><button type="button" class="wealth-row-link" data-wealth-account="${escapeHtml(account.id)}"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.registration)} · ${escapeHtml(account.allocation)}</small></button></th><td>${formatWealthCurrency(account.value)}</td><td class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}%</td></tr>`).join(""));
   updateHtml(el("wealthHoldingsBody"), HOUSEHOLD_HOLDINGS.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td class="${holding.weight > 15 ? "attention-value" : ""}">${holding.weight.toFixed(1)}%</td></tr>`).join(""));
   updateHtml(el("wealthGoals"), HOUSEHOLD_GOALS.map((goal) => `<button type="button" class="goal-row" data-wealth-goal="${escapeHtml(goal.id)}"><span class="goal-copy"><strong>${escapeHtml(goal.name)}</strong><small>${escapeHtml(goal.timing)}</small></span>${goalProgressMeter(goal)}<em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></button>`).join(""));
-  updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}</small><strong>${escapeHtml(insight.title)}</strong><em data-insight-detail="${escapeHtml(insight.id)}">${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(insight.action)} <b>›</b></span></button>`).join(""));
+  updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => {
+    const decision = decisionByInsight.get(insight.id);
+    return `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${decision ? ` · ${escapeHtml(getDecisionPlan(decision.id)?.status || decision.status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em data-insight-detail="${escapeHtml(insight.id)}">${escapeHtml(insight.detail)}</em></span><span class="attention-action">${decision ? "Decide" : escapeHtml(insight.action)} <b>›</b></span></button>`;
+  }).join(""));
   renderHouseholdProgress();
 }
 
@@ -490,6 +531,7 @@ function investmentUrl() {
 function setWorkspaceView(view, { updateHistory = true, replaceHistory = false } = {}) {
   const next = ["book", "wealth", "investments"].includes(view) ? view : "book";
   state.workspaceView = next;
+  if (next !== "wealth" && el("decisionStudio") && !el("decisionStudio").hidden) closeDecisionStudio({ restoreFocus: false });
   el("bookView").hidden = next !== "book";
   el("wealthView").hidden = next !== "wealth";
   el("investmentView").hidden = next !== "investments";
@@ -623,6 +665,26 @@ function wealthDrawerLoading() {
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD DETAIL</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">Loading household detail…</h2><p>Retrieving only the data needed for this view.</p></div>`;
 }
 
+function formatDecisionDate(value) {
+  if (!value) return "—";
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? value : chartDate.format(date);
+}
+
+function decisionListDrawer(summary) {
+  const decisions = summary?.decisions || [];
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD WORKFLOW · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close decisions">×</button></header><div class="wealth-drawer-body decision-list-drawer"><div class="drawer-section-heading"><span class="panel-kicker">OPEN DECISIONS</span><h2 id="wealthDrawerTitle">${summary?.openCount || 0} active across this relationship</h2><p>Each item is grounded in a household signal and can be modeled before anything moves toward implementation.</p></div><div class="decision-list">${decisions.map((decision) => { const plan = getDecisionPlan(decision.id); return `<button type="button" class="decision-list-item tone-${escapeHtml(decision.tone)}" data-decision-open="${escapeHtml(decision.id)}"><i></i><span><small>${escapeHtml(decision.priority)} · ${escapeHtml(plan?.status || decision.status)}</small><strong>${escapeHtml(decision.title)}</strong><em>${escapeHtml(decision.evidenceSummary)}</em></span><b>›</b></button>`; }).join("") || `<div class="drawer-empty">No open decisions for this household.</div>`}</div></div>`;
+}
+
+function meetingBriefDrawer(data) {
+  const decisionRows = (data.openDecisions || []).map((decision) => `<button type="button" class="meeting-decision" data-decision-open="${escapeHtml(decision.id)}"><span><strong>${escapeHtml(decision.title)}</strong><small>${escapeHtml(decision.evidenceSummary)}</small></span><em>${escapeHtml(getDecisionPlan(decision.id)?.status || decision.status)}</em></button>`).join("");
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">MEETING PREP · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close meeting brief">×</button></header><div class="wealth-drawer-body meeting-brief"><div class="drawer-section-heading"><span class="panel-kicker">RELATIONSHIP BRIEF</span><h2 id="wealthDrawerTitle">Prepare the conversation</h2><p>${escapeHtml(data.household.members.join(" · "))} · Last planning review ${escapeHtml(data.household.lastPlanningReview)}</p></div><section><h3>Current household</h3><div class="meeting-metric-grid">${data.changes.map((item) => `<div><span>${escapeHtml(item.label)}</span><strong>${typeof item.value === "number" ? formatSignedWealthCurrency(item.value) : escapeHtml(item.value)}</strong></div>`).join("")}</div></section><section><h3>Open decisions</h3><div class="meeting-decision-list">${decisionRows || `<p class="drawer-empty">No active decisions.</p>`}</div></section><section><h3>Upcoming</h3><div class="meeting-copy-list">${(data.upcoming || []).map((item) => `<div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.detail)}</span></div>`).join("") || `<p class="drawer-empty">No material upcoming obligations.</p>`}</div></section><section><h3>Recent relationship activity</h3><div class="meeting-copy-list">${(data.recentActivity || []).slice(0, 5).map((item) => `<div><strong>${escapeHtml(item.title)}</strong><span>${formatDecisionDate(item.occurredAt)} · ${escapeHtml(item.detail)}</span></div>`).join("")}</div></section></div>`;
+}
+
+function timelineDrawer(events) {
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">RELATIONSHIP HISTORY · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close timeline">×</button></header><div class="wealth-drawer-body relationship-timeline"><div class="drawer-section-heading"><span class="panel-kicker">HOUSEHOLD TIMELINE</span><h2 id="wealthDrawerTitle">What changed and when</h2><p>Planning, portfolio and decision events from the same household model.</p></div><ol>${(events || []).map((event) => `<li><i class="timeline-${escapeHtml(event.type)}"></i><div><span>${formatDecisionDate(event.occurredAt)} · ${escapeHtml(event.source)}</span>${event.decisionId ? `<button type="button" data-decision-open="${escapeHtml(event.decisionId)}"><strong>${escapeHtml(event.title)}</strong></button>` : `<strong>${escapeHtml(event.title)}</strong>`}<p>${escapeHtml(event.detail)}</p></div></li>`).join("")}</ol></div>`;
+}
+
 function wealthDrawerError(error) {
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD DETAIL</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">Household detail unavailable</h2><p>${escapeHtml(error.message || "Unable to load household detail")}</p></div>`;
 }
@@ -633,6 +695,9 @@ async function openWealthDrawer(id) {
   let html = null;
   let detailRequest = null;
   if (id === "concentration") detailRequest = loadConcentrationReview(state.currentHouseholdId).then((review) => review ? concentrationDrawer(review) : operationalDrawer("relationship"));
+  else if (id === "decisions") detailRequest = loadDecisionSummary(state.currentHouseholdId).then(decisionListDrawer);
+  else if (id === "meeting") detailRequest = loadMeetingBrief(state.currentHouseholdId).then(meetingBriefDrawer);
+  else if (id === "timeline") detailRequest = loadHouseholdTimeline(state.currentHouseholdId).then(timelineDrawer);
   else if (id === "accounts") html = accountsDrawer();
   else if (id.startsWith("account:")) detailRequest = loadHouseholdAccount(id.slice(8), state.currentHouseholdId).then(accountDrawer);
   else if (id.startsWith("goal:")) detailRequest = loadHouseholdGoal(id.slice(5), state.currentHouseholdId).then(goalDrawer);
@@ -659,9 +724,218 @@ async function openWealthDrawer(id) {
   }
 }
 
-function showScenarioRibbon({ source, title, tags }) {
-  state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name };
-  el("scenarioBack").textContent = `← ${HOUSEHOLD.name}`;
+function decisionValue(value, label = "") {
+  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number") return escapeHtml(value);
+  if (/account|count/i.test(label)) return formatCount(value);
+  return formatWealthCurrency(value);
+}
+
+function decisionPercent(value) {
+  return value === null || value === undefined ? "—" : `${Number(value).toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+function decisionOutcome(label, before, after, formatter = decisionValue) {
+  return `<div class="decision-outcome"><span>${escapeHtml(label)}</span><div><small>Current</small><strong>${formatter(before, label)}</strong></div><b>→</b><div><small>Scenario</small><strong>${formatter(after, label)}</strong></div></div>`;
+}
+
+function decisionMoneyControl(key, label, value, bounds, help = "") {
+  const safeBounds = bounds || { min: 0, max: Math.max(0, Number(value) || 0), step: 5000 };
+  return `<label class="decision-control"><span><strong>${escapeHtml(label)}</strong><em data-decision-value="${escapeHtml(key)}">${formatWealthCurrency(value)}</em></span><input type="range" data-decision-input="${escapeHtml(key)}" min="${safeBounds.min}" max="${Math.max(safeBounds.min, safeBounds.max)}" step="${safeBounds.step || 5000}" value="${Number(value) || 0}" />${help ? `<small>${escapeHtml(help)}</small>` : ""}</label>`;
+}
+
+function decisionScenarioControls(detail, scenario) {
+  const inputs = scenario.inputs || {};
+  const bounds = detail.model.bounds || {};
+  if (detail.decision.kind === "concentration") {
+    return `<div class="decision-control-stack"><label class="decision-control decision-control-primary"><span><strong>Target concentration</strong><em data-decision-value="targetWeight">${decisionPercent(inputs.targetWeight)}</em></span><input type="range" data-decision-input="targetWeight" min="${bounds.targetWeight.min}" max="${bounds.targetWeight.max}" step="${bounds.targetWeight.step}" value="${inputs.targetWeight}" /><small>Move the position to a different household weight. Nothing is executed.</small></label>${detail.relatedGoal ? decisionMoneyControl("goalFunding", `Earmark for ${detail.relatedGoal.name}`, inputs.goalFunding, bounds.goalFunding, "Optional. This changes the modeled goal funding path.") : ""}${decisionMoneyControl("redeployAmount", "Redeploy into diversified US equity", inputs.redeployAmount, { ...bounds.redeployAmount, max: scenario.economics.release }, "This amount becomes the explicit implementation objective passed into Investments.")}<div class="decision-assumption-inputs"><label><span>Tax reserve assumption</span><div><input type="number" data-decision-input="taxRate" min="0" max="50" step="0.1" value="${inputs.taxRate}" /><em>%</em></div></label><label><span>Single-stock stress</span><div><input type="number" data-decision-input="stressDrop" min="10" max="60" step="5" value="${inputs.stressDrop}" /><em>%</em></div></label></div></div>`;
+  }
+  if (detail.decision.kind === "liquidity") return `<div class="decision-control-stack">${decisionMoneyControl("deployAmount", "Amount to deploy", inputs.deployAmount, bounds.deployAmount, "Leaves the modeled reserve in cash.")}<label class="decision-control compact"><span><strong>Working cash reserve</strong><em data-decision-value="reservePct">${decisionPercent(inputs.reservePct)}</em></span><input type="range" data-decision-input="reservePct" min="${bounds.reservePct.min}" max="${bounds.reservePct.max}" step="${bounds.reservePct.step}" value="${inputs.reservePct}" /></label></div>`;
+  if (detail.decision.kind === "goal-funding") return `<div class="decision-control-stack">${decisionMoneyControl("fundingAmount", `Fund ${detail.relatedGoal?.name || "goal"}`, inputs.fundingAmount, bounds.fundingAmount, "Uses current household cash and updates only this goal's explicit funded amount.")}</div>`;
+  if (detail.decision.kind === "allocation") return `<div class="decision-control-stack">${decisionMoneyControl("allocationAmount", "Amount to municipal allocation", inputs.allocationAmount, bounds.allocationAmount, "Uses household cash to move toward the documented target.")}</div>`;
+  return `<div class="decision-control-stack">${decisionMoneyControl("fundingAmount", "Funding amount", inputs.fundingAmount, bounds.fundingAmount, "Uses currently available household cash.")}</div>`;
+}
+
+function decisionScenarioOutcomes(detail, scenario) {
+  if (detail.decision.kind === "concentration") {
+    const goalOutcome = scenario.before.goalProgress === null ? "" : decisionOutcome(detail.relatedGoal?.name || "Goal funding", scenario.before.goalProgress, scenario.after.goalProgress, (value) => decisionPercent(value));
+    return `<div class="decision-outcome-grid">${decisionOutcome("Concentration", scenario.before.concentrationPct, scenario.after.concentrationPct, (value) => decisionPercent(value))}${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${decisionOutcome("US equity", scenario.before.usEquityPct, scenario.after.usEquityPct, (value) => decisionPercent(value))}${decisionOutcome("Single-stock stress loss", scenario.before.stressLoss, scenario.after.stressLoss)}${goalOutcome}</div><div class="decision-economics"><div><span>Position value released</span><strong>${formatWealthCurrency(scenario.economics.release)}</strong></div><div><span>Estimated realized gain</span><strong>${formatWealthCurrency(scenario.economics.realizedGain)}</strong></div><div><span>Estimated tax reserve</span><strong>${formatWealthCurrency(scenario.economics.taxReserve)}</strong></div><div><span>Implementation amount</span><strong>${formatWealthCurrency(scenario.economics.redeployAmount)}</strong></div></div>`;
+  }
+  if (detail.decision.kind === "liquidity") return `<div class="decision-outcome-grid">${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${decisionOutcome("Cash weight", scenario.before.cashPct, scenario.after.cashPct, (value) => decisionPercent(value))}</div><div class="decision-economics"><div><span>Amount to deploy</span><strong>${formatWealthCurrency(scenario.economics.deployAmount)}</strong></div><div><span>Modeled reserve</span><strong>${formatWealthCurrency(scenario.economics.reserveAmount)}</strong></div></div>`;
+  if (detail.decision.kind === "goal-funding") return `<div class="decision-outcome-grid">${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${decisionOutcome(detail.relatedGoal?.name || "Goal progress", scenario.before.goalProgress, scenario.after.goalProgress, (value) => decisionPercent(value))}</div><div class="decision-economics"><div><span>Funding amount</span><strong>${formatWealthCurrency(scenario.economics.fundingAmount)}</strong></div><div><span>Remaining gap</span><strong>${formatWealthCurrency(scenario.economics.remainingGap)}</strong></div></div>`;
+  if (detail.decision.kind === "allocation") return `<div class="decision-outcome-grid">${decisionOutcome("Municipal allocation", scenario.before.allocationPct, scenario.after.allocationPct, (value) => decisionPercent(value))}${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}</div><div class="decision-economics"><div><span>Implementation amount</span><strong>${formatWealthCurrency(scenario.economics.allocationAmount)}</strong></div><div><span>Target allocation</span><strong>${decisionPercent(scenario.economics.targetPct)}</strong></div></div>`;
+  return `<div class="decision-outcome-grid">${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${decisionOutcome("Obligation covered", scenario.before.obligationCoveredPct, scenario.after.obligationCoveredPct, (value) => decisionPercent(value))}</div><div class="decision-economics"><div><span>Funding amount</span><strong>${formatWealthCurrency(scenario.economics.fundingAmount)}</strong></div><div><span>Remaining obligation</span><strong>${formatWealthCurrency(scenario.economics.remainingObligation)}</strong></div></div>`;
+}
+
+function decisionPlanMarkup(detail, plan) {
+  if (!plan) return `<div class="decision-plan-empty"><span class="panel-kicker">ACTION PLAN</span><h3>Turn the scenario into work</h3><p>Capture the intended path, then track it across client discussion and implementation.</p><button type="button" class="primary-button" data-decision-build-plan>Build plan</button></div>`;
+  const statuses = ["Plan drafted", "Client discussion", "In progress", "Complete"];
+  const candidateMarkup = plan.candidates.length ? `<div class="decision-candidates"><span>Implementation candidates</span>${plan.candidates.map((candidate) => `<div><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.category)}${candidate.symbol ? ` · ${escapeHtml(candidate.symbol)}` : ""}</small></div>`).join("")}</div>` : "";
+  return `<div class="decision-plan-active"><div class="decision-plan-heading"><div><span class="panel-kicker">ACTION PLAN</span><h3>${escapeHtml(plan.title)}</h3></div><label>Status<select data-decision-plan-status>${statuses.map((status) => `<option value="${status}"${status === plan.status ? " selected" : ""}>${status}</option>`).join("")}</select></label></div><div class="decision-plan-steps">${plan.steps.map((step) => `<button type="button" class="${step.complete ? "complete" : ""}" data-decision-plan-step="${escapeHtml(step.id)}"><i>${step.complete ? "✓" : ""}</i><span>${escapeHtml(step.title)}</span></button>`).join("")}</div>${candidateMarkup}</div>`;
+}
+
+function renderDecisionStudio() {
+  const detail = state.activeDecisionDetail;
+  const scenario = state.activeDecisionScenario;
+  if (!detail || !scenario) return;
+  const plan = state.activeDecisionPlan || getDecisionPlan(detail.decision.id);
+  state.activeDecisionPlan = plan;
+  const status = plan?.status || detail.decision.status;
+  const implementation = scenario.implementation;
+  const implementationCard = implementation?.enabled ? `<section class="decision-implementation"><span class="panel-kicker">IMPLEMENTATION</span><h3>${escapeHtml(implementation.objective)}</h3><strong>${formatWealthCurrency(implementation.amount)}</strong><div>${implementation.tags.slice(1, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div><button type="button" class="primary-button" data-decision-implement>Explore investments</button><p>The criteria passed into Investments stay visible and editable. No hidden suitability score is applied.</p></section>` : `<section class="decision-implementation muted"><span class="panel-kicker">IMPLEMENTATION</span><h3>No investment search required yet</h3><p>This scenario is currently about household funding or workflow rather than selecting a product.</p></section>`;
+  updateHtml(el("decisionStudioContent"), `<header class="decision-studio-header"><button type="button" class="decision-back" data-close-decision-studio>← ${escapeHtml(HOUSEHOLD.name)}</button><div><span class="eyebrow">DECISION STUDIO · ${escapeHtml(detail.decision.priority.toUpperCase())}</span><h2 id="decisionStudioTitle">${escapeHtml(detail.decision.title)}</h2><p>${escapeHtml(detail.decision.objective)}</p></div><span class="decision-status">${escapeHtml(status)}</span><button type="button" class="decision-close" data-close-decision-studio aria-label="Close decision studio">×</button></header><div class="decision-studio-body"><aside class="decision-facts"><div class="decision-signal tone-${escapeHtml(detail.decision.tone)}"><span>${escapeHtml(detail.evidence.severity)}</span><strong>${escapeHtml(detail.evidence.title)}</strong><p>${escapeHtml(detail.evidence.detail)}</p><small>${escapeHtml(detail.evidence.source)}</small></div><section><span class="panel-kicker">WHAT WE KNOW</span><div class="decision-fact-list">${detail.facts.map((fact) => `<div><span>${escapeHtml(fact.label)}</span><strong>${decisionValue(fact.value, fact.label)}</strong></div>`).join("")}</div></section><section class="decision-assumptions"><span class="panel-kicker">MODEL ASSUMPTIONS</span>${scenario.assumptions.map((assumption) => `<p>${escapeHtml(assumption)}</p>`).join("")}</section></aside><main class="decision-model"><div class="decision-model-heading"><span class="panel-kicker">WHAT COULD CHANGE</span><h3>Model the household consequence</h3><p>Adjust only explicit assumptions. The resulting changes are calculated from this household's current data.</p></div>${decisionScenarioControls(detail, scenario)}<div class="decision-consequence-heading"><span class="panel-kicker">HOUSEHOLD CONSEQUENCE</span><h3>Before and after</h3></div>${decisionScenarioOutcomes(detail, scenario)}</main><aside class="decision-plan-column">${implementationCard}${decisionPlanMarkup(detail, plan)}</aside></div>`);
+}
+
+function closeDecisionStudio({ restoreFocus = true } = {}) {
+  decisionRequest += 1;
+  state.decisionScenarioController?.abort();
+  state.decisionScenarioController = null;
+  window.clearTimeout(decisionModelTimer);
+  if (el("decisionStudio")) {
+    el("decisionStudio").hidden = true;
+    el("decisionStudio").setAttribute("aria-hidden", "true");
+  }
+  if (el("decisionStudioBackdrop")) el("decisionStudioBackdrop").hidden = true;
+  document.body.classList.remove("decision-studio-open");
+  if (restoreFocus && state.lastFocus?.focus) state.lastFocus.focus();
+}
+
+async function openDecisionStudio(decisionId) {
+  if (!state.currentHouseholdId) return;
+  const request = ++decisionRequest;
+  state.lastFocus = document.activeElement;
+  closeWealthDrawer({ restoreFocus: false });
+  state.activeDecisionDetail = null;
+  state.activeDecisionScenario = null;
+  state.activeDecisionPlan = getDecisionPlan(decisionId);
+  el("decisionStudioContent").innerHTML = `<div class="decision-studio-loading"><span></span><p>Preparing household decision…</p></div>`;
+  el("decisionStudioBackdrop").hidden = false;
+  el("decisionStudio").hidden = false;
+  el("decisionStudio").setAttribute("aria-hidden", "false");
+  document.body.classList.add("decision-studio-open");
+  try {
+    const detail = await loadDecisionDetail(decisionId, state.currentHouseholdId);
+    if (request !== decisionRequest) return;
+    const scenario = await modelDecisionScenario(decisionId, state.currentHouseholdId, detail.model.defaults);
+    if (request !== decisionRequest) return;
+    state.activeDecisionDetail = detail;
+    state.activeDecisionScenario = scenario;
+    state.activeDecisionPlan = getDecisionPlan(decisionId);
+    renderDecisionStudio();
+  } catch (error) {
+    if (request !== decisionRequest) return;
+    el("decisionStudioContent").innerHTML = `<div class="decision-studio-error"><button type="button" data-close-decision-studio>← Household</button><h2>Decision workspace unavailable</h2><p>${escapeHtml(error.message)}</p></div>`;
+  }
+}
+
+function collectDecisionInputs() {
+  return Object.fromEntries([...el("decisionStudio").querySelectorAll("[data-decision-input]")].map((input) => [input.dataset.decisionInput, Number(input.value)]).filter(([, value]) => Number.isFinite(value)));
+}
+
+function updateDecisionInputLabels() {
+  for (const input of el("decisionStudio").querySelectorAll("[data-decision-input]")) {
+    const target = el("decisionStudio").querySelector(`[data-decision-value="${input.dataset.decisionInput}"]`);
+    if (!target) continue;
+    const key = input.dataset.decisionInput;
+    target.textContent = /Amount|Funding/i.test(key) ? formatWealthCurrency(Number(input.value)) : decisionPercent(Number(input.value));
+  }
+}
+
+function scheduleDecisionModel() {
+  updateDecisionInputLabels();
+  window.clearTimeout(decisionModelTimer);
+  decisionModelTimer = window.setTimeout(refreshDecisionScenario, 120);
+}
+
+async function refreshDecisionScenario() {
+  const detail = state.activeDecisionDetail;
+  if (!detail || !state.currentHouseholdId) return;
+  state.decisionScenarioController?.abort();
+  const controller = new AbortController();
+  state.decisionScenarioController = controller;
+  try {
+    const scenario = await modelDecisionScenario(detail.decision.id, state.currentHouseholdId, collectDecisionInputs(), { signal: controller.signal });
+    if (controller !== state.decisionScenarioController) return;
+    state.activeDecisionScenario = scenario;
+    renderDecisionStudio();
+  } catch (error) {
+    if (error.name !== "AbortError") showToast("Unable to update decision scenario");
+  }
+}
+
+function buildActiveDecisionPlan() {
+  const detail = state.activeDecisionDetail;
+  if (!detail) return null;
+  const plan = saveDecisionPlan({ decision: detail.decision, householdId: state.currentHouseholdId, steps: detail.planTemplate, implementationAmount: state.activeDecisionScenario?.implementation?.amount || 0 });
+  state.activeDecisionPlan = plan;
+  renderDecisionStudio();
+  renderBookRows();
+  showToast("Action plan drafted");
+  return plan;
+}
+
+function launchInvestmentContext(scenario) {
+  closeWealthDrawer({ restoreFocus: false });
+  state.q = scenario.q || "";
+  state.category = scenario.category || "All";
+  state.appliedCategory = state.category;
+  state.flags = new Set(scenario.flags || []);
+  state.risks = new Set((scenario.risks || []).filter((risk) => RISKS.includes(risk)));
+  state.statuses.clear();
+  state.ranges = {};
+  state.sort = defaultSort(Boolean(state.q));
+  state.sortExplicit = false;
+  el("searchInput").value = state.q;
+  showScenarioRibbon(scenario);
+  state.investmentSearchStarted = true;
+  setWorkspaceView("investments");
+  runSearch();
+}
+
+function launchDecisionImplementation() {
+  const detail = state.activeDecisionDetail;
+  const scenario = state.activeDecisionScenario;
+  if (!detail || !scenario?.implementation?.enabled) return;
+  if (!getDecisionPlan(detail.decision.id)) buildActiveDecisionPlan();
+  const implementation = scenario.implementation;
+  state.compare.clear();
+  renderCompareTray();
+  closeDecisionStudio({ restoreFocus: false });
+  launchInvestmentContext({
+    source: "FROM DECISION STUDIO",
+    title: `Implement ${implementation.objective.toLowerCase()}`,
+    tags: [formatWealthCurrency(implementation.amount), ...implementation.tags.slice(1)],
+    category: implementation.category,
+    q: implementation.query,
+    flags: implementation.flags,
+    risks: implementation.risks,
+    decisionId: detail.decision.id,
+    implementationAmount: implementation.amount,
+  });
+}
+
+async function returnFromInvestmentContext() {
+  const context = state.householdScenario;
+  if (!context?.householdId) return;
+  if (context.decisionId) {
+    const candidates = [...state.compare.values()];
+    if (candidates.length) addDecisionCandidates(context.decisionId, candidates);
+    await openHousehold(context.householdId);
+    openDecisionStudio(context.decisionId);
+    return;
+  }
+  openHousehold(context.householdId);
+}
+
+function openPrimaryConcentrationDecision() {
+  const decision = state.decisionSummary?.decisions?.find((item) => item.kind === "concentration");
+  if (decision) openDecisionStudio(decision.id);
+  else openWealthDrawer("concentration");
+}
+
+function showScenarioRibbon({ source, title, tags, decisionId = null, implementationAmount = 0 }) {
+  state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name, decisionId, implementationAmount };
+  el("scenarioBack").textContent = decisionId ? "← Decision" : `← ${HOUSEHOLD.name}`;
   el("scenarioSource").textContent = source;
   el("scenarioTitle").textContent = title;
   el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
@@ -678,24 +952,12 @@ function applyHouseholdScenario(id) {
   };
   const scenario = scenarios[id];
   if (!scenario) return;
-  closeWealthDrawer({ restoreFocus: false });
-  state.q = scenario.q;
-  state.category = scenario.category;
-  state.appliedCategory = scenario.category;
-  state.flags = new Set(scenario.flags);
-  state.risks = new Set(scenario.risks.filter((risk) => RISKS.includes(risk)));
-  state.statuses.clear();
-  state.ranges = {};
-  state.sort = defaultSort(Boolean(state.q));
-  state.sortExplicit = false;
-  el("searchInput").value = state.q;
-  showScenarioRibbon(scenario);
-  state.investmentSearchStarted = true;
-  setWorkspaceView("investments");
-  runSearch();
+  launchInvestmentContext(scenario);
 }
 
 function handleWealthInsight(id) {
+  const decision = state.decisionSummary?.decisions?.find((item) => item.sourceInsightId === id);
+  if (decision) { openDecisionStudio(decision.id); return; }
   if (id === "concentration" || id.endsWith("-concentration")) { openWealthDrawer("concentration"); return; }
   if (id === "cash" || id.endsWith("-cash")) { applyHouseholdScenario("cash"); return; }
   if (id === "muni" || id.endsWith("-muni")) { applyHouseholdScenario("muni"); return; }
@@ -1704,7 +1966,7 @@ document.addEventListener("click", (event) => {
     loadBook();
   }
   const scenarioBack = event.target.closest("#scenarioBack");
-  if (scenarioBack && state.householdScenario?.householdId) openHousehold(state.householdScenario.householdId);
+  if (scenarioBack && state.householdScenario?.householdId) returnFromInvestmentContext();
   const wealthRangeButton = event.target.closest("[data-wealth-range]");
   if (wealthRangeButton) { wealthRange = wealthRangeButton.dataset.wealthRange; drawWealthRange(); }
   const wealthInsight = event.target.closest("[data-wealth-insight]");
@@ -1713,13 +1975,23 @@ document.addEventListener("click", (event) => {
   if (wealthAccount) openWealthDrawer(`account:${wealthAccount.dataset.wealthAccount}`);
   const wealthGoal = event.target.closest("[data-wealth-goal]");
   if (wealthGoal) openWealthDrawer(`goal:${wealthGoal.dataset.wealthGoal}`);
+  const decisionOpen = event.target.closest("[data-decision-open]");
+  if (decisionOpen) { closeWealthDrawer({ restoreFocus: false }); openDecisionStudio(decisionOpen.dataset.decisionOpen); }
   const wealthAction = event.target.closest("[data-wealth-action]");
   if (wealthAction?.dataset.wealthAction === "accounts") openWealthDrawer("accounts");
-  if (wealthAction?.dataset.wealthAction === "concentration") openWealthDrawer("concentration");
+  if (wealthAction?.dataset.wealthAction === "concentration") openPrimaryConcentrationDecision();
   if (wealthAction?.dataset.wealthAction === "relationship") openWealthDrawer("relationship");
+  if (wealthAction?.dataset.wealthAction === "decisions") openWealthDrawer("decisions");
+  if (wealthAction?.dataset.wealthAction === "meeting") openWealthDrawer("meeting");
+  if (wealthAction?.dataset.wealthAction === "timeline") openWealthDrawer("timeline");
   const householdScenario = event.target.closest("[data-household-scenario]");
   if (householdScenario) applyHouseholdScenario(householdScenario.dataset.householdScenario);
   if (event.target.closest("[data-close-wealth-drawer]") || event.target === el("wealthDrawerBackdrop")) closeWealthDrawer();
+  if (event.target.closest("[data-close-decision-studio]") || event.target === el("decisionStudioBackdrop")) closeDecisionStudio();
+  if (event.target.closest("[data-decision-build-plan]")) buildActiveDecisionPlan();
+  if (event.target.closest("[data-decision-implement]")) launchDecisionImplementation();
+  const planStep = event.target.closest("[data-decision-plan-step]");
+  if (planStep && state.activeDecisionDetail) { state.activeDecisionPlan = toggleDecisionPlanStep(state.activeDecisionDetail.decision.id, planStep.dataset.decisionPlanStep); renderDecisionStudio(); renderBookRows(); }
   const sortHeader = event.target.closest("[data-sort-header]");
   if (sortHeader) {
     state.sort = sortHeader.dataset.sortHeader;
@@ -1939,6 +2211,17 @@ window.addEventListener("popstate", () => {
   if (householdId) { openHousehold(householdId, { updateHistory: false }); return; }
   if (/^\/investments\/?$/i.test(location.pathname)) { setWorkspaceView("investments", { updateHistory: false }); return; }
   setWorkspaceView("book", { updateHistory: false });
+});
+
+document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-decision-input]")) scheduleDecisionModel();
+});
+
+document.addEventListener("change", (event) => {
+  if (!event.target.matches("[data-decision-plan-status]") || !state.activeDecisionDetail) return;
+  state.activeDecisionPlan = setDecisionPlanStatus(state.activeDecisionDetail.decision.id, event.target.value);
+  renderDecisionStudio();
+  renderBookRows();
 });
 
 state.columnPreferences = loadColumnPreferences();

@@ -84,6 +84,8 @@ test("wealth source is normalized while the service preserves the full internal 
     insights: 5,
     concentrationPolicies: 1,
     histories: 1,
+    decisions: 0,
+    householdEvents: 0,
   });
 });
 

@@ -8,7 +8,8 @@ import { getComparisonHistory, parseHistoryIds } from "./lib/history.js";
 import { inputFromQuery } from "./api/search.js";
 import { parseSnapshotIds } from "./api/snapshots.js";
 import { getAuthorizedWealthProjection, parseAdvisorId, parseHouseholdId, parseProjectionView } from "./api/wealth.js";
-import { DEFAULT_ADVISOR_ID } from "./lib/advisor-book-source.js";
+import { getAuthorizedDecisionProjection } from "./api/decision.js";
+import { DEFAULT_ADVISOR_ID } from "./lib/decision-source.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -67,6 +68,28 @@ const server = createServer(async (request, response) => {
     } catch (error) {
       return json(response, { error: error.message }, error instanceof RangeError ? 400 : 500);
     }
+  }
+  if (url.pathname === "/api/decision") {
+    const startedAt = performance.now();
+    try {
+      const view = String(url.searchParams.get("view") || "summary").toLowerCase();
+      const householdId = url.searchParams.get("householdId");
+      const decisionId = view === "detail" || view === "scenario" ? url.searchParams.get("decisionId") : "";
+      const numericKeys = ["targetWeight", "taxRate", "stressDrop", "goalFunding", "redeployAmount", "deployAmount", "reservePct", "fundingAmount", "allocationAmount"];
+      const inputs = Object.fromEntries(numericKeys.map((key) => [key, url.searchParams.get(key)]).filter(([, value]) => value !== null && value !== "").map(([key, value]) => [key, Number(value)]));
+      if (Object.values(inputs).some((value) => !Number.isFinite(value))) throw new RangeError("Invalid decision scenario input");
+      const data = getAuthorizedDecisionProjection(DEFAULT_ADVISOR_ID, householdId, view, decisionId, inputs);
+      return data === null
+        ? json(response, { error: "Decision workspace not found" }, 404)
+        : json(response, { schemaVersion: 1, householdId, decisionId: decisionId || null, view, data }, 200, { "Server-Timing": `decision;dur=${Math.max(0.1, performance.now() - startedAt).toFixed(1)}` });
+    } catch (error) {
+      return json(response, { error: error.message }, error instanceof RangeError ? 400 : 500);
+    }
+  }
+  if (/^\/lib\/(?:wealth-source|advisor-book-source|decision-source|wealth-repository|wealth-service|decision-service)\.js$/.test(url.pathname)) {
+    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end("Not found");
+    return;
   }
   const requested = url.pathname === "/" || /^\/household\/[^/]+\/?$/.test(url.pathname) || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
     ? "index.html"
