@@ -15,6 +15,7 @@
     <link rel="modulepreload" href="/lib/sort-config.js" />
     <link rel="modulepreload" href="/lib/range-config.js" />
     <link rel="modulepreload" href="/lib/wealth-data.js" />
+    <link rel="modulepreload" href="/lib/decision-data.js" />
   </head>
   <body>
     <header class="global-header">
@@ -50,7 +51,7 @@
           <div><span>Financial assets</span><strong id="bookFinancialAssets">—</strong><small>Across the full book</small></div>
           <div><span>Client net worth</span><strong id="bookNetWorth">—</strong><small>Connected total wealth</small></div>
           <div><span>Deployable cash</span><strong id="bookCash">—</strong><small>Across relationships</small></div>
-          <div><span>Needs attention</span><strong class="book-watch" id="bookAttentionCount">—</strong><small>Priority or review items</small></div>
+          <div><span>Open decisions</span><strong class="book-watch" id="bookOpenDecisionCount">—</strong><small>Across active relationships</small></div>
         </section>
 
         <div class="book-layout">
@@ -61,6 +62,7 @@
             </div>
             <div class="book-filter-row" role="group" aria-label="Filter advisor book">
               <button type="button" class="active" data-book-focus="all">All households</button>
+              <button type="button" data-book-focus="decisions">Open decisions <span id="bookFilterDecisions">—</span></button>
               <button type="button" data-book-focus="priority">Priority risk <span id="bookFilterPriority">—</span></button>
               <button type="button" data-book-focus="cash">Cash opportunities <span id="bookFilterCash">—</span></button>
               <button type="button" data-book-focus="goals">Goal reviews <span id="bookFilterGoals">—</span></button>
@@ -68,7 +70,7 @@
             </div>
             <div class="book-table-heading"><div><h2 id="bookHouseholdsTitle">Households</h2><p><strong id="bookResultCount">—</strong> relationships in this view</p></div><span id="bookViewStatus">Prioritized across your book</span></div>
             <div class="book-table-wrap">
-              <table class="book-table"><thead><tr><th>Household</th><th>Net worth</th><th>Financial assets</th><th>Cash</th><th>YTD</th><th>Goals</th><th>Needs attention</th></tr></thead><tbody id="bookBody"></tbody></table>
+              <table class="book-table"><thead><tr><th>Household</th><th>Net worth</th><th>Financial assets</th><th>Cash</th><th>YTD</th><th>Goals</th><th>Decision / attention</th></tr></thead><tbody id="bookBody"></tbody></table>
               <div class="book-loading" id="bookLoading" hidden><span></span><p>Updating your book…</p></div>
             </div>
             <div class="book-load-more" id="bookLoadMoreWrap" hidden><button type="button" id="bookLoadMore">Load more households</button><span id="bookLoadedCount"></span></div>
@@ -77,13 +79,14 @@
           <aside class="book-intelligence-panel" aria-labelledby="bookIntelligenceTitle">
             <div class="book-intelligence-heading"><span class="panel-kicker">TODAY ACROSS YOUR BOOK</span><h2 id="bookIntelligenceTitle">Where to focus</h2><p>Material portfolio, liquidity and planning signals across client relationships.</p></div>
             <div class="book-intelligence-list">
+              <button type="button" data-book-focus="decisions"><i class="book-signal red"></i><span><small>Open decisions</small><strong id="bookIntelDecisions">— active</strong></span><b>›</b></button>
+              <button type="button" data-book-focus="plans"><i class="book-signal slate"></i><span><small>Plans in motion</small><strong id="bookIntelPlans">— active plans</strong></span><b>›</b></button>
               <button type="button" data-book-focus="priority"><i class="book-signal red"></i><span><small>Priority risk</small><strong id="bookIntelPriority">— households</strong></span><b>›</b></button>
               <button type="button" data-book-focus="cash"><i class="book-signal green"></i><span><small>Deployable cash</small><strong id="bookIntelCash">— households</strong></span><b>›</b></button>
               <button type="button" data-book-focus="goals"><i class="book-signal amber"></i><span><small>Planning</small><strong id="bookIntelGoals">— goal reviews</strong></span><b>›</b></button>
               <button type="button" data-book-focus="upcoming"><i class="book-signal blue"></i><span><small>Upcoming</small><strong id="bookIntelUpcoming">— obligations</strong></span><b>›</b></button>
-              <button type="button" data-book-focus="held-away"><i class="book-signal slate"></i><span><small>Full balance sheet</small><strong id="bookIntelHeldAway">— with held-away assets</strong></span><b>›</b></button>
             </div>
-            <div class="book-intelligence-note"><span>BOOK VIEW</span><p>Select any relationship to enter the same Total Wealth experience, with only that household's data loaded.</p></div>
+            <div class="book-intelligence-note"><span>DECISION WORKFLOW</span><p>Move from a book-level signal into the household, model the consequence, then carry an explicit plan into implementation.</p></div>
           </aside>
         </div>
       </section>
@@ -281,6 +284,11 @@
     <aside class="wealth-drawer" id="wealthDrawer" role="dialog" aria-labelledby="wealthDrawerTitle" aria-hidden="true">
       <div id="wealthDrawerContent"></div>
     </aside>
+
+    <div class="decision-studio-backdrop" id="decisionStudioBackdrop" hidden></div>
+    <section class="decision-studio" id="decisionStudio" role="dialog" aria-modal="true" aria-labelledby="decisionStudioTitle" aria-hidden="true" hidden>
+      <div id="decisionStudioContent"></div>
+    </section>
 
     <dialog class="modal compare-modal" id="compareModal">
       <div class="modal-header"><div><span class="eyebrow">SIDE-BY-SIDE</span><h2>Compare investments</h2><p>Normalized performance and key decision fields across selected solutions.</p></div><button data-close-modal="compareModal" aria-label="Close comparison">×</button></div>

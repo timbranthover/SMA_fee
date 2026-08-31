@@ -1,11 +1,11 @@
-import { ADVISOR_BOOK_DATASET, DEFAULT_ADVISOR_ID } from "../lib/advisor-book-source.js";
+import { ADVISOR_WORKSPACE_DATASET, DEFAULT_ADVISOR_ID } from "../lib/decision-source.js";
 import { createWealthService } from "../lib/wealth-service.js";
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/i;
 const PROJECTION_VIEWS = new Set(["book", "overview", "history", "concentration", "account", "goal"]);
-const BOOK_FOCUS = new Set(["all", "priority", "cash", "goals", "upcoming", "held-away"]);
+const BOOK_FOCUS = new Set(["all", "priority", "cash", "goals", "upcoming", "held-away", "decisions", "plans"]);
 const BOOK_SORT = new Set(["attention", "net-worth-desc", "cash-desc", "return-desc", "name-asc"]);
-const wealthService = createWealthService(ADVISOR_BOOK_DATASET);
+const wealthService = createWealthService(ADVISOR_WORKSPACE_DATASET);
 // Prototype principal. Production authentication should resolve the signed-in FA to this advisor-domain ID server-side.
 const DEMO_PRINCIPAL_ADVISOR_ID = DEFAULT_ADVISOR_ID;
 

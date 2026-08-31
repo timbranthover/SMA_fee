@@ -78,3 +78,12 @@ Warm searches are designed to remain under the one-second interaction budget in 
 - **Product controls:** research standing, shelf availability, operational readiness and data freshness are separate versioned states. Each state requires an owner, source, effective date and immutable change history; the prototype now models this API contract with illustrative data.
 
 Do not copy the demo’s generated catalog or synthetic wealth source into production. Preserve the bounded contracts and replace the implementations behind them.
+
+
+## Decision and action layer
+
+Phase Three adds a normalized decision domain above household facts and below implementation. `lib/decision-source.js` enriches the server-only advisor-book dataset with stable `decisions` and `householdEvents`; `lib/decision-service.js` exposes bounded summary, detail, scenario, meeting-brief and timeline projections. `/api/decision` enforces the same advisor-to-household boundary as `/api/wealth` and never sends the full book or server source modules to the browser.
+
+Scenario calculations are explicit transformations of the selected household's current values plus visible user-editable assumptions. They model consequences; they do not create a hidden suitability score or investment recommendation. Investment criteria passed from a decision into the existing screener remain visible and editable.
+
+The prototype persists advisor-created action-plan workflow state in a small versioned browser adapter (`lib/decision-data.js`) because this demo has no durable write database. The UI does not own the decision math or canonical household data. A production implementation should replace that adapter with authenticated, audited server writes while preserving the stable decision/plan IDs and read projections.

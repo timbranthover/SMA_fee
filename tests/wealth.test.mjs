@@ -84,6 +84,8 @@ test("wealth source is normalized while the service preserves the full internal 
     insights: 5,
     concentrationPolicies: 1,
     histories: 1,
+    decisions: 0,
+    householdEvents: 0,
   });
 });
 
@@ -253,7 +255,8 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   assert.match(wealthApi, /private, no-store/);
   assert.match(wealthApi, /Vary/);
   assert.match(build, /"wealth-data\.js"/);
-  assert.doesNotMatch(build, /"wealth-source\.js"|"advisor-book-source\.js"|"wealth-repository\.js"|"wealth-service\.js"/);
+  assert.match(build, /"decision-data\.js"/);
+  assert.doesNotMatch(build, /"wealth-source\.js"|"advisor-book-source\.js"|"decision-source\.js"|"wealth-repository\.js"|"wealth-service\.js"|"decision-service\.js"/);
 
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/household/:id" && rule.destination === "/"));
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investments" && rule.destination === "/"));
