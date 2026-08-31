@@ -19,15 +19,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node scripts/apply-wealth-perf-refactor.mjs
-      - name: Commit app refactor
+      - name: Align performance assertion with generic household loader
         run: |
-          if git diff --quiet -- app.js; then
-            echo "No app changes required"
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          const path = 'tests/wealth.test.mjs';
+          let source = await readFile(path, 'utf8');
+          const before = '  assert.match(browserWealth, /view: "overview"/);';
+          const after = '  assert.match(browserWealth, /loadHouseholdOverview/);';
+          if (source.includes(before)) source = source.replace(before, after);
+          await writeFile(path, source);
+          NODE
+      - name: Commit assertion update
+        run: |
+          if git diff --quiet -- tests/wealth.test.mjs; then
+            echo "No test changes required"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app.js
-          git commit -m "Lazy load wealth detail and screener work"
+          git add tests/wealth.test.mjs
+          git commit -m "Align wealth performance assertion"
           git push
