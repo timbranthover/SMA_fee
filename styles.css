@@ -206,8 +206,12 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .goal-copy strong { font-size: 9px; }
 .goal-copy small { margin-top: 3px; color: #888; font-size: 7px; }
 .goal-progress { display: grid; grid-template-columns: 1fr 24px; align-items: center; gap: 5px; }
-.goal-progress > span { height: 3px; overflow: hidden; background: #e5e5e1; }
-.goal-progress i { display: block; height: 100%; background: #4b8067; }
+.goal-progress-meter { display: block; width: 100%; height: 3px; appearance: none; border: 0; background: #e5e5e1; }
+.goal-progress-meter::-webkit-progress-bar { background: #e5e5e1; }
+.goal-progress-meter::-webkit-progress-value { background: #4b8067; }
+.goal-progress-meter::-moz-progress-bar { background: #4b8067; }
+.goal-progress-meter.goal-progress-watch::-webkit-progress-value { background: #b07b21; }
+.goal-progress-meter.goal-progress-watch::-moz-progress-bar { background: #b07b21; }
 .goal-progress small { color: #777; font-size: 7px; }
 .goal-row em { justify-self: end; padding: 4px 6px; border-radius: 8px; font-size: 7px; font-style: normal; }
 .goal-good { color: #276c4a; background: #eaf5ef; }
@@ -324,8 +328,12 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .goal-funding-heading > div:last-child { justify-items: end; }
 .goal-funding-heading span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .goal-funding-heading strong { font-family: Georgia, serif; font-size: 21px; font-weight: 400; }
-.goal-funding-track { height: 9px; margin-top: 16px; overflow: hidden; background: #deded9; }
-.goal-funding-track i { display: block; height: 100%; background: #4b8067; }
+.goal-funding-track { display: block; width: 100%; height: 9px; margin-top: 16px; appearance: none; border: 0; background: #deded9; }
+.goal-funding-track::-webkit-progress-bar { background: #deded9; }
+.goal-funding-track::-webkit-progress-value { background: #4b8067; }
+.goal-funding-track::-moz-progress-bar { background: #4b8067; }
+.goal-funding-track.goal-progress-watch::-webkit-progress-value { background: #b07b21; }
+.goal-funding-track.goal-progress-watch::-moz-progress-bar { background: #b07b21; }
 .goal-funding-scale { display: flex; justify-content: space-between; margin-top: 7px; color: #777; font-size: 8px; }
 .goal-next-step { display: grid; gap: 7px; margin-top: 22px; padding: 18px 20px; border-left: 3px solid #1f4b3a; background: #f3f6f3; }
 .goal-next-step span { color: #68736d; font-size: 7px; font-weight: 700; letter-spacing: .09em; }
@@ -843,7 +851,7 @@ footer { height: 46px; background: #e6e6e3; border-top: 1px solid #d4d4d0; color
 
 @media (max-width: 1320px) {
   .brand-block { min-width: 365px; }
-  .global-nav .nav-item:nth-child(4) { display: none; }
+  .global-nav .nav-item:nth-child(3) { display: none; }
   .wealth-layout { grid-template-columns: minmax(0, 1fr) 325px; padding-left: 24px; padding-right: 24px; }
   .wealth-summary-strip { padding-left: 24px; padding-right: 24px; }
   .wealth-summary-strip > div { padding-left: 14px; padding-right: 14px; }

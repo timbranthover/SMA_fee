@@ -132,7 +132,7 @@ function formatReturn(value) { return value === null || value === undefined ? "�
 function formatRangeValue(value, definition) {
   if (!Number.isFinite(Number(value))) return "—";
   const numeric = Number(value);
-  if (definition.format === "currency") return formatMinimum(numeric);
+  if (definition.format === "currency") return currency.format(numeric);
   if (definition.format === "percent") return `${numeric.toFixed(definition.digits)}%`;
   if (definition.format === "multiple") return `${numeric.toFixed(definition.digits)}×`;
   if (definition.format === "months") return `${numeric.toFixed(0)} mo`;
@@ -231,12 +231,17 @@ function wealthAllocationSvg(items) {
   return `<svg width="100%" height="8" viewBox="0 0 ${total} 8" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(`Current allocation: ${summary}`)}">${rects}</svg>`;
 }
 
+function goalProgressMeter(goal) {
+  const progress = Math.max(0, Math.min(100, Number(goal.progress) || 0));
+  return `<span class="goal-progress"><progress class="goal-progress-meter goal-progress-${escapeHtml(goal.tone)}" max="100" value="${progress}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress><small>${progress}%</small></span>`;
+}
+
 function renderWealthWorkspace() {
   updateHtml(el("wealthAllocationBar"), wealthAllocationSvg(WEALTH_ALLOCATION));
   updateHtml(el("wealthAllocationLegend"), WEALTH_ALLOCATION.map((item) => `<div><i class="tone-${escapeHtml(item.tone)}"></i><span>${escapeHtml(item.label)}</span><strong>${item.value}%</strong></div>`).join(""));
   updateHtml(el("wealthAccountsBody"), HOUSEHOLD_ACCOUNTS.map((account) => `<tr class="wealth-clickable-row"><th><button type="button" class="wealth-row-link" data-wealth-account="${escapeHtml(account.id)}"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.registration)} · ${escapeHtml(account.allocation)}</small></button></th><td>${formatWealthCurrency(account.value)}</td><td class="positive">+${account.change.toFixed(1)}%</td></tr>`).join(""));
   updateHtml(el("wealthHoldingsBody"), HOUSEHOLD_HOLDINGS.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td class="${holding.weight > 15 ? "attention-value" : ""}">${holding.weight.toFixed(1)}%</td></tr>`).join(""));
-  updateHtml(el("wealthGoals"), HOUSEHOLD_GOALS.map((goal) => `<button type="button" class="goal-row" data-wealth-goal="${escapeHtml(goal.id)}"><span class="goal-copy"><strong>${escapeHtml(goal.name)}</strong><small>${escapeHtml(goal.timing)}</small></span><span class="goal-progress"><span><i style="width:${goal.progress}%"></i></span><small>${goal.progress}%</small></span><em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></button>`).join(""));
+  updateHtml(el("wealthGoals"), HOUSEHOLD_GOALS.map((goal) => `<button type="button" class="goal-row" data-wealth-goal="${escapeHtml(goal.id)}"><span class="goal-copy"><strong>${escapeHtml(goal.name)}</strong><small>${escapeHtml(goal.timing)}</small></span>${goalProgressMeter(goal)}<em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></button>`).join(""));
   updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}</small><strong>${escapeHtml(insight.title)}</strong><em data-insight-detail="${escapeHtml(insight.id)}">${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(insight.action)} <b>›</b></span></button>`).join(""));
   renderHouseholdProgress();
 }
@@ -402,7 +407,7 @@ function goalDrawer(goalId) {
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">PLANNING · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close goal review">×</button></header>
     <div class="wealth-drawer-body goal-review">
       <section class="goal-review-hero"><div><span>${escapeHtml(goal.timing)}</span><h2 id="wealthDrawerTitle">${escapeHtml(goal.name)}</h2><p>${escapeHtml(goal.action)}</p></div><em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></section>
-      <section class="goal-funding"><div class="goal-funding-heading"><div><span>Funded</span><strong>${formatWealthCurrency(goal.funded)}</strong></div><div><span>Target</span><strong>${formatWealthCurrency(goal.target)}</strong></div></div><div class="goal-funding-track"><i style="width:${goal.progress}%"></i></div><div class="goal-funding-scale"><span>${goal.progress}% funded</span><span>${gap ? `${formatWealthCurrency(gap)} remaining` : "Target funded"}</span></div></section>
+      <section class="goal-funding"><div class="goal-funding-heading"><div><span>Funded</span><strong>${formatWealthCurrency(goal.funded)}</strong></div><div><span>Target</span><strong>${formatWealthCurrency(goal.target)}</strong></div></div><progress class="goal-funding-track goal-progress-${escapeHtml(goal.tone)}" max="100" value="${Math.max(0, Math.min(100, Number(goal.progress) || 0))}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress><div class="goal-funding-scale"><span>${goal.progress}% funded</span><span>${gap ? `${formatWealthCurrency(gap)} remaining` : "Target funded"}</span></div></section>
       <section class="account-review-metrics goal-review-metrics"><div><span>Plan confidence</span><strong>${goal.confidence}%</strong><small>Illustrative planning model</small></div><div><span>Annual funding</span><strong>${goal.annualFunding ? formatWealthCurrency(goal.annualFunding) : "Fully funded"}</strong><small>Current scheduled amount</small></div><div><span>Responsibility</span><strong>${escapeHtml(goal.owner)}</strong><small>Goal ownership</small></div><div><span>Next review</span><strong>${escapeHtml(goal.nextReview)}</strong><small>Planning calendar</small></div></section>
       <section class="goal-next-step"><span>NEXT ADVISOR ACTION</span><strong>${escapeHtml(goal.action)}</strong><small>Planning assumptions and values are illustrative.</small></section>
       <p class="wealth-disclosure">Illustrative household and planning data · Not for investment decisions.</p>
@@ -513,16 +518,31 @@ function rangeInputValue(value, definition) {
   return Number(Number(value).toFixed(definition.digits));
 }
 
+function rangeInputDisplayValue(value, definition) {
+  const numeric = rangeInputValue(value, definition);
+  return definition.format === "currency" ? number.format(numeric) : String(numeric);
+}
+
+function parseRangeInputValue(value, definition) {
+  const normalized = definition.format === "currency" ? String(value).replace(/,/g, "") : String(value);
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : NaN;
+}
+
 function rangeModule(definition, facet, open) {
   const selection = effectiveRange(definition.field, facet);
   const active = Boolean(state.ranges[definition.field]);
   const affixes = rangeAffixes(definition);
-  const numberField = (bound, label, value) => `<label class="range-number-control range-bound-${bound}">
+  const numberField = (bound, label, value) => {
+  const displayValue = rangeInputDisplayValue(value, definition);
+  const inputType = definition.format === "currency" ? "text" : "number";
+  return `<label class="range-number-control range-bound-${bound}">
     <span class="sr-only">${escapeHtml(label)} ${escapeHtml(definition.label)}</span>
     ${affixes.prefix ? `<span class="range-affix">${affixes.prefix}</span>` : ""}
-    <span class="range-input-sizer" data-range-input-sizer data-value="${value}"><input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="${bound}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${value}" inputmode="decimal" /></span>
+    <span class="range-input-sizer" data-range-input-sizer data-value="${escapeHtml(displayValue)}"><input type="${inputType}" data-range-number="${escapeHtml(definition.field)}" data-range-bound="${bound}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${escapeHtml(displayValue)}" inputmode="decimal" autocomplete="off" /></span>
     ${affixes.suffix ? `<span class="range-affix">${affixes.suffix}</span>` : ""}
   </label>`;
+};
   return `<details class="filter-group distribution-group ${active ? "has-range" : ""}" data-range-group="${escapeHtml(definition.field)}" ${open ? "open" : ""}>
     <summary><span class="range-summary-title">${escapeHtml(definition.label)}<small data-range-summary>${escapeHtml(rangeSummary(definition, facet))}</small></span><span class="filter-chevron">⌃</span></summary>
     <div class="distribution-filter">
@@ -594,7 +614,7 @@ function refreshRangeControl(field, { syncSlider = true } = {}) {
   const slider = group.querySelector(`[data-range-slider="${CSS.escape(field)}"]`);
   if (syncSlider && slider?.noUiSlider) slider.noUiSlider.set([selection.min, selection.max], false);
   group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => {
-    input.value = rangeInputValue(selection[input.dataset.rangeBound], definition);
+    input.value = rangeInputDisplayValue(selection[input.dataset.rangeBound], definition);
     input.closest("[data-range-input-sizer]").dataset.value = input.value;
   });
   const reset = group.querySelector("[data-reset-range]");
@@ -620,7 +640,8 @@ function setRangeSelection(field, rawMinimum, rawMaximum, options = {}) {
 
 function updateRangeSelection(field, bound, rawValue) {
   const facet = state.facets?.ranges?.[field];
-  if (!facet) return;
+  const definition = rangeDefinitions(state.appliedCategory).find((entry) => entry.field === field);
+  if (!facet || !definition) return;
   if (rawValue === "") {
     const next = { ...(state.ranges[field] || {}) };
     delete next[bound];
@@ -630,8 +651,9 @@ function updateRangeSelection(field, bound, rawValue) {
     return;
   }
   const current = effectiveRange(field, facet);
-  const value = Math.max(facet.min, Math.min(facet.max, Number(rawValue)));
-  if (!Number.isFinite(value)) return;
+  const parsed = parseRangeInputValue(rawValue, definition);
+  if (!Number.isFinite(parsed)) return;
+  const value = Math.max(facet.min, Math.min(facet.max, parsed));
   const next = { ...(state.ranges[field] || {}) };
   if (bound === "min") next.min = Math.min(value, current.max);
   else next.max = Math.max(value, current.min);
