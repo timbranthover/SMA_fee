@@ -3,7 +3,7 @@ import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
 import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
-import { HOUSEHOLD, HOUSEHOLD_ACCOUNTS, HOUSEHOLD_GOALS, HOUSEHOLD_HOLDINGS, HOUSEHOLD_INSIGHTS, WEALTH_ALLOCATION, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadWealthHistory } from "/lib/wealth-data.js";
+import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -13,8 +13,18 @@ const COMPARE_RANGE_OPTIONS = new Set(["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"
 const WEALTH_ALLOCATION_COLORS = Object.freeze({ navy: "#203f52", blue: "#4f7892", teal: "#5b9082", amber: "#b28a4d", gray: "#aaa9a3", slate: "#747b7d" });
 
 const state = {
-  workspaceView: "wealth",
+  workspaceView: "book",
   householdScenario: null,
+  currentHouseholdId: null,
+  bookController: null,
+  bookQuery: "",
+  bookFocus: "all",
+  bookSort: "attention",
+  bookCursor: 0,
+  bookNextCursor: null,
+  bookItems: [],
+  bookTotal: 0,
+  bookLoaded: false,
   q: "",
   category: "All",
   appliedCategory: "All",
@@ -68,6 +78,15 @@ let wealthHistory = null;
 let wealthDrawerRequest = 0;
 let initialInvestmentSearchPromise = null;
 let rangeSliderLibraryPromise = null;
+let HOUSEHOLD = null;
+let WEALTH_ALLOCATION = [];
+let HOUSEHOLD_ACCOUNTS = [];
+let HOUSEHOLD_HOLDINGS = [];
+let HOUSEHOLD_GOALS = [];
+let HOUSEHOLD_INSIGHTS = [];
+let householdRequest = 0;
+let bookSearchTimer = null;
+let bookPrefetchTimer = null;
 
 const elementCache = new Map();
 const el = (id) => {
@@ -167,6 +186,12 @@ function profileFromPath() {
   try { return decodeURIComponent(match[1]); } catch { return match[1]; }
 }
 
+function householdFromPath() {
+  const match = location.pathname.match(/^\/household\/([^/]+)\/?$/i);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return match[1]; }
+}
+
 function getSavedScreens() {
   const defaults = [
     { id: "default-1", name: "Tax-aware SMA shortlist", subtitle: "SMAs · Tax-Aware · Moderate risk", state: { category: "SMAs", flags: ["Tax-Aware"], risks: ["Moderate"], q: "" } },
@@ -216,9 +241,15 @@ function showToast(message) {
 function formatWealthCurrency(value, digits = 2) {
   const absolute = Math.abs(Number(value) || 0);
   const sign = value < 0 ? "−" : "";
-  if (absolute >= 1000000) return `${sign}$${(absolute / 1000000).toFixed(digits).replace(/\.00$/, "")}M`;
+  if (absolute >= 1000000000) return `${sign}$${(absolute / 1000000000).toFixed(digits).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}B`;
+  if (absolute >= 1000000) return `${sign}$${(absolute / 1000000).toFixed(digits).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}M`;
   if (absolute >= 1000) return `${sign}$${Math.round(absolute / 1000)}K`;
   return `${sign}${currency.format(absolute)}`;
+}
+
+function formatSignedWealthCurrency(value) {
+  const numeric = Number(value) || 0;
+  return `${numeric > 0 ? "+" : ""}${formatWealthCurrency(numeric)}`;
 }
 
 function wealthAllocationSvg(items) {
@@ -240,10 +271,143 @@ function goalProgressMeter(goal) {
   return `<span class="goal-progress"><progress class="goal-progress-meter goal-progress-${escapeHtml(goal.tone)}" max="100" value="${progress}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress><small>${progress}%</small></span>`;
 }
 
+function bookPriorityMarkup(item) {
+  if (!item.priority) return `<span class="book-priority-none">No material exception</span>`;
+  return `<span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong>${escapeHtml(item.priority.title)}</strong><small>${escapeHtml(item.priority.detail)}</small></span></span>`;
+}
+
+function renderAdvisorIdentity({ displayName, initials, workspaceLabel } = {}) {
+  el("advisorAvatar").textContent = initials || "—";
+  el("advisorName").textContent = displayName || "Advisor";
+  el("advisorWorkspace").textContent = workspaceLabel || "Advisor workspace";
+  el("advisorProfile").setAttribute("aria-label", workspaceLabel || "Advisor workspace");
+}
+
+function renderBookSummary(data) {
+  el("bookSubtitle").textContent = `${data.metrics.householdCount} households · one connected view of your client book`;
+  el("bookUpdated").textContent = data.asOf ? `Updated through ${data.asOf}` : "Current client data";
+  renderAdvisorIdentity(data.advisor);
+  el("bookHouseholdCount").textContent = formatCount(data.metrics.householdCount);
+  el("bookFinancialAssets").textContent = formatWealthCurrency(data.metrics.financialAssets);
+  el("bookNetWorth").textContent = formatWealthCurrency(data.metrics.netWorth);
+  el("bookCash").textContent = formatWealthCurrency(data.metrics.investableCash);
+  el("bookAttentionCount").textContent = formatCount(data.metrics.attentionHouseholds);
+  const counts = data.focusCounts || {};
+  const countMap = {
+    bookFilterPriority: counts.priority,
+    bookFilterCash: counts.cash,
+    bookFilterGoals: counts.goals,
+    bookFilterUpcoming: counts.upcoming,
+  };
+  Object.entries(countMap).forEach(([id, value]) => { el(id).textContent = formatCount(value || 0); });
+  el("bookIntelPriority").textContent = `${formatCount(counts.priority || 0)} households`;
+  el("bookIntelCash").textContent = `${formatCount(counts.cash || 0)} households`;
+  el("bookIntelGoals").textContent = `${formatCount(counts.goals || 0)} goal reviews`;
+  el("bookIntelUpcoming").textContent = `${formatCount(counts.upcoming || 0)} obligations`;
+  el("bookIntelHeldAway").textContent = `${formatCount(counts["held-away"] || 0)} with held-away assets`;
+}
+
+function renderBookRows() {
+  const rows = state.bookItems.map((item) => `<tr data-book-household-row="${escapeHtml(item.id)}"><th><button type="button" class="book-household-link" data-household-id="${escapeHtml(item.id)}"><span class="book-avatar">${escapeHtml(item.initials)}</span><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.location)} · ${item.accountCount} accounts · ${escapeHtml(item.riskProfile)}</small></span><b>›</b></button></th><td>${formatWealthCurrency(item.netWorth)}</td><td>${formatWealthCurrency(item.financialAssets)}</td><td><strong>${formatWealthCurrency(item.cash)}</strong><small>${item.cashPct.toFixed(1)}%</small></td><td class="${item.ytdReturn >= 0 ? "positive" : "negative"}">${item.ytdReturn >= 0 ? "+" : ""}${item.ytdReturn.toFixed(1)}%</td><td>${item.goalsOnTrack} / ${item.goalsTotal}</td><td>${bookPriorityMarkup(item)}</td></tr>`).join("");
+  updateHtml(el("bookBody"), rows || `<tr><td colspan="7" class="book-empty"><strong>No households match this view</strong><span>Try another search or focus filter.</span></td></tr>`);
+  el("bookResultCount").textContent = formatCount(state.bookTotal);
+  el("bookLoadedCount").textContent = state.bookItems.length < state.bookTotal ? `${formatCount(state.bookItems.length)} shown` : `${formatCount(state.bookTotal)} shown`;
+  el("bookLoadMoreWrap").hidden = state.bookNextCursor === null;
+  const focusLabels = { all: "Prioritized across your book", priority: "Households with priority risk", cash: "Households with deployable cash", goals: "Households with goal reviews", upcoming: "Households with upcoming obligations", "held-away": "Relationships with held-away assets" };
+  el("bookViewStatus").textContent = focusLabels[state.bookFocus] || focusLabels.all;
+  document.querySelectorAll("[data-book-focus]").forEach((button) => button.classList.toggle("active", button.dataset.bookFocus === state.bookFocus));
+}
+
+async function loadBook({ reset = true } = {}) {
+  state.bookController?.abort();
+  const controller = new AbortController();
+  state.bookController = controller;
+  if (reset) state.bookCursor = 0;
+  el("bookLoading").hidden = false;
+  try {
+    const data = await loadAdvisorBook({ advisorId: DEFAULT_ADVISOR_ID, q: state.bookQuery, focus: state.bookFocus, sort: state.bookSort, cursor: state.bookCursor, pageSize: 48, signal: controller.signal });
+    if (controller !== state.bookController) return;
+    state.bookItems = reset ? data.items : [...state.bookItems, ...data.items];
+    state.bookTotal = data.total;
+    state.bookNextCursor = data.nextCursor;
+    state.bookLoaded = true;
+    renderBookSummary(data);
+    renderBookRows();
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      updateHtml(el("bookBody"), `<tr><td colspan="7" class="book-empty"><strong>Client book is temporarily unavailable</strong><span>${escapeHtml(error.message)}</span></td></tr>`);
+      el("bookResultCount").textContent = "—";
+    }
+  } finally {
+    if (controller === state.bookController) el("bookLoading").hidden = true;
+  }
+}
+
+function assignHouseholdOverview(overview) {
+  HOUSEHOLD = overview.household;
+  WEALTH_ALLOCATION = overview.allocation || [];
+  HOUSEHOLD_ACCOUNTS = overview.accounts || [];
+  HOUSEHOLD_HOLDINGS = overview.holdings || [];
+  HOUSEHOLD_GOALS = overview.goals || [];
+  HOUSEHOLD_INSIGHTS = overview.insights || [];
+}
+
+function resetWealthChart() {
+  wealthChartResizeObserver?.disconnect();
+  wealthChartResizeObserver = null;
+  wealthChart?.remove?.();
+  wealthChart = null;
+  wealthSeries = null;
+  wealthHistory = null;
+  const loading = el("wealthChartLoading");
+  loading.hidden = false;
+  loading.classList.remove("error");
+  loading.querySelector("p").textContent = "Preparing household history…";
+}
+
+function renderHouseholdLoading(id) {
+  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">··</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Loading relationship…</h1><p>${escapeHtml(id)}</p></div></div></div><div class="wealth-heading-meta"><span>Illustrative household</span><strong>Retrieving current household data…</strong></div>`);
+  updateHtml(el("wealthSummaryStrip"), `<div class="wealth-summary-primary"><span>Net worth</span><strong>—</strong><small>Loading</small></div><div><span>Portfolio</span><strong>—</strong><small>Loading</small></div><div><span>Liquidity</span><strong>—</strong><small>Loading</small></div><div><span>Largest position</span><strong>—</strong><small>Loading</small></div><div><span>Goals</span><strong>—</strong><small>Loading</small></div>`);
+}
+
+async function openHousehold(householdId, { updateHistory = true, replaceHistory = false } = {}) {
+  const request = ++householdRequest;
+  closeWealthDrawer({ restoreFocus: false });
+  state.currentHouseholdId = householdId;
+  resetWealthChart();
+  renderHouseholdLoading(householdId);
+  setWorkspaceView("wealth", { updateHistory, replaceHistory });
+  try {
+    const overview = await loadHouseholdOverview(householdId);
+    if (request !== householdRequest || state.currentHouseholdId !== householdId) return;
+    assignHouseholdOverview(overview);
+    renderWealthWorkspace();
+    document.title = `${HOUSEHOLD.name} | Advisor Workspace`;
+    requestAnimationFrame(initializeWealthChart);
+  } catch (error) {
+    if (request !== householdRequest) return;
+    updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar">!</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Relationship unavailable</h1><p>${escapeHtml(error.message)}</p></div></div></div>`);
+  }
+}
+
 function renderWealthWorkspace() {
+  if (!HOUSEHOLD) return;
+  renderAdvisorIdentity({ displayName: HOUSEHOLD.advisor, initials: HOUSEHOLD.advisorInitials, workspaceLabel: HOUSEHOLD.advisorWorkspace });
+  const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.id === "concentration" || insight.id.endsWith("-concentration"));
+  const topHolding = HOUSEHOLD_HOLDINGS[0];
+  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button></div></div><div class="wealth-heading-meta"><span>Illustrative household</span><strong>Updated ${escapeHtml(HOUSEHOLD.asOf)}</strong></div>`);
+  const largestPosition = topHolding ? `${escapeHtml(topHolding.symbol)} · ${topHolding.weight.toFixed(1)}%` : "—";
+  updateHtml(el("wealthSummaryStrip"), `<div class="wealth-summary-primary"><span>Net worth</span><strong>${formatWealthCurrency(HOUSEHOLD.netWorth)}</strong><small><b>${formatSignedWealthCurrency(HOUSEHOLD.ytdChange)}</b> year to date</small></div><div><span>Portfolio</span><strong>${escapeHtml(HOUSEHOLD.riskProfile)}</strong><small>Household risk profile</small></div><div><span>Liquidity</span><strong>${formatWealthCurrency(HOUSEHOLD.investableCash)}</strong><small>${HOUSEHOLD.liquidityPct.toFixed(1)}% readily available</small></div><div><span>Largest position</span><strong class="${concentration ? "wealth-watch" : ""}">${largestPosition}</strong><small>${concentration ? escapeHtml(concentration.detail) : "Within monitored household exposure"}</small></div><div><span>Goals</span><strong>${HOUSEHOLD.goalsOnTrack} of ${HOUSEHOLD.goalsTotal}</strong><small>On track or funded</small></div>`);
+  el("wealthPerformanceTitle").textContent = formatWealthCurrency(HOUSEHOLD.financialAssets);
+  el("wealthPerformanceMeta").innerHTML = `<strong>${HOUSEHOLD.ytdReturn >= 0 ? "+" : ""}${HOUSEHOLD.ytdReturn.toFixed(1)}%</strong> time-weighted return · <span>${formatSignedWealthCurrency(HOUSEHOLD.netFlows)} net flows</span>`;
+  el("wealthAllocationTotal").textContent = `${formatWealthCurrency(HOUSEHOLD.financialAssets)} financial assets`;
+  el("wealthAttentionCount").textContent = String(HOUSEHOLD_INSIGHTS.length);
+  el("wealthAttentionIntro").textContent = `Material changes and opportunities across ${HOUSEHOLD.name}.`;
+  el("wealthGoalSummary").textContent = `${HOUSEHOLD.goalsOnTrack} / ${HOUSEHOLD.goalsTotal}`;
+  el("reviewRiskButton").hidden = !HOUSEHOLD.hasConcentrationPolicy;
   updateHtml(el("wealthAllocationBar"), wealthAllocationSvg(WEALTH_ALLOCATION));
   updateHtml(el("wealthAllocationLegend"), WEALTH_ALLOCATION.map((item) => `<div><i class="tone-${escapeHtml(item.tone)}"></i><span>${escapeHtml(item.label)}</span><strong>${item.value}%</strong></div>`).join(""));
-  updateHtml(el("wealthAccountsBody"), HOUSEHOLD_ACCOUNTS.map((account) => `<tr class="wealth-clickable-row"><th><button type="button" class="wealth-row-link" data-wealth-account="${escapeHtml(account.id)}"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.registration)} · ${escapeHtml(account.allocation)}</small></button></th><td>${formatWealthCurrency(account.value)}</td><td class="positive">+${account.change.toFixed(1)}%</td></tr>`).join(""));
+  updateHtml(el("wealthAccountsBody"), HOUSEHOLD_ACCOUNTS.map((account) => `<tr class="wealth-clickable-row"><th><button type="button" class="wealth-row-link" data-wealth-account="${escapeHtml(account.id)}"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.registration)} · ${escapeHtml(account.allocation)}</small></button></th><td>${formatWealthCurrency(account.value)}</td><td class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}%</td></tr>`).join(""));
   updateHtml(el("wealthHoldingsBody"), HOUSEHOLD_HOLDINGS.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td class="${holding.weight > 15 ? "attention-value" : ""}">${holding.weight.toFixed(1)}%</td></tr>`).join(""));
   updateHtml(el("wealthGoals"), HOUSEHOLD_GOALS.map((goal) => `<button type="button" class="goal-row" data-wealth-goal="${escapeHtml(goal.id)}"><span class="goal-copy"><strong>${escapeHtml(goal.name)}</strong><small>${escapeHtml(goal.timing)}</small></span>${goalProgressMeter(goal)}<em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></button>`).join(""));
   updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}</small><strong>${escapeHtml(insight.title)}</strong><em data-insight-detail="${escapeHtml(insight.id)}">${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(insight.action)} <b>›</b></span></button>`).join(""));
@@ -251,33 +415,41 @@ function renderWealthWorkspace() {
 }
 
 function renderHouseholdProgress() {
-  const progress = document.querySelector('[data-insight-detail="concentration"]');
+  const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.id === "concentration" || insight.id.endsWith("-concentration"));
+  if (!concentration) return;
+  const progress = document.querySelector(`[data-insight-detail="${CSS.escape(concentration.id)}"]`);
   if (!progress) return;
   const selected = state.compare.size;
-  progress.textContent = selected ? `${selected} diversification ${selected === 1 ? "alternative" : "alternatives"} selected` : "$2.80M across two taxable accounts";
+  progress.textContent = selected ? `${selected} diversification ${selected === 1 ? "alternative" : "alternatives"} selected` : concentration.detail;
 }
 
 function wealthPointsForRange(range) {
   const years = { "1Y": 1, "3Y": 3, "5Y": 5 }[range] || 1;
-  const cutoff = new Date("2026-08-21T00:00:00Z");
+  const lastPoint = wealthHistory?.at(-1);
+  if (!lastPoint) return [];
+  const cutoff = new Date(`${lastPoint.time}T00:00:00Z`);
   cutoff.setUTCFullYear(cutoff.getUTCFullYear() - years);
-  return (wealthHistory || []).filter((point) => new Date(`${point.time}T00:00:00Z`) >= cutoff);
+  return wealthHistory.filter((point) => new Date(`${point.time}T00:00:00Z`) >= cutoff);
 }
 
 function drawWealthRange() {
   if (!wealthSeries || !wealthChart) return;
-  wealthSeries.setData(wealthPointsForRange(wealthRange));
+  const points = wealthPointsForRange(wealthRange);
+  wealthSeries.setData(points);
   document.querySelectorAll("[data-wealth-range]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.wealthRange === wealthRange)));
-  el("wealthChartPeriod").textContent = { "1Y": "Aug 2025–Aug 2026", "3Y": "Aug 2023–Aug 2026", "5Y": "Aug 2021–Aug 2026" }[wealthRange];
+  const first = points[0]?.time;
+  const last = points.at(-1)?.time;
+  el("wealthChartPeriod").textContent = first && last ? `${chartDate.format(new Date(`${first}T00:00:00Z`))}–${chartDate.format(new Date(`${last}T00:00:00Z`))}` : wealthRange;
   wealthChart.timeScale().fitContent();
 }
 
 async function initializeWealthChart() {
-  if (wealthChart || state.workspaceView !== "wealth") return;
+  if (wealthChart || state.workspaceView !== "wealth" || !state.currentHouseholdId) return;
   const container = el("wealthChart");
   try {
-    const [library, history] = await Promise.all([loadCompareChartLibrary(), loadWealthHistory()]);
-    if (state.workspaceView !== "wealth" || wealthChart) return;
+    const householdId = state.currentHouseholdId;
+    const [library, history] = await Promise.all([loadCompareChartLibrary(), loadWealthHistory(householdId)]);
+    if (state.workspaceView !== "wealth" || wealthChart || state.currentHouseholdId !== householdId) return;
     wealthHistory = history;
     wealthChart = library.createChart(container, {
       width: Math.max(640, container.clientWidth),
@@ -316,20 +488,28 @@ function investmentUrl() {
 }
 
 function setWorkspaceView(view, { updateHistory = true, replaceHistory = false } = {}) {
-  const next = view === "investments" ? "investments" : "wealth";
+  const next = ["book", "wealth", "investments"].includes(view) ? view : "book";
   state.workspaceView = next;
+  el("bookView").hidden = next !== "book";
   el("wealthView").hidden = next !== "wealth";
   el("investmentView").hidden = next !== "investments";
   document.body.dataset.workspace = next;
-  document.querySelectorAll("[data-workspace-view]").forEach((button) => button.classList.toggle("active", button.dataset.workspaceView === next));
-  document.title = next === "wealth" ? "Advisor Workspace" : "Investment Screener | Advisor Workspace";
+  document.querySelectorAll("[data-workspace-view]").forEach((button) => {
+    const target = button.dataset.workspaceView;
+    button.classList.toggle("active", target === "book" ? next === "book" || next === "wealth" : target === next);
+  });
+  document.title = next === "book" ? "Advisor Workspace" : next === "wealth" ? `${HOUSEHOLD?.name || "Household"} | Advisor Workspace` : "Investment Screener | Advisor Workspace";
   if (updateHistory && !profileFromPath()) {
-    const href = next === "wealth" ? "/" : investmentUrl();
-    history[replaceHistory ? "replaceState" : "pushState"]({ workspaceView: next }, "", href);
+    const href = next === "book" ? "/" : next === "wealth" && state.currentHouseholdId ? `/household/${encodeURIComponent(state.currentHouseholdId)}` : investmentUrl();
+    history[replaceHistory ? "replaceState" : "pushState"]({ workspaceView: next, householdId: state.currentHouseholdId }, "", href);
   }
-  if (next === "wealth") {
+  if (next === "book") {
+    closeWealthDrawer({ restoreFocus: false });
+    if (!state.bookLoaded) loadBook();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else if (next === "wealth") {
     renderHouseholdProgress();
-    requestAnimationFrame(initializeWealthChart);
+    if (HOUSEHOLD) requestAnimationFrame(initializeWealthChart);
     window.scrollTo({ top: 0, behavior: "smooth" });
   } else {
     ensureInvestmentWorkspaceLoaded();
@@ -348,43 +528,64 @@ function closeWealthDrawer({ restoreFocus = true } = {}) {
   if (restoreFocus) state.lastFocus?.focus?.();
 }
 
+function policyTrackSvg(review) {
+  const maximum = Math.max(30, Math.ceil(review.holding.weight / 5) * 5);
+  const current = Math.min(maximum, review.holding.weight);
+  const target = Math.min(maximum, review.targetWeight);
+  return `<svg class="policy-track-svg" viewBox="0 0 ${maximum} 8" preserveAspectRatio="none" role="img" aria-label="Current ${review.holding.weight.toFixed(1)} percent versus ${review.targetWeight.toFixed(1)} percent target"><rect x="0" y="2" width="${maximum}" height="4" fill="#ececea"></rect><rect x="0" y="2" width="${current}" height="4" fill="#b51f35"></rect><line x1="${target}" y1="0" x2="${target}" y2="8" stroke="#111" stroke-width="0.5"></line></svg>`;
+}
+
 function concentrationDrawer(review) {
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PORTFOLIO RISK · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close concentration review">×</button></header>
+  const accountLabel = `${review.accounts.length} ${review.accounts.length === 1 ? "account" : "accounts"}`;
+  const basisPct = review.costBasis > 0 ? Math.round(review.unrealizedGain / review.costBasis * 100) : null;
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PORTFOLIO RISK · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close concentration review">×</button></header>
     <div class="wealth-drawer-body">
-      <section class="concentration-hero"><div class="concentration-name">${productMark({ ...review.holding, category: "Equities" })}<div><span>Single-stock concentration</span><h2 id="wealthDrawerTitle">Apple Inc.</h2><p>AAPL · Across two taxable accounts</p></div></div><div class="concentration-status"><span>Above policy</span><strong>${review.holding.weight.toFixed(1)}%</strong><small>12% household target</small></div></section>
-      <section class="concentration-metrics" aria-label="Concentration summary"><div><span>Market value</span><strong>${formatWealthCurrency(review.holding.value)}</strong><small>Largest household position</small></div><div><span>Unrealized gain</span><strong>${formatWealthCurrency(review.unrealizedGain)}</strong><small>${Math.round(review.unrealizedGain / review.costBasis * 100)}% above cost basis</small></div><div><span>Risk contribution</span><strong>31%</strong><small>Of modeled equity risk</small></div><div><span>Target release</span><strong>$1.37M</strong><small>To reach 12% target</small></div></section>
-      <section class="concentration-section"><div class="section-heading"><span>Exposure</span><h3>Position relative to policy</h3></div><div class="policy-track"><div class="policy-target" style="left:${review.targetWeight / 30 * 100}%"><span>12% target</span></div><div class="policy-current" style="width:${review.holding.weight / 30 * 100}%"></div></div><div class="policy-scale"><span>0%</span><span>Household policy range</span><span>30%</span></div></section>
-      <section class="concentration-section"><div class="section-heading"><span>Ownership</span><h3>Where the exposure sits</h3><p>Taxable location makes sequencing and realized gains material.</p></div><table class="concentration-table"><thead><tr><th>Account</th><th>Market value</th><th>Account weight</th><th>Unrealized gain</th></tr></thead><tbody>${review.accounts.map((account) => `<tr><th>${escapeHtml(account.name)}</th><td>${formatWealthCurrency(account.value)}</td><td>${account.weight.toFixed(1)}%</td><td>${formatWealthCurrency(account.gain)}</td></tr>`).join("")}</tbody></table></section>
+      <section class="concentration-hero"><div class="concentration-name">${productMark({ ...review.holding, category: "Equities" })}<div><span>Single-position concentration</span><h2 id="wealthDrawerTitle">${escapeHtml(review.holding.name)}</h2><p>${escapeHtml(review.holding.symbol)} · Across ${escapeHtml(accountLabel)}</p></div></div><div class="concentration-status"><span>Above policy</span><strong>${review.holding.weight.toFixed(1)}%</strong><small>${review.targetWeight.toFixed(0)}% household target</small></div></section>
+      <section class="concentration-metrics" aria-label="Concentration summary"><div><span>Market value</span><strong>${formatWealthCurrency(review.holding.value)}</strong><small>Largest household position</small></div><div><span>Unrealized gain</span><strong>${formatWealthCurrency(review.unrealizedGain)}</strong><small>${basisPct === null ? "Cost basis unavailable" : `${basisPct}% above cost basis`}</small></div><div><span>Risk contribution</span><strong>${review.riskContribution === null ? "—" : `${review.riskContribution}%`}</strong><small>Of modeled equity risk</small></div><div><span>Target release</span><strong>${formatWealthCurrency(review.targetRelease)}</strong><small>To reach ${review.targetWeight.toFixed(0)}% target</small></div></section>
+      <section class="concentration-section"><div class="section-heading"><span>Exposure</span><h3>Position relative to policy</h3></div><div class="policy-track">${policyTrackSvg(review)}</div><div class="policy-scale"><span>0%</span><span>${review.targetWeight.toFixed(0)}% household target</span><span>${Math.max(30, Math.ceil(review.holding.weight / 5) * 5)}%</span></div></section>
+      <section class="concentration-section"><div class="section-heading"><span>Ownership</span><h3>Where the exposure sits</h3><p>Account location and unrealized gains shape implementation choices.</p></div><table class="concentration-table"><thead><tr><th>Account</th><th>Market value</th><th>Account weight</th><th>Unrealized gain</th></tr></thead><tbody>${review.accounts.map((account) => `<tr><th>${escapeHtml(account.name)}</th><td>${formatWealthCurrency(account.value)}</td><td>${account.weight.toFixed(1)}%</td><td>${formatWealthCurrency(account.gain)}</td></tr>`).join("")}</tbody></table></section>
       <section class="concentration-section scenario-impact"><div class="section-heading"><span>Decision support</span><h3>Illustrative household impact</h3></div><table class="concentration-table"><thead><tr><th>Scenario</th><th>Position impact</th><th>Portfolio impact</th></tr></thead><tbody>${review.scenarios.map((scenario) => `<tr><th>${escapeHtml(scenario.name)}</th><td>${escapeHtml(scenario.holdingMove)}</td><td>${escapeHtml(scenario.portfolioMove)}</td></tr>`).join("")}</tbody></table></section>
       <section class="concentration-research"><div><span>UPS RESEARCH · ${escapeHtml(review.research.reviewed)}</span><strong>${escapeHtml(review.research.status)}</strong><p>${escapeHtml(review.research.summary)}</p></div><button type="button" class="secondary-button" data-open-modal="researchModal">View research context</button></section>
-      <section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Explore implementation paths</h3><p>Carry the objective—not hidden client data—into the investment shelf.</p></div><button type="button" class="primary-button" data-household-scenario="concentration">Explore tax-aware diversification →</button></section>
+      <section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Explore implementation paths</h3><p>Carry the objective—not hidden client data—into the investment shelf.</p></div><button type="button" class="primary-button" data-household-scenario="concentration">Explore diversification options →</button></section>
       <p class="wealth-disclosure">Illustrative household and scenario data · Not for investment decisions.</p>
     </div>`;
 }
 
 function operationalDrawer(id) {
-  const templates = {
-    relationship: { eyebrow: "RELATIONSHIP PROFILE", title: "Morrison Household", summary: "A consolidated view of the people, entities and connected accounts that make up this illustrative relationship.", rows: [["Household members", "Daniel Morrison · Evelyn Morrison"], ["Primary relationship", "Joint · New York"], ["Entity relationships", "Morrison Family Trust · two 529 plans"], ["Service model", "Private Wealth · advisory"], ["External coverage", "Two connected held-away accounts"], ["Last planning review", "Jul 9, 2026"]] },
-    "capital-call": { eyebrow: "UPCOMING OBLIGATION", title: "$125K private-credit capital call", summary: "Funding is due Sep 8. Available cash fully covers the obligation without selling investments.", rows: [["Funding source", "Joint brokerage cash"], ["Cash available", "$410K"], ["Remaining after funding", "$285K"], ["Status", "Funding source identified"]] },
-    changes: { eyebrow: "FOLLOWED INVESTMENTS", title: "Three material changes", summary: "Research and shelf activity tied to investments already followed in this workspace.", rows: [["UPS Core Municipal Portfolio", "Research review completed · Aug 18"], ["Vanguard S&P 500 ETF", "Data refreshed · Aug 21"], ["Tax-Aware Direct Index SMA", "Shelf terms updated · Aug 19"]] },
-  };
-  const item = templates[id];
+  let item;
+  if (id === "relationship") {
+    item = {
+      eyebrow: "RELATIONSHIP PROFILE",
+      title: HOUSEHOLD.name,
+      summary: "A consolidated view of the people, entities and connected accounts that make up this illustrative relationship.",
+      rows: [["Household members", HOUSEHOLD.members.length ? HOUSEHOLD.members.join(" · ") : "Household relationship"], ["Primary relationship", `${HOUSEHOLD.relationshipType} · ${HOUSEHOLD.location}`], ["Entity relationships", HOUSEHOLD.entitySummary], ["Service model", HOUSEHOLD.serviceModel], ["External coverage", `${HOUSEHOLD.heldAwayCount} connected held-away ${HOUSEHOLD.heldAwayCount === 1 ? "account" : "accounts"}`], ["Last planning review", HOUSEHOLD.lastPlanningReview]],
+    };
+  } else {
+    const insight = HOUSEHOLD_INSIGHTS.find((candidate) => candidate.id === id);
+    const detail = insight?.details;
+    item = {
+      eyebrow: detail?.eyebrow || insight?.severity?.toUpperCase() || "HOUSEHOLD REVIEW",
+      title: insight?.title || "Household review",
+      summary: detail?.summary || insight?.detail || "Current relationship information.",
+      rows: detail?.rows || [["Household", HOUSEHOLD.name], ["Status", insight?.severity || "Current"], ["Detail", insight?.detail || "No additional detail"]],
+    };
+  }
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">${escapeHtml(item.eyebrow)}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary)}</p><div class="operational-rows">${item.rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div><p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p></div>`;
 }
 
 function accountMix(account) {
-  return `<div class="account-allocation-bar" aria-label="${escapeHtml(account.name)} allocation">${account.mix.map((item) => `<span class="tone-${escapeHtml(item.tone)}" style="width:${item.value}%" title="${escapeHtml(item.label)} · ${item.value}%"></span>`).join("")}</div><div class="account-allocation-legend">${account.mix.map((item) => `<div><i class="tone-${escapeHtml(item.tone)}"></i><span>${escapeHtml(item.label)}</span><strong>${item.value}%</strong></div>`).join("")}</div>`;
+  return `<div class="account-allocation-bar" aria-label="${escapeHtml(account.name)} allocation">${wealthAllocationSvg(account.mix)}</div><div class="account-allocation-legend">${account.mix.map((item) => `<div><i class="tone-${escapeHtml(item.tone)}"></i><span>${escapeHtml(item.label)}</span><strong>${item.value}%</strong></div>`).join("")}</div>`;
 }
 
 function accountsDrawer() {
-  const heldAway = HOUSEHOLD_ACCOUNTS.filter((account) => account.program === "Connected external").reduce((sum, account) => sum + account.value, 0);
+  const heldAway = HOUSEHOLD_ACCOUNTS.filter((account) => account.custodyType === "held-away").reduce((sum, account) => sum + account.value, 0);
   const cash = HOUSEHOLD_ACCOUNTS.reduce((sum, account) => sum + account.cash, 0);
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">OWNERSHIP · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account overview">×</button></header>
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">OWNERSHIP · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account overview">×</button></header>
     <div class="wealth-drawer-body account-review">
-      <section class="account-review-hero"><div><span>HOUSEHOLD ACCOUNTS</span><h2 id="wealthDrawerTitle">${formatWealthCurrency(HOUSEHOLD.financialAssets)} across six accounts</h2><p>Custodied and connected assets reconciled into one household view.</p></div><strong>100%<small>account coverage</small></strong></section>
-      <section class="account-review-metrics"><div><span>Advisory assets</span><strong>${formatWealthCurrency(HOUSEHOLD.financialAssets - heldAway)}</strong><small>Four custodied relationships</small></div><div><span>Held away</span><strong>${formatWealthCurrency(heldAway)}</strong><small>Two connected accounts</small></div><div><span>Available cash</span><strong>${formatWealthCurrency(cash)}</strong><small>Across all registrations</small></div><div><span>Last refresh</span><strong>9:42 AM</strong><small>Aug 21, 2026 · ET</small></div></section>
-      <section class="concentration-section"><div class="section-heading"><span>ACCOUNT MAP</span><h3>Ownership and purpose</h3><p>Select an account to review allocation, holdings and operational status.</p></div><table class="concentration-table account-map-table"><thead><tr><th>Account</th><th>Registration</th><th>Value</th><th>YTD</th></tr></thead><tbody>${HOUSEHOLD_ACCOUNTS.map((account) => `<tr><th><button type="button" class="drawer-table-link" data-wealth-account="${escapeHtml(account.id)}">${escapeHtml(account.name)} <span>›</span></button></th><td>${escapeHtml(account.registration)}</td><td>${formatWealthCurrency(account.value)}</td><td class="positive">+${account.change.toFixed(1)}%</td></tr>`).join("")}</tbody></table></section>
-      <section class="account-data-strip"><div><span>Custodied accounts</span><strong>Current · reconciled</strong></div><div><span>External connections</span><strong>2 healthy · daily</strong></div><div><span>Coverage exception</span><strong>None</strong></div></section>
+      <section class="account-review-hero"><div><span>HOUSEHOLD ACCOUNTS</span><h2 id="wealthDrawerTitle">${formatWealthCurrency(HOUSEHOLD.financialAssets)} across ${HOUSEHOLD.accountCount} accounts</h2><p>Custodied and connected assets reconciled into one household view.</p></div><strong>100%<small>account coverage</small></strong></section>
+      <section class="account-review-metrics"><div><span>Advisory assets</span><strong>${formatWealthCurrency(HOUSEHOLD.financialAssets - heldAway)}</strong><small>${HOUSEHOLD.custodiedCount} custodied relationships</small></div><div><span>Held away</span><strong>${formatWealthCurrency(heldAway)}</strong><small>${HOUSEHOLD.heldAwayCount} connected accounts</small></div><div><span>Available cash</span><strong>${formatWealthCurrency(cash)}</strong><small>Across all registrations</small></div><div><span>Last refresh</span><strong>Current</strong><small>${escapeHtml(HOUSEHOLD.asOf)}</small></div></section>
+      <section class="concentration-section"><div class="section-heading"><span>ACCOUNT MAP</span><h3>Ownership and purpose</h3><p>Select an account to review allocation, holdings and operational status.</p></div><table class="concentration-table account-map-table"><thead><tr><th>Account</th><th>Registration</th><th>Value</th><th>YTD</th></tr></thead><tbody>${HOUSEHOLD_ACCOUNTS.map((account) => `<tr><th><button type="button" class="drawer-table-link" data-wealth-account="${escapeHtml(account.id)}">${escapeHtml(account.name)} <span>›</span></button></th><td>${escapeHtml(account.registration)}</td><td>${formatWealthCurrency(account.value)}</td><td class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}%</td></tr>`).join("")}</tbody></table></section>
+      <section class="account-data-strip"><div><span>Custodied accounts</span><strong>${HOUSEHOLD.custodiedCount} current · reconciled</strong></div><div><span>External connections</span><strong>${HOUSEHOLD.heldAwayCount} connected · daily</strong></div><div><span>Coverage exception</span><strong>None</strong></div></section>
       <p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p>
     </div>`;
 }
@@ -394,9 +595,9 @@ function accountDrawer(account) {
   const holdings = account.holdings.length
     ? `<table class="concentration-table account-holdings-table"><thead><tr><th>Holding</th><th>Market value</th><th>Account weight</th></tr></thead><tbody>${account.holdings.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td>${holding.weight.toFixed(1)}%</td></tr>`).join("")}</tbody></table>`
     : `<div class="account-empty-holdings"><strong>Position-level feed summarized</strong><span>This connected account contributes to household allocation and planning without exposing underlying positions in the prototype.</span></div>`;
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">ACCOUNT · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-wealth-action="accounts">← All accounts</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account detail">×</button></header>
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">ACCOUNT · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-wealth-action="accounts">← All accounts</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account detail">×</button></header>
     <div class="wealth-drawer-body account-review">
-      <section class="account-detail-hero"><div><span>${escapeHtml(account.registration)}</span><h2 id="wealthDrawerTitle">${escapeHtml(account.name)}</h2><p>${escapeHtml(account.purpose)} · ${escapeHtml(account.program)}</p></div><div><span>Current value</span><strong>${formatWealthCurrency(account.value)}</strong><small class="positive">+${account.change.toFixed(1)}% YTD</small></div></section>
+      <section class="account-detail-hero"><div><span>${escapeHtml(account.registration)}</span><h2 id="wealthDrawerTitle">${escapeHtml(account.name)}</h2><p>${escapeHtml(account.purpose)} · ${escapeHtml(account.program)}</p></div><div><span>Current value</span><strong>${formatWealthCurrency(account.value)}</strong><small class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}% YTD</small></div></section>
       <section class="account-review-metrics"><div><span>Available cash</span><strong>${formatWealthCurrency(account.cash)}</strong><small>${(account.cash / account.value * 100).toFixed(1)}% of account</small></div><div><span>Tax treatment</span><strong>${escapeHtml(account.taxTreatment)}</strong><small>Registration-level view</small></div><div><span>Unrealized gain</span><strong>${account.unrealizedGain ? formatWealthCurrency(account.unrealizedGain) : "—"}</strong><small>${account.unrealizedGain ? "Illustrative tax lot basis" : "Not available"}</small></div><div><span>Data status</span><strong>Current</strong><small>${escapeHtml(account.lastReconciled)}</small></div></section>
       <section class="concentration-section"><div class="section-heading"><span>ALLOCATION</span><h3>${escapeHtml(account.allocation)} portfolio</h3></div>${accountMix(account)}</section>
       <section class="concentration-section"><div class="section-heading"><span>EXPOSURE</span><h3>Largest positions</h3><p>Position detail is shown when available from the connected source.</p></div>${holdings}</section>
@@ -406,9 +607,9 @@ function accountDrawer(account) {
 }
 
 function goalDrawer(goal) {
-  if (!goal) return operationalDrawer("changes");
+  if (!goal) return operationalDrawer("relationship");
   const gap = Math.max(0, goal.target - goal.funded);
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PLANNING · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close goal review">×</button></header>
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PLANNING · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close goal review">×</button></header>
     <div class="wealth-drawer-body goal-review">
       <section class="goal-review-hero"><div><span>${escapeHtml(goal.timing)}</span><h2 id="wealthDrawerTitle">${escapeHtml(goal.name)}</h2><p>${escapeHtml(goal.action)}</p></div><em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></section>
       <section class="goal-funding"><div class="goal-funding-heading"><div><span>Funded</span><strong>${formatWealthCurrency(goal.funded)}</strong></div><div><span>Target</span><strong>${formatWealthCurrency(goal.target)}</strong></div></div><progress class="goal-funding-track goal-progress-${escapeHtml(goal.tone)}" max="100" value="${Math.max(0, Math.min(100, Number(goal.progress) || 0))}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress><div class="goal-funding-scale"><span>${goal.progress}% funded</span><span>${gap ? `${formatWealthCurrency(gap)} remaining` : "Target funded"}</span></div></section>
@@ -431,10 +632,10 @@ async function openWealthDrawer(id) {
   state.lastFocus = document.activeElement;
   let html = null;
   let detailRequest = null;
-  if (id === "concentration") detailRequest = loadConcentrationReview().then(concentrationDrawer);
+  if (id === "concentration") detailRequest = loadConcentrationReview(state.currentHouseholdId).then((review) => review ? concentrationDrawer(review) : operationalDrawer("relationship"));
   else if (id === "accounts") html = accountsDrawer();
-  else if (id.startsWith("account:")) detailRequest = loadHouseholdAccount(id.slice(8)).then(accountDrawer);
-  else if (id.startsWith("goal:")) detailRequest = loadHouseholdGoal(id.slice(5)).then(goalDrawer);
+  else if (id.startsWith("account:")) detailRequest = loadHouseholdAccount(id.slice(8), state.currentHouseholdId).then(accountDrawer);
+  else if (id.startsWith("goal:")) detailRequest = loadHouseholdGoal(id.slice(5), state.currentHouseholdId).then(goalDrawer);
   else html = operationalDrawer(id);
 
   el("wealthDrawerContent").innerHTML = html || wealthDrawerLoading();
@@ -459,7 +660,8 @@ async function openWealthDrawer(id) {
 }
 
 function showScenarioRibbon({ source, title, tags }) {
-  state.householdScenario = { source, title, tags };
+  state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name };
+  el("scenarioBack").textContent = `← ${HOUSEHOLD.name}`;
   el("scenarioSource").textContent = source;
   el("scenarioTitle").textContent = title;
   el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
@@ -467,10 +669,12 @@ function showScenarioRibbon({ source, title, tags }) {
 }
 
 function applyHouseholdScenario(id) {
+  if (!HOUSEHOLD) return;
+  const supportedRisk = /conservative/i.test(HOUSEHOLD.riskProfile) ? "Conservative" : /growth/i.test(HOUSEHOLD.riskProfile) ? "Moderate" : "Moderate";
   const scenarios = {
-    concentration: { source: "FROM CONCENTRATION REVIEW", title: "Explore tax-aware diversification", tags: ["Taxable assets", "Daily liquidity", "Reduce single-stock exposure"], category: "SMAs", q: "", flags: ["Tax-Aware", "Direct Indexing"], risks: ["Moderate"] },
-    cash: { source: "FROM LIQUIDITY REVIEW", title: "Explore cash alternatives", tags: ["$740K available", "Conservative", "Daily liquidity"], category: "Fixed Income", q: "short duration cash management", flags: [], risks: ["Conservative"] },
-    muni: { source: "FROM ALLOCATION REVIEW", title: "Restore municipal allocation", tags: ["New York", "Tax aware", "Fee under 0.50%"], category: "Fixed Income", q: "New York municipal income under 50 bps", flags: ["Tax-Aware"], risks: ["Conservative"] },
+    concentration: { source: "FROM CONCENTRATION REVIEW", title: "Explore diversification options", tags: [HOUSEHOLD.name, "Tax-aware implementation", "Reduce concentrated exposure"], category: "SMAs", q: "", flags: ["Tax-Aware", "Direct Indexing"], risks: [supportedRisk] },
+    cash: { source: "FROM LIQUIDITY REVIEW", title: "Explore cash alternatives", tags: [`${formatWealthCurrency(HOUSEHOLD.investableCash)} available`, HOUSEHOLD.riskProfile, "Daily liquidity"], category: "Fixed Income", q: "short duration cash management", flags: [], risks: ["Conservative"] },
+    muni: { source: "FROM ALLOCATION REVIEW", title: "Restore municipal allocation", tags: [HOUSEHOLD.location, "Tax aware", "Fee under 0.50%"], category: "Fixed Income", q: HOUSEHOLD.location === "New York" ? "New York municipal income under 50 bps" : "municipal income under 50 bps", flags: ["Tax-Aware"], risks: ["Conservative"] },
   };
   const scenario = scenarios[id];
   if (!scenario) return;
@@ -479,7 +683,7 @@ function applyHouseholdScenario(id) {
   state.category = scenario.category;
   state.appliedCategory = scenario.category;
   state.flags = new Set(scenario.flags);
-  state.risks = new Set(scenario.risks);
+  state.risks = new Set(scenario.risks.filter((risk) => RISKS.includes(risk)));
   state.statuses.clear();
   state.ranges = {};
   state.sort = defaultSort(Boolean(state.q));
@@ -492,8 +696,14 @@ function applyHouseholdScenario(id) {
 }
 
 function handleWealthInsight(id) {
-  if (id === "concentration" || id === "capital-call" || id === "changes") { openWealthDrawer(id); return; }
-  if (id === "cash" || id === "muni") applyHouseholdScenario(id);
+  if (id === "concentration" || id.endsWith("-concentration")) { openWealthDrawer("concentration"); return; }
+  if (id === "cash" || id.endsWith("-cash")) { applyHouseholdScenario("cash"); return; }
+  if (id === "muni" || id.endsWith("-muni")) { applyHouseholdScenario("muni"); return; }
+  if (id.endsWith("-goal-review")) {
+    const goal = HOUSEHOLD_GOALS.find((candidate) => candidate.tone === "watch");
+    if (goal) { openWealthDrawer(`goal:${goal.id}`); return; }
+  }
+  openWealthDrawer(id);
 }
 
 function renderCategories() {
@@ -1448,7 +1658,10 @@ function saveCurrentScreen(name) {
 
 function hydrateFromUrl() {
   const params = new URLSearchParams(location.search);
-  state.workspaceView = profileFromPath() || /^\/investments\/?$/i.test(location.pathname) || params.size ? "investments" : "wealth";
+  const profile = profileFromPath();
+  const household = householdFromPath();
+  state.workspaceView = profile || /^\/investments\/?$/i.test(location.pathname) ? "investments" : household ? "wealth" : "book";
+  state.currentHouseholdId = household;
   state.q = params.get("q") || "";
   const category = params.get("category") || "All";
   state.category = CATEGORY_ORDER.includes(category) ? category : "All";
@@ -1482,6 +1695,16 @@ document.addEventListener("click", (event) => {
     if (el("savedModal").open) el("savedModal").close();
     setWorkspaceView(workspaceView.dataset.workspaceView);
   }
+  const householdLink = event.target.closest("[data-household-id]");
+  if (householdLink) openHousehold(householdLink.dataset.householdId);
+  const bookFocus = event.target.closest("[data-book-focus]");
+  if (bookFocus) {
+    state.bookFocus = bookFocus.dataset.bookFocus;
+    state.bookCursor = 0;
+    loadBook();
+  }
+  const scenarioBack = event.target.closest("#scenarioBack");
+  if (scenarioBack && state.householdScenario?.householdId) openHousehold(state.householdScenario.householdId);
   const wealthRangeButton = event.target.closest("[data-wealth-range]");
   if (wealthRangeButton) { wealthRange = wealthRangeButton.dataset.wealthRange; drawWealthRange(); }
   const wealthInsight = event.target.closest("[data-wealth-insight]");
@@ -1538,7 +1761,7 @@ document.addEventListener("click", (event) => {
   if (detail && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
     event.preventDefault();
     if (el("savedModal").open) el("savedModal").close();
-    if (state.workspaceView === "wealth") setWorkspaceView("investments", { updateHistory: false });
+    if (state.workspaceView !== "investments") setWorkspaceView("investments", { updateHistory: false });
     openDetail(detail.dataset.detailId);
   }
   const remove = event.target.closest("[data-remove-filter]");
@@ -1581,16 +1804,24 @@ function scheduleDetailPrefetch(target) {
 }
 
 function prefetchWealthDetail(target) {
+  if (!state.currentHouseholdId) return;
   const account = target.closest?.("[data-wealth-account]");
-  if (account) { loadHouseholdAccount(account.dataset.wealthAccount).catch(() => {}); return; }
+  if (account) { loadHouseholdAccount(account.dataset.wealthAccount, state.currentHouseholdId).catch(() => {}); return; }
   const goal = target.closest?.("[data-wealth-goal]");
-  if (goal) { loadHouseholdGoal(goal.dataset.wealthGoal).catch(() => {}); return; }
-  const concentration = target.closest?.('[data-wealth-insight="concentration"], [data-wealth-action="concentration"]');
-  if (concentration) loadConcentrationReview().catch(() => {});
+  if (goal) { loadHouseholdGoal(goal.dataset.wealthGoal, state.currentHouseholdId).catch(() => {}); return; }
+  const concentration = target.closest?.('[data-wealth-insight$="concentration"], [data-wealth-action="concentration"]');
+  if (concentration) loadConcentrationReview(state.currentHouseholdId).catch(() => {});
 }
 
-document.addEventListener("pointerover", (event) => { scheduleDetailPrefetch(event.target); prefetchWealthDetail(event.target); });
-document.addEventListener("focusin", (event) => { scheduleDetailPrefetch(event.target); prefetchWealthDetail(event.target); });
+function prefetchBookHousehold(target) {
+  const household = target.closest?.("[data-household-id]");
+  if (!household) return;
+  window.clearTimeout(bookPrefetchTimer);
+  bookPrefetchTimer = window.setTimeout(() => loadHouseholdOverview(household.dataset.householdId).catch(() => {}), 120);
+}
+
+document.addEventListener("pointerover", (event) => { scheduleDetailPrefetch(event.target); prefetchWealthDetail(event.target); prefetchBookHousehold(event.target); });
+document.addEventListener("focusin", (event) => { scheduleDetailPrefetch(event.target); prefetchWealthDetail(event.target); prefetchBookHousehold(event.target); });
 
 document.addEventListener("click", (event) => {
   const summary = event.target.closest?.("[data-range-group] > summary");
@@ -1662,6 +1893,13 @@ el("searchInput").addEventListener("input", () => {
   if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
   debouncedSearch();
 });
+el("bookSearch").addEventListener("input", (event) => {
+  state.bookQuery = event.target.value.trim();
+  window.clearTimeout(bookSearchTimer);
+  bookSearchTimer = window.setTimeout(() => loadBook(), 180);
+});
+el("bookSort").addEventListener("change", (event) => { state.bookSort = event.target.value; loadBook(); });
+el("bookLoadMore").addEventListener("click", () => { if (state.bookNextCursor !== null) { state.bookCursor = state.bookNextCursor; loadBook({ reset: false }); } });
 el("sortSelect").addEventListener("change", (event) => { state.sort = event.target.value; state.sortExplicit = true; runSearch(); });
 el("clearAll").addEventListener("click", () => { state.q = ""; state.category = "All"; state.appliedCategory = "All"; state.flags.clear(); state.risks.clear(); state.statuses.clear(); state.ranges = {}; state.sort = defaultSort(false); state.sortExplicit = false; el("searchInput").value = ""; runSearch(); });
 el("prevPage").addEventListener("click", () => { if (state.previousCursor !== null) { state.cursor = state.previousCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
@@ -1684,7 +1922,7 @@ el("columnsButton").addEventListener("click", openColumnConfigurator);
 el("resetColumns").addEventListener("click", () => { columnDraft = [...CATEGORY_DEFAULT_COLUMNS[state.appliedCategory]]; renderColumnConfigurator(); });
 el("applyColumns").addEventListener("click", applyColumnDraft);
 document.addEventListener("keydown", (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); if (state.workspaceView === "wealth") setWorkspaceView("investments"); el("searchInput").focus(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); if (state.workspaceView !== "investments") setWorkspaceView("investments"); el("searchInput").focus(); }
   if (event.key === "Escape" && el("wealthDrawer").classList.contains("open")) closeWealthDrawer();
   if (event.key === "Escape" && state.detailMode === "panel" && el("detailDrawer").classList.contains("open")) closeDrawer();
 });
@@ -1697,8 +1935,10 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (el("detailDrawer").classList.contains("open")) closeDrawer({ fromHistory: true });
-  const view = /^\/investments\/?$/i.test(location.pathname) || location.search ? "investments" : "wealth";
-  setWorkspaceView(view, { updateHistory: false });
+  const householdId = householdFromPath();
+  if (householdId) { openHousehold(householdId, { updateHistory: false }); return; }
+  if (/^\/investments\/?$/i.test(location.pathname)) { setWorkspaceView("investments", { updateHistory: false }); return; }
+  setWorkspaceView("book", { updateHistory: false });
 });
 
 state.columnPreferences = loadColumnPreferences();
@@ -1708,9 +1948,14 @@ renderCategories();
 renderFilterOptions();
 renderActiveFilters();
 renderSavedScreens();
-renderWealthWorkspace();
 const initialProfile = profileFromPath();
-setWorkspaceView(state.workspaceView, { updateHistory: false });
+const initialHousehold = householdFromPath();
+if (initialHousehold) {
+  openHousehold(initialHousehold, { updateHistory: false });
+} else {
+  setWorkspaceView(state.workspaceView, { updateHistory: false });
+  if (state.workspaceView === "book") loadBook();
+}
 const initialInvestmentLoad = state.workspaceView === "investments" ? ensureInvestmentWorkspaceLoaded() : Promise.resolve();
 initialInvestmentLoad.finally(() => {
   if (initialProfile) openDetail(initialProfile, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });

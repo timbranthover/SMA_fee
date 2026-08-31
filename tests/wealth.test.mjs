@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { getWealthProjection, parseHouseholdId, parseProjectionView } from "../api/wealth.js";
+import { getAuthorizedWealthProjection, getWealthProjection, parseAdvisorId, parseHouseholdId, parseProjectionView } from "../api/wealth.js";
 import { createWealthRepository } from "../lib/wealth-repository.js";
 import { createWealthService } from "../lib/wealth-service.js";
 import { MORRISON_WEALTH_DATASET } from "../lib/wealth-source.js";
@@ -165,17 +165,36 @@ test("repository validates relationships and indexes books with thousands of hou
   assert.throws(() => createWealthRepository(broken), /references missing householdId/);
 });
 
-test("wealth BFF exposes bounded projection views and rejects invalid identifiers", () => {
+test("wealth BFF exposes bounded book and household projections and rejects invalid identifiers", () => {
+  assert.equal(parseAdvisorId("advisor-042"), "advisor-042");
   assert.equal(parseHouseholdId(DEFAULT_HOUSEHOLD_ID), DEFAULT_HOUSEHOLD_ID);
   assert.equal(parseProjectionView(null), "overview");
   assert.throws(() => parseHouseholdId("../all-households"), /Invalid householdId/);
+  assert.throws(() => parseAdvisorId("../all-advisors"), /Invalid advisorId/);
   assert.throws(() => parseProjectionView("everything"), /Invalid view/);
   assert.equal(getWealthProjection("missing-household", "overview"), null);
-  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "overview"), defaultOverview);
+
+  const book = getWealthProjection("advisor-042", "book", "", { pageSize: 7 });
+  assert.equal(book.metrics.householdCount, 128);
+  assert.equal(book.items.length, 7);
+  assert.equal(book.nextCursor, 7);
+  assert.ok(book.asOf);
+  assert.equal(getAuthorizedWealthProjection("advisor-other", "advisor-042", "book", "", { pageSize: 7 }), null);
+  assert.equal(getAuthorizedWealthProjection("advisor-other", DEFAULT_HOUSEHOLD_ID, "overview"), null);
+  assert.equal(getAuthorizedWealthProjection("advisor-042", DEFAULT_HOUSEHOLD_ID, "overview").household.id, DEFAULT_HOUSEHOLD_ID);
+  assert.ok(book.items.every((item) => !('accounts' in item) && !('holdings' in item)));
+
+  const morrison = getWealthProjection(DEFAULT_HOUSEHOLD_ID, "overview");
+  assert.equal(morrison.household.name, "Morrison Household");
+  assert.equal(morrison.household.netWorth, 12420000);
+  assert.equal(morrison.household.financialAssets, 11980000);
+  assert.equal(morrison.household.investableCash, 740000);
+  assert.equal(morrison.household.accountCount, 6);
+  assert.equal(morrison.household.hasConcentrationPolicy, true);
   assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "history"), WEALTH_HISTORY);
-  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "concentration"), CONCENTRATION_REVIEW);
-  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "account", "joint-brokerage"), HOUSEHOLD_ACCOUNTS[0]);
-  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "goal", "retirement-income"), HOUSEHOLD_GOALS[0]);
+  assert.equal(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "concentration").holding.symbol, "AAPL");
+  assert.equal(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "account", "joint-brokerage").value, HOUSEHOLD_ACCOUNTS[0].value);
+  assert.equal(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "goal", "retirement-income").progress, HOUSEHOLD_GOALS[0].progress);
 });
 
 test("Total Wealth keeps expensive work off the initial household critical path", async () => {
@@ -187,16 +206,28 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   const wealthApi = await readFile(new URL("../api/wealth.js", import.meta.url), "utf8");
   const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 
-  assert.match(html, /id="wealthView"/);
+  assert.match(html, /id="bookView"/);
+  assert.match(html, /id="wealthView" hidden/);
   assert.match(html, /id="investmentView" hidden/);
-  assert.match(html, /data-workspace-view="wealth">Total Wealth/);
+  assert.match(html, /data-workspace-view="book">Total Wealth/);
+  assert.match(html, /id="bookSearch"/);
+  assert.match(html, /id="bookBody"/);
+  assert.match(html, /id="advisorAvatar"/);
+  assert.match(html, /id="advisorName"/);
+  assert.doesNotMatch(html, /<strong>Advisor 042<\/strong>/);
   assert.match(html, /data-workspace-view="investments">Investments/);
   assert.match(html, /id="scenarioRibbon"/);
   assert.match(html, /id="wealthDrawer"/);
   assert.match(app, /function setWorkspaceView/);
   assert.match(app, /function ensureInvestmentWorkspaceLoaded/);
-  assert.match(app, /state\.workspaceView === "investments" \? ensureInvestmentWorkspaceLoaded\(\) : Promise\.resolve\(\)/);
-  assert.match(app, /loadWealthHistory\(\)/);
+  assert.match(app, /function loadBook/);
+  assert.match(app, /function openHousehold/);
+  assert.match(app, /loadAdvisorBook/);
+  assert.match(app, /renderAdvisorIdentity/);
+  assert.doesNotMatch(app, /Updated through Aug 21, 2026/);
+  assert.match(app, /pageSize: 48/);
+  assert.match(app, /ensureInvestmentWorkspaceLoaded/);
+  assert.match(app, /loadWealthHistory\(householdId\)/);
   assert.match(app, /loadHouseholdAccount/);
   assert.match(app, /loadHouseholdGoal/);
   assert.match(app, /loadConcentrationReview/);
@@ -209,16 +240,21 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   assert.match(css, /\.wealth-layout/);
   assert.match(css, /\.wealth-drawer\.open/);
 
+  assert.match(browserWealth, /loadAdvisorBook/);
   assert.match(browserWealth, /loadHouseholdOverview/);
   assert.match(browserWealth, /loadWealthHistory/);
   assert.match(browserWealth, /loadConcentrationReview/);
   assert.doesNotMatch(browserWealth, /wealth-source|wealth-repository|wealth-service/);
   assert.match(wealthApi, /PROJECTION_VIEWS/);
+  assert.match(wealthApi, /getAdvisorBook/);
+  assert.match(wealthApi, /getAuthorizedWealthProjection/);
+  assert.match(wealthApi, /householdBelongsToAdvisor/);
   assert.match(wealthApi, /Server-Timing/);
   assert.match(wealthApi, /private, no-store/);
   assert.match(wealthApi, /Vary/);
   assert.match(build, /"wealth-data\.js"/);
-  assert.doesNotMatch(build, /"wealth-source\.js"|"wealth-repository\.js"|"wealth-service\.js"/);
+  assert.doesNotMatch(build, /"wealth-source\.js"|"advisor-book-source\.js"|"wealth-repository\.js"|"wealth-service\.js"/);
 
+  assert.ok(vercel.rewrites.some((rule) => rule.source === "/household/:id" && rule.destination === "/"));
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investments" && rule.destination === "/"));
 });

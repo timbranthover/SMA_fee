@@ -7,7 +7,8 @@ import { getInvestmentDetail, getMarketSnapshots } from "./lib/catalog.js";
 import { getComparisonHistory, parseHistoryIds } from "./lib/history.js";
 import { inputFromQuery } from "./api/search.js";
 import { parseSnapshotIds } from "./api/snapshots.js";
-import { getWealthProjection, parseHouseholdId, parseProjectionView } from "./api/wealth.js";
+import { getAuthorizedWealthProjection, parseAdvisorId, parseHouseholdId, parseProjectionView } from "./api/wealth.js";
+import { DEFAULT_ADVISOR_ID } from "./lib/advisor-book-source.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -43,18 +44,31 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/api/wealth") {
     const startedAt = performance.now();
     try {
-      const householdId = parseHouseholdId(url.searchParams.get("householdId"));
       const view = parseProjectionView(url.searchParams.get("view"));
-      const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : "";
-      const data = getWealthProjection(householdId, view, entityId);
+      let id;
+      let data;
+      if (view === "book") {
+        id = parseAdvisorId(url.searchParams.get("advisorId"));
+        data = getAuthorizedWealthProjection(DEFAULT_ADVISOR_ID, id, view, "", {
+          query: String(url.searchParams.get("q") || "").slice(0, 120),
+          focus: String(url.searchParams.get("focus") || "all").toLowerCase(),
+          sort: String(url.searchParams.get("sort") || "attention").toLowerCase(),
+          cursor: Math.max(0, Number.parseInt(url.searchParams.get("cursor") || "0", 10) || 0),
+          pageSize: Math.max(1, Math.min(200, Number.parseInt(url.searchParams.get("pageSize") || "80", 10) || 80)),
+        });
+      } else {
+        id = parseHouseholdId(url.searchParams.get("householdId"));
+        const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : "";
+        data = getAuthorizedWealthProjection(DEFAULT_ADVISOR_ID, id, view, entityId);
+      }
       return data === null
-        ? json(response, { error: "Household data not found" }, 404)
-        : json(response, { schemaVersion: 1, householdId, view, data }, 200, { "Server-Timing": `wealth;dur=${Math.max(0.1, performance.now() - startedAt).toFixed(1)}` });
+        ? json(response, { error: view === "book" ? "Advisor book not found" : "Household data not found" }, 404)
+        : json(response, { schemaVersion: 1, id, view, data }, 200, { "Server-Timing": `wealth;dur=${Math.max(0.1, performance.now() - startedAt).toFixed(1)}` });
     } catch (error) {
       return json(response, { error: error.message }, error instanceof RangeError ? 400 : 500);
     }
   }
-  const requested = url.pathname === "/" || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
+  const requested = url.pathname === "/" || /^\/household\/[^/]+\/?$/.test(url.pathname) || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
     ? "index.html"
     : url.pathname === "/vendor/lightweight-charts.mjs"
       ? "node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.mjs"
