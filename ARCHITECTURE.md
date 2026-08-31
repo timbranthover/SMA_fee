@@ -2,27 +2,29 @@
 
 ## Advisor-workspace flow
 
-1. `/` opens an immutable household projection produced by the wealth client service from normalized demo records. The browser UI does not own or traverse the canonical source records directly.
+1. `/` requests one bounded household projection from `/api/wealth?householdId=...`. Canonical wealth records and indexes stay server-side; the browser never downloads the advisor's underlying book dataset.
 2. The wealth repository validates entity IDs and foreign-key relationships once, then builds primary-key, household, account and household+instrument indexes. Household/account lookups do not require scanning the full book.
-3. The wealth service assembles the bounded browser contract and derives household financial assets, net worth, cash and goal counts from underlying account, asset, liability and goal records. The projection is cached by household ID for the life of the loaded dataset.
+3. The server-side wealth service assembles the bounded browser contract and derives household financial assets, net worth, cash and goal counts from underlying account, asset, liability and goal records. Projections are cached by household/account ID for the life of the loaded source dataset.
 4. The browser lazily loads the same locally bundled Lightweight Charts module already used for comparison and draws only the selected 1Y, 3Y or 5Y investable-wealth window. Account and goal detail are bounded projections from the same household contract, so drill-downs need no second source of truth.
 5. A prioritized household insight opens an in-context analysis drawer. The concentration review keeps exposure, account location, cost basis, policy target, scenario impact and research standing visibly separate.
 6. Selecting an implementation path creates an explicit scenario bundle containing objective, category, flags and risk. It switches to `/investments`, paints the scenario in a persistent ribbon and executes the normal bounded search request.
 7. The screener remains independently usable and client-agnostic. Every passed criterion is visible and removable; no hidden client-fit or recommendation score is introduced.
 8. Existing comparison state survives navigation back to Total Wealth, allowing the original household insight to show how many diversification alternatives have been selected.
 
-The prototype now preserves the production seam as `normalized source → indexed repository → wealth service → bounded UI projection`. Production can replace the demo source/repository adapter with a permissioned household BFF without changing the Total Wealth presentation contract.
+The prototype now preserves the production seam as `normalized source → indexed repository → wealth service → bounded household BFF → browser projection`. A real database, portfolio-accounting service or aggregation layer can replace the demo source/repository behind that seam without changing the Total Wealth presentation contract.
 
 ## Wealth domain boundary
 
 - Canonical records are normalized by entity: advisor, household, account, account allocation, position, non-financial asset, liability, goal, insight, concentration policy, household allocation/holding snapshot and history. Accounts do not embed holdings or allocation arrays in the canonical source model.
 - Every relationship is explicit through stable IDs. Repository construction rejects duplicate IDs, missing foreign keys and cross-household account/position relationships before the application can render inconsistent data.
-- The repository builds `Map` indexes once for primary keys and high-use relationships, including household→accounts, account→positions and household+instrument→positions. This is the same access pattern needed for books with thousands of households and tens or hundreds of thousands of related records; UI reads stay bounded to the selected household/account.
+- The repository builds `Map` indexes once for primary keys and high-use relationships, including household→accounts, account→positions and household+instrument→positions. This is the same access pattern needed for books with thousands of households and tens or hundreds of thousands of related records; request work stays bounded to the selected household/account rather than scanning the full book.
 - Household financial assets are the sum of account market values. Investable cash is the sum of account cash balances. Non-financial assets and liabilities are separately aggregated, and net worth is derived from those components. Goal progress is derived from funded/target amounts, and goal status counts are derived from goal records rather than duplicated household totals.
 - Household allocation and top-holding records remain explicit as-of snapshots because the prototype does not yet carry every underlying position required to recompute those views faithfully. They are modeled as first-class snapshot entities so a future portfolio-accounting or analytics service can replace them without changing the consumer contract.
-- The service returns immutable, browser-shaped projections and caches them by household/account ID. This prevents presentation code from mutating canonical records and creates a clean future insertion point for permission checks, entitlements, freshness metadata and server-side aggregation.
+- The service returns immutable, browser-shaped projections and caches them by household/account ID. This prevents presentation code from mutating canonical records and creates the insertion point for permission checks, entitlements, freshness metadata and server-side aggregation.
+- `/api/wealth` accepts one validated household ID and returns only that household projection. Responses are `private, no-store` and vary on authentication context. The demo does not implement authentication, but the endpoint is deliberately shaped so production entitlement checks happen before projection retrieval rather than in the browser.
+- Canonical wealth source, repository and service modules are not copied into the public static bundle. The browser receives only `wealth-data.js`, which requests the bounded BFF contract. This prevents future book-level datasets from becoming downloadable application assets.
 - Demo monetary values are whole USD numbers because the current UI renders whole-dollar values. A production canonical store should use authoritative decimal/minor-unit conventions plus currency/FX metadata; that choice remains behind the service projection boundary.
-- The current `wealth-data.js` module is a compatibility facade only. Existing UI imports continue to receive the same Morrison contract while the underlying implementation is now normalized and service-backed, allowing Phase 1 to land with no intended visual regression.
+- The current `wealth-data.js` module is a browser compatibility facade. Existing UI imports continue to receive the same Morrison contract while the implementation now resolves that contract over the household BFF, allowing Phase 1 to land with no intended visual regression.
 
 ## Demo request path
 
@@ -66,7 +68,7 @@ Warm searches are designed to remain under the one-second interaction budget in 
 ## Production replacement
 
 - **Wealth ingestion:** CRM/mastered party relationships, portfolio accounting, held-away aggregation, planning and liability sources → validation/quarantine → canonical wealth entities with lineage and as-of metadata.
-- **Wealth API:** a permissioned household BFF resolves advisor/book entitlements and returns bounded household/account projections rather than raw source-system payloads. The current wealth service contract is the browser-side prototype of this seam.
+- **Wealth API:** the current bounded household BFF is the prototype seam. Production adds SSO identity, advisor/book entitlements, field-level permissions, authoritative source adapters, freshness/lineage metadata, audit events and database-backed projections behind the same household contract.
 - **Investment ingestion:** source adapters → validation/quarantine → canonical security and vehicle schemas → versioned search documents.
 - **Search:** a managed OpenSearch/Elasticsearch cluster with analyzers for names, tickers, CUSIPs and manager aliases; doc values for facets and sorting; point-in-time cursor pagination.
 - **API:** stateless backend-for-frontend enforcing identity, shelf entitlements, field-level permissions, query limits and response schemas.
