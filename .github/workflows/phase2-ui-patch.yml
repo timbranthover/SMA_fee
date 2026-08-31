@@ -1,0 +1,33 @@
+name: Apply Phase Two UI Patch
+
+on:
+  push:
+    branches: [phase2/my-book]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase2/my-book
+          fetch-depth: 0
+      - name: Apply guarded UI patch
+        run: python3 scripts/phase2_ui_patch.py
+      - name: Remove one-shot patch artifacts
+        run: rm scripts/phase2_ui_patch.py .github/workflows/phase2-ui-patch.yml
+      - name: Commit Phase Two UI
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Build advisor My Book experience"
+            git push origin HEAD:phase2/my-book
+          fi
