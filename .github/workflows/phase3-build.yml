@@ -1,0 +1,34 @@
+name: Phase Three Build
+
+on:
+  push:
+    branches: [phase3/decision-action]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase3/decision-action
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply guarded Phase Three patch
+        run: python scripts/phase3-build.py
+      - run: npm ci
+      - run: npm run build
+      - name: Commit validated Phase Three build
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ARCHITECTURE.md api/wealth.js app.js index.html lib/wealth-repository.js lib/wealth-service.js local-server.mjs package.json scripts/build-static.mjs styles.css
+          git diff --cached --quiet && { echo "No Phase Three changes to commit"; exit 1; }
+          git commit -m "Build advisor decision and action layer"
+          git push origin HEAD:phase3/decision-action
