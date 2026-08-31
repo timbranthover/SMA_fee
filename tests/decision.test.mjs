@@ -36,14 +36,13 @@ test("Morrison concentration decision produces explicit household-wide scenario 
 
   const scenario = decisionService.modelDecisionScenario("household-morrison", concentration.id, {
     targetWeight: 12,
-    taxRate: 23.8,
     stressDrop: 35,
     goalFunding: 200000,
     redeployAmount: 700000,
   });
   assert.ok(scenario.economics.release > 1_000_000);
   assert.ok(scenario.economics.realizedGain > 0);
-  assert.ok(scenario.economics.taxReserve > 0);
+  assert.equal("taxReserve" in scenario.economics, false);
   assert.ok(scenario.after.concentrationPct < scenario.before.concentrationPct);
   assert.ok(scenario.after.stressLoss < scenario.before.stressLoss);
   assert.ok(scenario.after.goalProgress >= scenario.before.goalProgress);

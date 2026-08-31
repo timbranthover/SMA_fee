@@ -55,7 +55,7 @@ export default async function handler(request, response) {
     const householdId = parseId(url.searchParams.get("householdId"), "householdId");
     const decisionId = view === "detail" || view === "scenario" ? parseId(url.searchParams.get("decisionId"), "decisionId") : "";
     const scenarioInputs = view === "scenario" ? Object.fromEntries([
-      "targetWeight", "taxRate", "stressDrop", "goalFunding", "redeployAmount", "deployAmount", "reservePct", "fundingAmount", "allocationAmount",
+      "targetWeight", "stressDrop", "goalFunding", "redeployAmount", "deployAmount", "reservePct", "fundingAmount", "allocationAmount",
     ].map((key) => [key, parseOptionalNumber(url.searchParams, key)]).filter(([, value]) => value !== undefined)) : {};
     const data = getAuthorizedDecisionProjection(DEMO_PRINCIPAL_ADVISOR_ID, householdId, view, decisionId, scenarioInputs);
     if (data === null) return response.status(404).json({ error: "Decision workspace not found" });
