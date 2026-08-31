@@ -1,0 +1,45 @@
+name: One-time back navigation spacing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-back-spacing.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply shared drawer header spacing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("styles.css")
+          text = path.read_text()
+          old = '''.wealth-drawer-header { position: sticky; top: 0; z-index: 3; min-height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.97); }
+          .wealth-drawer-header .eyebrow { margin-bottom: 4px; font-size: 7px; }
+          .wealth-drawer-back { border: 0; background: transparent; padding: 0; color: #444; font-size: 9px; font-weight: 700; }'''
+          new = '''.wealth-drawer-header { position: sticky; top: 0; z-index: 3; min-height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.97); }
+          .wealth-drawer-header > div { min-width: 0; display: flex; align-items: center; gap: 18px; }
+          .wealth-drawer-header .eyebrow { margin: 0; font-size: 7px; white-space: nowrap; }
+          .wealth-drawer-back { flex: none; border: 0; background: transparent; padding: 0; color: #444; font-size: 9px; font-weight: 700; white-space: nowrap; }'''
+          if old not in text:
+              raise SystemExit("Expected drawer header CSS block was not found; refusing to modify anything.")
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit the spacing fix
+        run: |
+          if git diff --quiet -- styles.css; then
+            echo "No change required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add styles.css
+          git commit -m "Space shared back navigation consistently"
+          git push
