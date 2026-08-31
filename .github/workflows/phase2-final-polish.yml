@@ -20,6 +20,18 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - name: Align one-shot patch with current branch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/phase2-final-polish.mjs')
+          source = path.read_text()
+          old = '''    '  el("bookUpdated").textContent = "Updated through Aug 21, 2026 · 9:42 AM ET";\\n  el("bookHouseholdCount")','''
+          new = '''    '  el("bookUpdated").textContent = data.items[0]?.asOf ? `Updated ${data.items[0].asOf}` : "Current client data";\\n  el("bookHouseholdCount")','''
+          if old not in source:
+              raise SystemExit('Expected book timestamp patch target was not found')
+          path.write_text(source.replace(old, new, 1))
+          PY
       - run: node scripts/phase2-final-polish.mjs
       - run: npm ci
       - run: npm run build
