@@ -19,25 +19,34 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
-          def replace_once(path, old, new, label):
-              text = path.read_text()
+          def replace_once(text, old, new, label):
               if old not in text:
-                  raise SystemExit(f"Expected source for {label} was not found; refusing to modify {path}.")
-              path.write_text(text.replace(old, new, 1))
+                  raise SystemExit(f"Expected source for {label} was not found; refusing to continue.")
+              return text.replace(old, new, 1)
 
-          app = Path("app.js")
-          index = Path("index.html")
-          styles = Path("styles.css")
+          def sub_once(text, pattern, replacement, label):
+              updated, count = re.subn(pattern, lambda _: replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"Expected source for {label} was not found uniquely; refusing to continue.")
+              return updated
 
-          replace_once(
+          app_path = Path("app.js")
+          index_path = Path("index.html")
+          styles_path = Path("styles.css")
+          app = app_path.read_text()
+          index = index_path.read_text()
+          styles = styles_path.read_text()
+
+          app = replace_once(
               app,
               '  if (definition.format === "currency") return formatMinimum(numeric);',
               '  if (definition.format === "currency") return currency.format(numeric);',
               "currency range summaries",
           )
 
-          replace_once(
+          app = replace_once(
               app,
               '''function rangeInputValue(value, definition) {
             return Number(Number(value).toFixed(definition.digits));
@@ -63,14 +72,9 @@ jobs:
               "currency range input helpers",
           )
 
-          replace_once(
+          app = sub_once(
               app,
-              '''  const numberField = (bound, label, value) => `<label class="range-number-control range-bound-${bound}">
-            <span class="sr-only">${escapeHtml(label)} ${escapeHtml(definition.label)}</span>
-            ${affixes.prefix ? `<span class="range-affix">${affixes.prefix}</span>` : ""}
-            <span class="range-input-sizer" data-range-input-sizer data-value="${value}"><input type="number" data-range-number="${escapeHtml(definition.field)}" data-range-bound="${bound}" min="${facet.min}" max="${facet.max}" step="${definition.step}" value="${value}" inputmode="decimal" /></span>
-            ${affixes.suffix ? `<span class="range-affix">${affixes.suffix}</span>` : ""}
-          </label>`;''',
+              r'  const numberField = \(bound, label, value\) => `<label class="range-number-control range-bound-\$\{bound\}">.*?</label>`;',
               '''  const numberField = (bound, label, value) => {
             const displayValue = rangeInputDisplayValue(value, definition);
             const inputType = definition.format === "currency" ? "text" : "number";
@@ -84,7 +88,7 @@ jobs:
               "currency range inputs",
           )
 
-          replace_once(
+          app = replace_once(
               app,
               '''  group.querySelectorAll(`[data-range-number="${CSS.escape(field)}"]`).forEach((input) => {
             input.value = rangeInputValue(selection[input.dataset.rangeBound], definition);
@@ -97,7 +101,7 @@ jobs:
               "range refresh formatting",
           )
 
-          replace_once(
+          app = replace_once(
               app,
               '''function updateRangeSelection(field, bound, rawValue) {
             const facet = state.facets?.ranges?.[field];
@@ -109,7 +113,7 @@ jobs:
               "range input definition lookup",
           )
 
-          replace_once(
+          app = replace_once(
               app,
               '''  const current = effectiveRange(field, facet);
             const value = Math.max(facet.min, Math.min(facet.max, Number(rawValue)));
@@ -121,7 +125,7 @@ jobs:
               "range input comma parsing",
           )
 
-          replace_once(
+          app = replace_once(
               app,
               '''function renderWealthWorkspace() {
             updateHtml(el("wealthAllocationBar"), wealthAllocationSvg(WEALTH_ALLOCATION));''',
@@ -135,36 +139,35 @@ jobs:
               "goal progress renderer",
           )
 
-          replace_once(
+          app = replace_once(
               app,
-              '''<span class="goal-progress"><span><i style="width:${goal.progress}%"></i></span><small>${goal.progress}%</small></span>''',
-              '''${goalProgressMeter(goal)}''',
+              '<span class="goal-progress"><span><i style="width:${goal.progress}%"></i></span><small>${goal.progress}%</small></span>',
+              '${goalProgressMeter(goal)}',
               "goal list progress bars",
           )
 
-          replace_once(
+          app = replace_once(
               app,
-              '''<div class="goal-funding-track"><i style="width:${goal.progress}%"></i></div>''',
-              '''<progress class="goal-funding-track goal-progress-${escapeHtml(goal.tone)}" max="100" value="${Math.max(0, Math.min(100, Number(goal.progress) || 0))}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress>''',
+              '<div class="goal-funding-track"><i style="width:${goal.progress}%"></i></div>',
+              '<progress class="goal-funding-track goal-progress-${escapeHtml(goal.tone)}" max="100" value="${Math.max(0, Math.min(100, Number(goal.progress) || 0))}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress>',
               "goal detail progress bar",
           )
 
-          replace_once(
+          index = replace_once(
               index,
-              '''        <button class="nav-item" data-open-saved>Saved</button>
-          ''',
-              '''''',
+              '        <button class="nav-item" data-open-saved>Saved</button>\n',
+              '',
               "top-level Saved navigation",
           )
 
-          replace_once(
+          styles = replace_once(
               styles,
-              '''  .global-nav .nav-item:nth-child(4) { display: none; }''',
-              '''  .global-nav .nav-item:nth-child(3) { display: none; }''',
+              '  .global-nav .nav-item:nth-child(4) { display: none; }',
+              '  .global-nav .nav-item:nth-child(3) { display: none; }',
               "responsive Research navigation",
           )
 
-          replace_once(
+          styles = replace_once(
               styles,
               '''.goal-progress { display: grid; grid-template-columns: 1fr 24px; align-items: center; gap: 5px; }
           .goal-progress > span { height: 3px; overflow: hidden; background: #e5e5e1; }
@@ -181,7 +184,7 @@ jobs:
               "goal list progress styling",
           )
 
-          replace_once(
+          styles = replace_once(
               styles,
               '''.goal-funding-track { height: 9px; margin-top: 16px; overflow: hidden; background: #deded9; }
           .goal-funding-track i { display: block; height: 100%; background: #4b8067; }''',
@@ -193,6 +196,10 @@ jobs:
           .goal-funding-track.goal-progress-watch::-moz-progress-bar { background: #b07b21; }''',
               "goal detail progress styling",
           )
+
+          app_path.write_text(app)
+          index_path.write_text(index)
+          styles_path.write_text(styles)
           PY
 
       - name: Install dependencies
