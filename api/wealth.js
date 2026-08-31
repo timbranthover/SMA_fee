@@ -6,6 +6,8 @@ const PROJECTION_VIEWS = new Set(["book", "overview", "history", "concentration"
 const BOOK_FOCUS = new Set(["all", "priority", "cash", "goals", "upcoming", "held-away"]);
 const BOOK_SORT = new Set(["attention", "net-worth-desc", "cash-desc", "return-desc", "name-asc"]);
 const wealthService = createWealthService(ADVISOR_BOOK_DATASET);
+// Prototype principal. Production authentication should resolve the signed-in FA to this advisor-domain ID server-side.
+const DEMO_PRINCIPAL_ADVISOR_ID = DEFAULT_ADVISOR_ID;
 
 function parseId(value, label) {
   const id = String(value || "").trim();
@@ -47,6 +49,19 @@ export function getWealthProjection(idValue, viewValue = "overview", entityIdVal
   return wealthService.getHouseholdGoal(householdId, parseId(entityIdValue, "goalId"));
 }
 
+export function getAuthorizedWealthProjection(principalAdvisorIdValue, idValue, viewValue = "overview", entityIdValue = "", options = {}) {
+  const principalAdvisorId = parseAdvisorId(principalAdvisorIdValue || DEMO_PRINCIPAL_ADVISOR_ID);
+  const view = parseProjectionView(viewValue);
+  if (view === "book") {
+    const advisorId = parseAdvisorId(idValue || principalAdvisorId);
+    if (advisorId !== principalAdvisorId) return null;
+    return wealthService.getAdvisorBook(advisorId, options);
+  }
+  const householdId = parseHouseholdId(idValue);
+  if (!wealthService.householdBelongsToAdvisor(principalAdvisorId, householdId)) return null;
+  return getWealthProjection(householdId, view, entityIdValue, options);
+}
+
 export default async function handler(request, response) {
   if (request.method && request.method !== "GET") {
     response.setHeader("Allow", "GET");
@@ -65,7 +80,7 @@ export default async function handler(request, response) {
       const sort = String(url.searchParams.get("sort") || "attention").toLowerCase();
       if (!BOOK_FOCUS.has(focus)) throw new RangeError("Invalid focus");
       if (!BOOK_SORT.has(sort)) throw new RangeError("Invalid sort");
-      data = getWealthProjection(id, view, "", {
+      data = getAuthorizedWealthProjection(DEMO_PRINCIPAL_ADVISOR_ID, id, view, "", {
         query: String(url.searchParams.get("q") || "").slice(0, 120),
         focus,
         sort,
@@ -75,7 +90,7 @@ export default async function handler(request, response) {
     } else {
       id = parseHouseholdId(url.searchParams.get("householdId"));
       const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : "";
-      data = getWealthProjection(id, view, entityId);
+      data = getAuthorizedWealthProjection(DEMO_PRINCIPAL_ADVISOR_ID, id, view, entityId);
     }
     if (data === null) return response.status(404).json({ error: view === "book" ? "Advisor book not found" : "Household data not found" });
 

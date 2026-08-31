@@ -7,7 +7,8 @@ import { getInvestmentDetail, getMarketSnapshots } from "./lib/catalog.js";
 import { getComparisonHistory, parseHistoryIds } from "./lib/history.js";
 import { inputFromQuery } from "./api/search.js";
 import { parseSnapshotIds } from "./api/snapshots.js";
-import { getWealthProjection, parseAdvisorId, parseHouseholdId, parseProjectionView } from "./api/wealth.js";
+import { getAuthorizedWealthProjection, parseAdvisorId, parseHouseholdId, parseProjectionView } from "./api/wealth.js";
+import { DEFAULT_ADVISOR_ID } from "./lib/advisor-book-source.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -48,7 +49,7 @@ const server = createServer(async (request, response) => {
       let data;
       if (view === "book") {
         id = parseAdvisorId(url.searchParams.get("advisorId"));
-        data = getWealthProjection(id, view, "", {
+        data = getAuthorizedWealthProjection(DEFAULT_ADVISOR_ID, id, view, "", {
           query: String(url.searchParams.get("q") || "").slice(0, 120),
           focus: String(url.searchParams.get("focus") || "all").toLowerCase(),
           sort: String(url.searchParams.get("sort") || "attention").toLowerCase(),
@@ -58,7 +59,7 @@ const server = createServer(async (request, response) => {
       } else {
         id = parseHouseholdId(url.searchParams.get("householdId"));
         const entityId = view === "account" ? url.searchParams.get("accountId") : view === "goal" ? url.searchParams.get("goalId") : "";
-        data = getWealthProjection(id, view, entityId);
+        data = getAuthorizedWealthProjection(DEFAULT_ADVISOR_ID, id, view, entityId);
       }
       return data === null
         ? json(response, { error: view === "book" ? "Advisor book not found" : "Household data not found" }, 404)

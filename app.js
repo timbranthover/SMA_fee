@@ -276,9 +276,17 @@ function bookPriorityMarkup(item) {
   return `<span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong>${escapeHtml(item.priority.title)}</strong><small>${escapeHtml(item.priority.detail)}</small></span></span>`;
 }
 
+function renderAdvisorIdentity({ displayName, initials, workspaceLabel } = {}) {
+  el("advisorAvatar").textContent = initials || "—";
+  el("advisorName").textContent = displayName || "Advisor";
+  el("advisorWorkspace").textContent = workspaceLabel || "Advisor workspace";
+  el("advisorProfile").setAttribute("aria-label", workspaceLabel || "Advisor workspace");
+}
+
 function renderBookSummary(data) {
   el("bookSubtitle").textContent = `${data.metrics.householdCount} households · one connected view of your client book`;
-  el("bookUpdated").textContent = data.items[0]?.asOf ? `Updated ${data.items[0].asOf}` : "Current client data";
+  el("bookUpdated").textContent = data.asOf ? `Updated through ${data.asOf}` : "Current client data";
+  renderAdvisorIdentity(data.advisor);
   el("bookHouseholdCount").textContent = formatCount(data.metrics.householdCount);
   el("bookFinancialAssets").textContent = formatWealthCurrency(data.metrics.financialAssets);
   el("bookNetWorth").textContent = formatWealthCurrency(data.metrics.netWorth);
@@ -317,7 +325,7 @@ async function loadBook({ reset = true } = {}) {
   if (reset) state.bookCursor = 0;
   el("bookLoading").hidden = false;
   try {
-    const data = await loadAdvisorBook({ advisorId: DEFAULT_ADVISOR_ID, q: state.bookQuery, focus: state.bookFocus, sort: state.bookSort, cursor: state.bookCursor, pageSize: 64, signal: controller.signal });
+    const data = await loadAdvisorBook({ advisorId: DEFAULT_ADVISOR_ID, q: state.bookQuery, focus: state.bookFocus, sort: state.bookSort, cursor: state.bookCursor, pageSize: 48, signal: controller.signal });
     if (controller !== state.bookController) return;
     state.bookItems = reset ? data.items : [...state.bookItems, ...data.items];
     state.bookTotal = data.total;
@@ -384,6 +392,7 @@ async function openHousehold(householdId, { updateHistory = true, replaceHistory
 
 function renderWealthWorkspace() {
   if (!HOUSEHOLD) return;
+  renderAdvisorIdentity({ displayName: HOUSEHOLD.advisor, initials: HOUSEHOLD.advisorInitials, workspaceLabel: HOUSEHOLD.advisorWorkspace });
   const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.id === "concentration" || insight.id.endsWith("-concentration"));
   const topHolding = HOUSEHOLD_HOLDINGS[0];
   updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button></div></div><div class="wealth-heading-meta"><span>Illustrative household</span><strong>Updated ${escapeHtml(HOUSEHOLD.asOf)}</strong></div>`);
@@ -665,7 +674,7 @@ function applyHouseholdScenario(id) {
   const scenarios = {
     concentration: { source: "FROM CONCENTRATION REVIEW", title: "Explore diversification options", tags: [HOUSEHOLD.name, "Tax-aware implementation", "Reduce concentrated exposure"], category: "SMAs", q: "", flags: ["Tax-Aware", "Direct Indexing"], risks: [supportedRisk] },
     cash: { source: "FROM LIQUIDITY REVIEW", title: "Explore cash alternatives", tags: [`${formatWealthCurrency(HOUSEHOLD.investableCash)} available`, HOUSEHOLD.riskProfile, "Daily liquidity"], category: "Fixed Income", q: "short duration cash management", flags: [], risks: ["Conservative"] },
-    muni: { source: "FROM ALLOCATION REVIEW", title: "Restore municipal allocation", tags: [HOUSEHOLD.location, "Tax aware", "Fee under 0.50%"], category: "Fixed Income", q: `${HOUSEHOLD.location} municipal income under 50 bps`, flags: ["Tax-Aware"], risks: ["Conservative"] },
+    muni: { source: "FROM ALLOCATION REVIEW", title: "Restore municipal allocation", tags: [HOUSEHOLD.location, "Tax aware", "Fee under 0.50%"], category: "Fixed Income", q: HOUSEHOLD.location === "New York" ? "New York municipal income under 50 bps" : "municipal income under 50 bps", flags: ["Tax-Aware"], risks: ["Conservative"] },
   };
   const scenario = scenarios[id];
   if (!scenario) return;

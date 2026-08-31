@@ -29,11 +29,14 @@ test("advisor book contains many coherent distinct households", () => {
 test("advisor book projection stays bounded, searchable, sortable and filterable", () => {
   const firstPage = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { pageSize: 25 });
   assert.equal(firstPage.metrics.householdCount, 128);
+  assert.equal(firstPage.asOf, firstPage.items[0].asOf);
+  assert.equal(firstPage.advisor.initials, "A4");
   assert.equal(firstPage.items.length, 25);
   assert.equal(firstPage.nextCursor, 25);
   assert.ok(firstPage.metrics.financialAssets > 1_000_000_000);
   assert.ok(firstPage.focusCounts.priority > 0);
   assert.ok(firstPage.focusCounts.cash > 0);
+  assert.ok(firstPage.focusCounts.cash < firstPage.metrics.householdCount);
 
   const secondPage = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { cursor: firstPage.nextCursor, pageSize: 25 });
   assert.equal(secondPage.items.length, 25);
@@ -43,10 +46,18 @@ test("advisor book projection stays bounded, searchable, sortable and filterable
   assert.equal(morrison.total, 1);
   assert.equal(morrison.items[0].id, "household-morrison");
 
+  const hyphenated = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { query: "Patel-Brooks" });
+  assert.equal(hyphenated.items[0].initials, "PB");
+
   const cash = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "cash", sort: "cash-desc", pageSize: 200 });
   assert.equal(cash.total, firstPage.focusCounts.cash);
   assert.ok(cash.items.every((item) => item.focus.includes("cash")));
   for (let index = 1; index < cash.items.length; index += 1) assert.ok(cash.items[index - 1].cash >= cash.items[index].cash);
+
+  const generatedCalls = ADVISOR_BOOK_DATASET.insights.filter((insight) => insight.severity === "Upcoming" && insight.id !== "capital-call");
+  assert.ok(new Set(generatedCalls.map((insight) => insight.title)).size >= 4);
+  assert.equal(service.householdBelongsToAdvisor(DEFAULT_ADVISOR_ID, "household-morrison"), true);
+  assert.equal(service.householdBelongsToAdvisor("advisor-other", "household-morrison"), false);
 });
 
 test("household detail remains isolated to the selected relationship", () => {
