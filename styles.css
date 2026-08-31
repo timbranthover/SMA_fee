@@ -162,6 +162,13 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .wealth-table tbody th > small { margin-top: 3px; color: #898985; font-size: 7px; }
 .wealth-table .positive { color: var(--green); }
 .wealth-table .attention-value { color: #b70000; font-weight: 700; }
+.wealth-clickable-row { cursor: pointer; }
+.wealth-clickable-row:hover { background: #fafaf8; }
+.wealth-row-link { width: 100%; border: 0; background: transparent; padding: 0; color: inherit; text-align: left; }
+.wealth-row-link strong, .wealth-row-link small { display: block; }
+.wealth-row-link strong { color: #222; font-size: 9px; }
+.wealth-row-link small { margin-top: 3px; color: #898985; font-size: 7px; }
+.wealth-row-link:focus-visible { outline: 2px solid #222; outline-offset: 3px; }
 .wealth-holding { display: flex; align-items: center; gap: 9px; }
 .wealth-holding .product-monogram { width: 28px; height: 28px; flex: none; font-size: 7px; }
 .wealth-holding .product-logo { max-width: 19px; max-height: 19px; }
@@ -191,11 +198,13 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .goals-panel { overflow: hidden; }
 .goal-summary { color: #777; font-size: 9px; }
 .goals-list { padding: 0 14px; }
-.goal-row { min-height: 60px; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(85px, .85fr) 49px; align-items: center; gap: 10px; border-bottom: 1px solid var(--line-soft); }
+.goal-row { width: 100%; min-height: 60px; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(85px, .85fr) 49px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--line-soft); background: #fff; padding: 0; text-align: left; }
 .goal-row:last-child { border-bottom: 0; }
-.goal-row > div:first-child strong, .goal-row > div:first-child small { display: block; }
-.goal-row > div:first-child strong { font-size: 9px; }
-.goal-row > div:first-child small { margin-top: 3px; color: #888; font-size: 7px; }
+.goal-row:hover { background: #fafaf8; }
+.goal-row:focus-visible { outline: 2px solid #222; outline-offset: -2px; }
+.goal-copy strong, .goal-copy small { display: block; }
+.goal-copy strong { font-size: 9px; }
+.goal-copy small { margin-top: 3px; color: #888; font-size: 7px; }
 .goal-progress { display: grid; grid-template-columns: 1fr 24px; align-items: center; gap: 5px; }
 .goal-progress > span { height: 3px; overflow: hidden; background: #e5e5e1; }
 .goal-progress i { display: block; height: 100%; background: #4b8067; }
@@ -270,6 +279,57 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .operational-rows > div { min-height: 55px; display: grid; grid-template-columns: 210px 1fr; align-items: center; border-bottom: 1px solid var(--line); }
 .operational-rows span { color: #777; font-size: 9px; }
 .operational-rows strong { font-size: 10px; }
+.account-review-hero, .account-detail-hero, .goal-review-hero { min-height: 126px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border-bottom: 1px solid var(--line); }
+.account-review-hero > div > span, .account-detail-hero > div:first-child > span, .goal-review-hero > div > span { color: #777; font-size: 8px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.account-review-hero h2, .account-detail-hero h2, .goal-review-hero h2 { margin: 5px 0 5px; font-family: Georgia, serif; font-size: 28px; font-weight: 400; }
+.account-review-hero p, .account-detail-hero p, .goal-review-hero p { margin: 0; color: #70706d; font-size: 9px; line-height: 1.45; }
+.account-review-hero > strong { display: grid; justify-items: end; font-family: Georgia, serif; font-size: 28px; font-weight: 400; }
+.account-review-hero > strong small { margin-top: 5px; color: #777; font-family: Arial, Helvetica, sans-serif; font-size: 8px; font-weight: 400; }
+.account-detail-hero > div:last-child { display: grid; justify-items: end; gap: 4px; }
+.account-detail-hero > div:last-child span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.account-detail-hero > div:last-child strong { font-family: Georgia, serif; font-size: 28px; font-weight: 400; }
+.account-detail-hero > div:last-child small { font-size: 8px; }
+.account-review-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); background: #171717; color: #fff; }
+.account-review-metrics > div { min-height: 91px; display: grid; align-content: center; gap: 5px; padding: 14px 16px; border-left: 1px solid #393939; }
+.account-review-metrics > div:first-child { border-left: 0; }
+.account-review-metrics span { color: #999; font-size: 7px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.account-review-metrics strong { overflow: hidden; font-family: Georgia, serif; font-size: 17px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.account-review-metrics small { color: #8e8e8e; font-size: 7px; }
+.account-map-table th:first-child { width: 35%; }
+.account-map-table .positive { color: var(--green); font-weight: 700; }
+.drawer-table-link { width: 100%; display: flex; align-items: center; justify-content: space-between; border: 0; background: transparent; padding: 0; color: #222; font-size: 9px; font-weight: 700; text-align: left; }
+.drawer-table-link span { color: #888; font-size: 15px; font-weight: 400; }
+.drawer-table-link:hover { color: var(--red); }
+.account-data-strip { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 20px; border: 1px solid var(--line); background: #fafaf8; }
+.account-data-strip > div { min-height: 65px; display: grid; align-content: center; gap: 5px; padding: 10px 15px; border-left: 1px solid var(--line); }
+.account-data-strip > div:first-child { border-left: 0; }
+.account-data-strip span { color: #888; font-size: 7px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.account-data-strip strong { font-size: 9px; }
+.account-allocation-bar { height: 13px; display: flex; gap: 2px; overflow: hidden; border-radius: 1px; background: #eee; }
+.account-allocation-bar > span { height: 100%; }
+.account-allocation-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; margin-top: 14px; }
+.account-allocation-legend > div { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: center; gap: 7px; font-size: 8px; }
+.account-allocation-legend i { width: 7px; height: 7px; border-radius: 1px; }
+.account-allocation-legend span { color: #666; }
+.account-holdings-table .wealth-holding .product-monogram { width: 28px; height: 28px; }
+.account-holdings-table .wealth-holding .product-logo { max-width: 18px; max-height: 18px; }
+.account-empty-holdings { display: grid; gap: 5px; padding: 18px; border: 1px solid var(--line); background: #fafaf8; }
+.account-empty-holdings strong { font-size: 10px; }
+.account-empty-holdings span { max-width: 560px; color: #777; font-size: 9px; line-height: 1.45; }
+.goal-review-hero em { padding: 6px 9px; border-radius: 11px; font-size: 8px; font-style: normal; }
+.goal-funding { padding: 24px 0; border-bottom: 1px solid var(--line); }
+.goal-funding-heading { display: flex; justify-content: space-between; }
+.goal-funding-heading > div { display: grid; gap: 5px; }
+.goal-funding-heading > div:last-child { justify-items: end; }
+.goal-funding-heading span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.goal-funding-heading strong { font-family: Georgia, serif; font-size: 21px; font-weight: 400; }
+.goal-funding-track { height: 9px; margin-top: 16px; overflow: hidden; background: #deded9; }
+.goal-funding-track i { display: block; height: 100%; background: #4b8067; }
+.goal-funding-scale { display: flex; justify-content: space-between; margin-top: 7px; color: #777; font-size: 8px; }
+.goal-next-step { display: grid; gap: 7px; margin-top: 22px; padding: 18px 20px; border-left: 3px solid #1f4b3a; background: #f3f6f3; }
+.goal-next-step span { color: #68736d; font-size: 7px; font-weight: 700; letter-spacing: .09em; }
+.goal-next-step strong { max-width: 650px; font-family: Georgia, serif; font-size: 18px; font-weight: 400; line-height: 1.35; }
+.goal-next-step small { color: #777; font-size: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .search-zone { background: var(--surface); padding: 4px 34px 20px; display: grid; grid-template-columns: minmax(650px, 1fr); row-gap: 11px; }

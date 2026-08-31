@@ -4,6 +4,7 @@
 
 1. `/` opens a local, synthetic household projection assembled from a small governed demo-data module. No client data or external aggregation service is used.
 2. The browser lazily loads the same locally bundled Lightweight Charts module already used for comparison and draws only the selected 1Y, 3Y or 5Y investable-wealth window.
+   Account and goal detail are bounded projections from the same household contract, so drill-downs need no follow-up network requests or second source of truth.
 3. A prioritized household insight opens an in-context analysis drawer. The concentration review keeps exposure, account location, cost basis, policy target, scenario impact and research standing visibly separate.
 4. Selecting an implementation path creates an explicit scenario bundle containing objective, category, flags and risk. It switches to `/investments`, paints the scenario in a persistent ribbon and executes the normal bounded search request.
 5. The screener remains independently usable and client-agnostic. Every passed criterion is visible and removable; no hidden client-fit or recommendation score is introduced.

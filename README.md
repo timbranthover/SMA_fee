@@ -5,6 +5,7 @@ Desktop-first, masked vision prototype deployed on Vercel. It connects a synthet
 ## What is real in the demo
 
 - The default Total Wealth workspace contains one internally coherent synthetic household spanning accounts, held-away assets, liabilities, allocation, goals, cash needs and prioritized advisor work.
+- Accounts and planning goals are operational drill-downs: allocation, positions, cash, tax treatment, data status, funding, confidence and next actions remain inside the same advisor canvas.
 - A concentrated Apple position opens an in-context household analysis with account location, cost basis, scenario impact, policy comparison and research context.
 - The analysis passes an explicit objective bundle into the existing screener. It never claims hidden suitability, eligibility or recommendation logic; the advisor can see and edit every resulting criterion.
 - The same locally bundled Lightweight Charts library powers both investable-wealth history and investment comparison, keeping the experience smooth without a remote charting or market-data dependency.
