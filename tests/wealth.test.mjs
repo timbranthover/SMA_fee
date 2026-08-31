@@ -1,21 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import {
-  CONCENTRATION_REVIEW,
-  DEFAULT_HOUSEHOLD_ID,
-  HOUSEHOLD,
-  HOUSEHOLD_ACCOUNTS,
-  HOUSEHOLD_GOALS,
-  HOUSEHOLD_HOLDINGS,
-  HOUSEHOLD_INSIGHTS,
-  WEALTH_ALLOCATION,
-  WEALTH_HISTORY,
-  wealthClientService,
-} from "../lib/wealth-data.js";
+import { getHouseholdProjection, parseHouseholdId } from "../api/wealth.js";
 import { createWealthRepository } from "../lib/wealth-repository.js";
 import { createWealthClientService } from "../lib/wealth-service.js";
 import { MORRISON_WEALTH_DATASET } from "../lib/wealth-source.js";
+
+const DEFAULT_HOUSEHOLD_ID = "household-morrison";
+const wealthClientService = createWealthClientService(MORRISON_WEALTH_DATASET);
+const defaultWorkspace = wealthClientService.getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
+const HOUSEHOLD = defaultWorkspace.household;
+const WEALTH_ALLOCATION = defaultWorkspace.allocation;
+const HOUSEHOLD_ACCOUNTS = defaultWorkspace.accounts;
+const HOUSEHOLD_HOLDINGS = defaultWorkspace.holdings;
+const HOUSEHOLD_GOALS = defaultWorkspace.goals;
+const HOUSEHOLD_INSIGHTS = defaultWorkspace.insights;
+const CONCENTRATION_REVIEW = defaultWorkspace.concentrationReview;
+const WEALTH_HISTORY = defaultWorkspace.history;
 
 test("the synthetic household is internally coherent and decision-useful", () => {
   assert.equal(HOUSEHOLD.name, "Morrison Household");
@@ -141,11 +142,20 @@ test("repository validates relationships and indexes books with thousands of hou
   assert.throws(() => createWealthRepository(broken), /references missing householdId/);
 });
 
-test("Total Wealth connects to the existing screener without hidden suitability logic", async () => {
+test("wealth BFF returns one bounded household projection and rejects invalid identifiers", () => {
+  assert.equal(parseHouseholdId(DEFAULT_HOUSEHOLD_ID), DEFAULT_HOUSEHOLD_ID);
+  assert.throws(() => parseHouseholdId("../all-households"), /Invalid householdId/);
+  assert.equal(getHouseholdProjection("missing-household"), null);
+  assert.deepEqual(getHouseholdProjection(DEFAULT_HOUSEHOLD_ID), defaultWorkspace);
+});
+
+test("Total Wealth connects to the existing screener through a server-side wealth boundary", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   const build = await readFile(new URL("../scripts/build-static.mjs", import.meta.url), "utf8");
+  const browserWealth = await readFile(new URL("../lib/wealth-data.js", import.meta.url), "utf8");
+  const wealthApi = await readFile(new URL("../api/wealth.js", import.meta.url), "utf8");
   const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 
   assert.match(html, /id="wealthView"/);
@@ -168,9 +178,13 @@ test("Total Wealth connects to the existing screener without hidden suitability 
   assert.match(css, /\.wealth-drawer\.open/);
   assert.match(css, /\.account-review-metrics/);
   assert.match(css, /\.goal-funding-track/);
+
+  assert.match(browserWealth, /fetch\(`\/api\/wealth\?\$\{params\}`/);
+  assert.doesNotMatch(browserWealth, /wealth-source|wealth-repository|wealth-service/);
+  assert.match(wealthApi, /private, no-store/);
+  assert.match(wealthApi, /Vary/);
   assert.match(build, /"wealth-data\.js"/);
-  assert.match(build, /"wealth-source\.js"/);
-  assert.match(build, /"wealth-repository\.js"/);
-  assert.match(build, /"wealth-service\.js"/);
+  assert.doesNotMatch(build, /"wealth-source\.js"|"wealth-repository\.js"|"wealth-service\.js"/);
+
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investments" && rule.destination === "/"));
 });
