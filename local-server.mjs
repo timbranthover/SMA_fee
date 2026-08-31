@@ -75,7 +75,7 @@ const server = createServer(async (request, response) => {
       const view = String(url.searchParams.get("view") || "summary").toLowerCase();
       const householdId = url.searchParams.get("householdId");
       const decisionId = view === "detail" || view === "scenario" ? url.searchParams.get("decisionId") : "";
-      const numericKeys = ["targetWeight", "taxRate", "stressDrop", "goalFunding", "redeployAmount", "deployAmount", "reservePct", "fundingAmount", "allocationAmount"];
+      const numericKeys = ["targetWeight", "stressDrop", "goalFunding", "redeployAmount", "deployAmount", "reservePct", "fundingAmount", "allocationAmount"];
       const inputs = Object.fromEntries(numericKeys.map((key) => [key, url.searchParams.get(key)]).filter(([, value]) => value !== null && value !== "").map(([key, value]) => [key, Number(value)]));
       if (Object.values(inputs).some((value) => !Number.isFinite(value))) throw new RangeError("Invalid decision scenario input");
       const data = getAuthorizedDecisionProjection(DEFAULT_ADVISOR_ID, householdId, view, decisionId, inputs);
