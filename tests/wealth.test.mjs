@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { getHouseholdProjection, parseHouseholdId } from "../api/wealth.js";
+import { getWealthProjection, parseHouseholdId, parseProjectionView } from "../api/wealth.js";
 import { createWealthRepository } from "../lib/wealth-repository.js";
 import { createWealthService } from "../lib/wealth-service.js";
 import { MORRISON_WEALTH_DATASET } from "../lib/wealth-source.js";
@@ -9,6 +9,7 @@ import { MORRISON_WEALTH_DATASET } from "../lib/wealth-source.js";
 const DEFAULT_HOUSEHOLD_ID = "household-morrison";
 const wealthService = createWealthService(MORRISON_WEALTH_DATASET);
 const defaultWorkspace = wealthService.getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
+const defaultOverview = wealthService.getHouseholdOverview(DEFAULT_HOUSEHOLD_ID);
 const HOUSEHOLD = defaultWorkspace.household;
 const WEALTH_ALLOCATION = defaultWorkspace.allocation;
 const HOUSEHOLD_ACCOUNTS = defaultWorkspace.accounts;
@@ -55,7 +56,7 @@ test("household performance history is ordered, bounded and ends at the stated v
   }
 });
 
-test("wealth source is normalized while the service preserves the existing browser contract", () => {
+test("wealth source is normalized while the service preserves the full internal contract", () => {
   const rawHousehold = MORRISON_WEALTH_DATASET.households[0];
   const rawAccount = MORRISON_WEALTH_DATASET.accounts[0];
   assert.equal("netWorth" in rawHousehold, false);
@@ -84,6 +85,23 @@ test("wealth source is normalized while the service preserves the existing brows
     concentrationPolicies: 1,
     histories: 1,
   });
+});
+
+test("overview projection excludes expensive drill-down data until requested", () => {
+  assert.equal("history" in defaultOverview, false);
+  assert.equal("concentrationReview" in defaultOverview, false);
+  assert.ok(defaultOverview.accounts.length > 0);
+  assert.ok(defaultOverview.goals.length > 0);
+  assert.equal("mix" in defaultOverview.accounts[0], false);
+  assert.equal("holdings" in defaultOverview.accounts[0], false);
+  assert.equal("purpose" in defaultOverview.accounts[0], false);
+  assert.equal("target" in defaultOverview.goals[0], false);
+  assert.equal("funded" in defaultOverview.goals[0], false);
+
+  assert.deepEqual(wealthService.getHouseholdHistory(DEFAULT_HOUSEHOLD_ID), WEALTH_HISTORY);
+  assert.deepEqual(wealthService.getHouseholdConcentrationReview(DEFAULT_HOUSEHOLD_ID), CONCENTRATION_REVIEW);
+  assert.deepEqual(wealthService.getHouseholdAccount(DEFAULT_HOUSEHOLD_ID, HOUSEHOLD_ACCOUNTS[0].id), HOUSEHOLD_ACCOUNTS[0]);
+  assert.deepEqual(wealthService.getHouseholdGoal(DEFAULT_HOUSEHOLD_ID, HOUSEHOLD_GOALS[0].id), HOUSEHOLD_GOALS[0]);
 });
 
 test("household totals are derived from normalized records instead of duplicated summary values", () => {
@@ -137,19 +155,30 @@ test("repository validates relationships and indexes books with thousands of hou
   assert.equal(repository.listHouseholdAccounts("h-2499").length, accountsPerHousehold);
   assert.equal(repository.getAccount("h-2499-a-9").householdId, "h-2499");
 
+  const service = createWealthService(dataset, { cacheLimits: { overview: 20, account: 40 } });
+  assert.equal(service.getHouseholdOverview("h-2499").accounts.length, accountsPerHousehold);
+  for (let index = 0; index < 100; index += 1) assert.equal(service.getHouseholdOverview(`h-${index}`).household.id, `h-${index}`);
+  assert.equal(service.getHouseholdOverview("h-2499").household.id, "h-2499");
+
   const broken = structuredClone(dataset);
   broken.accounts[0].householdId = "missing-household";
   assert.throws(() => createWealthRepository(broken), /references missing householdId/);
 });
 
-test("wealth BFF returns one bounded household projection and rejects invalid identifiers", () => {
+test("wealth BFF exposes bounded projection views and rejects invalid identifiers", () => {
   assert.equal(parseHouseholdId(DEFAULT_HOUSEHOLD_ID), DEFAULT_HOUSEHOLD_ID);
+  assert.equal(parseProjectionView(null), "overview");
   assert.throws(() => parseHouseholdId("../all-households"), /Invalid householdId/);
-  assert.equal(getHouseholdProjection("missing-household"), null);
-  assert.deepEqual(getHouseholdProjection(DEFAULT_HOUSEHOLD_ID), defaultWorkspace);
+  assert.throws(() => parseProjectionView("everything"), /Invalid view/);
+  assert.equal(getWealthProjection("missing-household", "overview"), null);
+  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "overview"), defaultOverview);
+  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "history"), WEALTH_HISTORY);
+  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "concentration"), CONCENTRATION_REVIEW);
+  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "account", "joint-brokerage"), HOUSEHOLD_ACCOUNTS[0]);
+  assert.deepEqual(getWealthProjection(DEFAULT_HOUSEHOLD_ID, "goal", "retirement-income"), HOUSEHOLD_GOALS[0]);
 });
 
-test("Total Wealth connects to the existing screener through a server-side wealth boundary", async () => {
+test("Total Wealth keeps expensive work off the initial household critical path", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
@@ -165,22 +194,27 @@ test("Total Wealth connects to the existing screener through a server-side wealt
   assert.match(html, /id="scenarioRibbon"/);
   assert.match(html, /id="wealthDrawer"/);
   assert.match(app, /function setWorkspaceView/);
+  assert.match(app, /function ensureInvestmentWorkspaceLoaded/);
+  assert.match(app, /state\.workspaceView === "investments" \? ensureInvestmentWorkspaceLoaded\(\) : Promise\.resolve\(\)/);
+  assert.match(app, /loadWealthHistory\(\)/);
+  assert.match(app, /loadHouseholdAccount/);
+  assert.match(app, /loadHouseholdGoal/);
+  assert.match(app, /loadConcentrationReview/);
+  assert.match(app, /import\("\/vendor\/nouislider\.mjs"\)/);
+  assert.doesNotMatch(app, /import noUiSlider from/);
   assert.match(app, /data-household-scenario="concentration"/);
   assert.match(app, /flags: \["Tax-Aware", "Direct Indexing"\]/);
   assert.match(app, /Carry the objective—not hidden client data/);
   assert.match(app, /library\.AreaSeries/);
-  assert.match(app, /function accountsDrawer/);
-  assert.match(app, /function accountDrawer/);
-  assert.match(app, /function goalDrawer/);
-  assert.match(app, /data-wealth-account/);
-  assert.match(app, /data-wealth-goal/);
   assert.match(css, /\.wealth-layout/);
   assert.match(css, /\.wealth-drawer\.open/);
-  assert.match(css, /\.account-review-metrics/);
-  assert.match(css, /\.goal-funding-track/);
 
-  assert.match(browserWealth, /fetch\(`\/api\/wealth\?\$\{params\}`/);
+  assert.match(browserWealth, /loadHouseholdOverview/);
+  assert.match(browserWealth, /loadWealthHistory/);
+  assert.match(browserWealth, /loadConcentrationReview/);
   assert.doesNotMatch(browserWealth, /wealth-source|wealth-repository|wealth-service/);
+  assert.match(wealthApi, /PROJECTION_VIEWS/);
+  assert.match(wealthApi, /Server-Timing/);
   assert.match(wealthApi, /private, no-store/);
   assert.match(wealthApi, /Vary/);
   assert.match(build, /"wealth-data\.js"/);

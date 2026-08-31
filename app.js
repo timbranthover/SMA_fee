@@ -3,8 +3,7 @@ import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
 import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
-import { CONCENTRATION_REVIEW, HOUSEHOLD, HOUSEHOLD_ACCOUNTS, HOUSEHOLD_GOALS, HOUSEHOLD_HOLDINGS, HOUSEHOLD_INSIGHTS, WEALTH_ALLOCATION, WEALTH_HISTORY } from "/lib/wealth-data.js";
-import noUiSlider from "/vendor/nouislider.mjs";
+import { HOUSEHOLD, HOUSEHOLD_ACCOUNTS, HOUSEHOLD_GOALS, HOUSEHOLD_HOLDINGS, HOUSEHOLD_INSIGHTS, WEALTH_ALLOCATION, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadWealthHistory } from "/lib/wealth-data.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -44,6 +43,7 @@ const state = {
   prefetchTimer: null,
   columnPreferences: {},
   pendingColumns: null,
+  investmentSearchStarted: false,
 };
 
 let compareChart = null;
@@ -64,6 +64,10 @@ let wealthChart = null;
 let wealthSeries = null;
 let wealthChartResizeObserver = null;
 let wealthRange = "1Y";
+let wealthHistory = null;
+let wealthDrawerRequest = 0;
+let initialInvestmentSearchPromise = null;
+let rangeSliderLibraryPromise = null;
 
 const elementCache = new Map();
 const el = (id) => {
@@ -257,7 +261,7 @@ function wealthPointsForRange(range) {
   const years = { "1Y": 1, "3Y": 3, "5Y": 5 }[range] || 1;
   const cutoff = new Date("2026-08-21T00:00:00Z");
   cutoff.setUTCFullYear(cutoff.getUTCFullYear() - years);
-  return WEALTH_HISTORY.filter((point) => new Date(`${point.time}T00:00:00Z`) >= cutoff);
+  return (wealthHistory || []).filter((point) => new Date(`${point.time}T00:00:00Z`) >= cutoff);
 }
 
 function drawWealthRange() {
@@ -272,8 +276,9 @@ async function initializeWealthChart() {
   if (wealthChart || state.workspaceView !== "wealth") return;
   const container = el("wealthChart");
   try {
-    const library = await loadCompareChartLibrary();
+    const [library, history] = await Promise.all([loadCompareChartLibrary(), loadWealthHistory()]);
     if (state.workspaceView !== "wealth" || wealthChart) return;
+    wealthHistory = history;
     wealthChart = library.createChart(container, {
       width: Math.max(640, container.clientWidth),
       height: 224,
@@ -327,11 +332,13 @@ function setWorkspaceView(view, { updateHistory = true, replaceHistory = false }
     requestAnimationFrame(initializeWealthChart);
     window.scrollTo({ top: 0, behavior: "smooth" });
   } else {
+    ensureInvestmentWorkspaceLoaded();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 }
 
 function closeWealthDrawer({ restoreFocus = true } = {}) {
+  wealthDrawerRequest += 1;
   el("wealthDrawer").classList.remove("open");
   el("wealthDrawer").setAttribute("aria-hidden", "true");
   el("wealthDrawerBackdrop").hidden = true;
@@ -341,8 +348,7 @@ function closeWealthDrawer({ restoreFocus = true } = {}) {
   if (restoreFocus) state.lastFocus?.focus?.();
 }
 
-function concentrationDrawer() {
-  const review = CONCENTRATION_REVIEW;
+function concentrationDrawer(review) {
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">PORTFOLIO RISK · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close concentration review">×</button></header>
     <div class="wealth-drawer-body">
       <section class="concentration-hero"><div class="concentration-name">${productMark({ ...review.holding, category: "Equities" })}<div><span>Single-stock concentration</span><h2 id="wealthDrawerTitle">Apple Inc.</h2><p>AAPL · Across two taxable accounts</p></div></div><div class="concentration-status"><span>Above policy</span><strong>${review.holding.weight.toFixed(1)}%</strong><small>12% household target</small></div></section>
@@ -383,8 +389,7 @@ function accountsDrawer() {
     </div>`;
 }
 
-function accountDrawer(accountId) {
-  const account = HOUSEHOLD_ACCOUNTS.find((item) => item.id === accountId);
+function accountDrawer(account) {
   if (!account) return accountsDrawer();
   const holdings = account.holdings.length
     ? `<table class="concentration-table account-holdings-table"><thead><tr><th>Holding</th><th>Market value</th><th>Account weight</th></tr></thead><tbody>${account.holdings.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td>${holding.weight.toFixed(1)}%</td></tr>`).join("")}</tbody></table>`
@@ -400,8 +405,7 @@ function accountDrawer(accountId) {
     </div>`;
 }
 
-function goalDrawer(goalId) {
-  const goal = HOUSEHOLD_GOALS.find((item) => item.id === goalId);
+function goalDrawer(goal) {
   if (!goal) return operationalDrawer("changes");
   const gap = Math.max(0, goal.target - goal.funded);
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">PLANNING · MORRISON HOUSEHOLD</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close goal review">×</button></header>
@@ -414,13 +418,26 @@ function goalDrawer(goalId) {
     </div>`;
 }
 
-function openWealthDrawer(id) {
+function wealthDrawerLoading() {
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD DETAIL</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">Loading household detail…</h2><p>Retrieving only the data needed for this view.</p></div>`;
+}
+
+function wealthDrawerError(error) {
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD DETAIL</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">Household detail unavailable</h2><p>${escapeHtml(error.message || "Unable to load household detail")}</p></div>`;
+}
+
+async function openWealthDrawer(id) {
+  const request = ++wealthDrawerRequest;
   state.lastFocus = document.activeElement;
-  if (id === "concentration") el("wealthDrawerContent").innerHTML = concentrationDrawer();
-  else if (id === "accounts") el("wealthDrawerContent").innerHTML = accountsDrawer();
-  else if (id.startsWith("account:")) el("wealthDrawerContent").innerHTML = accountDrawer(id.slice(8));
-  else if (id.startsWith("goal:")) el("wealthDrawerContent").innerHTML = goalDrawer(id.slice(5));
-  else el("wealthDrawerContent").innerHTML = operationalDrawer(id);
+  let html = null;
+  let detailRequest = null;
+  if (id === "concentration") detailRequest = loadConcentrationReview().then(concentrationDrawer);
+  else if (id === "accounts") html = accountsDrawer();
+  else if (id.startsWith("account:")) detailRequest = loadHouseholdAccount(id.slice(8)).then(accountDrawer);
+  else if (id.startsWith("goal:")) detailRequest = loadHouseholdGoal(id.slice(5)).then(goalDrawer);
+  else html = operationalDrawer(id);
+
+  el("wealthDrawerContent").innerHTML = html || wealthDrawerLoading();
   el("wealthDrawerBackdrop").hidden = false;
   el("wealthDrawer").classList.add("open");
   el("wealthDrawer").setAttribute("aria-hidden", "false");
@@ -428,6 +445,17 @@ function openWealthDrawer(id) {
   document.querySelector("main").inert = true;
   document.querySelector(".global-header").inert = true;
   requestAnimationFrame(() => el("wealthDrawer").querySelector("[data-close-wealth-drawer]")?.focus());
+  if (!detailRequest) return;
+
+  try {
+    const resolved = await detailRequest;
+    if (request !== wealthDrawerRequest || !el("wealthDrawer").classList.contains("open")) return;
+    el("wealthDrawerContent").innerHTML = resolved;
+    requestAnimationFrame(() => el("wealthDrawer").querySelector("[data-close-wealth-drawer]")?.focus());
+  } catch (error) {
+    if (request !== wealthDrawerRequest || !el("wealthDrawer").classList.contains("open")) return;
+    el("wealthDrawerContent").innerHTML = wealthDrawerError(error);
+  }
 }
 
 function showScenarioRibbon({ source, title, tags }) {
@@ -458,6 +486,7 @@ function applyHouseholdScenario(id) {
   state.sortExplicit = false;
   el("searchInput").value = state.q;
   showScenarioRibbon(scenario);
+  state.investmentSearchStarted = true;
   setWorkspaceView("investments");
   runSearch();
 }
@@ -559,11 +588,18 @@ function rangeModule(definition, facet, open) {
   </details>`;
 }
 
-function initializeRangeSlider(definition, facet) {
+function loadRangeSliderLibrary() {
+  if (!rangeSliderLibraryPromise) rangeSliderLibraryPromise = import("/vendor/nouislider.mjs").then((module) => module.default);
+  return rangeSliderLibraryPromise;
+}
+
+async function initializeRangeSlider(definition, facet) {
   const group = document.querySelector(`[data-range-group="${CSS.escape(definition.field)}"]`);
   const target = group?.querySelector(`[data-range-slider="${CSS.escape(definition.field)}"]`);
   if (!group || !target || target.noUiSlider) return;
   const selection = effectiveRange(definition.field, facet);
+  const noUiSlider = await loadRangeSliderLibrary();
+  if (!target.isConnected || target.noUiSlider) return;
   noUiSlider.create(target, {
     start: [selection.min, selection.max],
     connect: true,
@@ -897,6 +933,7 @@ function syncUrl() {
 }
 
 async function runSearch({ preserveCursor = false } = {}) {
+  state.investmentSearchStarted = true;
   if (!preserveCursor) state.cursor = 0;
   normalizeActiveSort(state.category);
   renderSortControl(state.category);
@@ -967,6 +1004,13 @@ async function runSearch({ preserveCursor = false } = {}) {
       el("resultsPanel").setAttribute("aria-busy", "false");
     }
   }
+}
+
+function ensureInvestmentWorkspaceLoaded() {
+  if (state.investmentSearchStarted) return initialInvestmentSearchPromise || Promise.resolve();
+  state.investmentSearchStarted = true;
+  initialInvestmentSearchPromise = runSearch({ preserveCursor: true }).finally(() => { initialInvestmentSearchPromise = null; });
+  return initialInvestmentSearchPromise;
 }
 
 let debounceTimer;
@@ -1385,6 +1429,7 @@ function applySavedScreen(id) {
   state.pendingColumns = Array.isArray(screen.state.columns) ? { category: screen.state.columnCategory || screen.state.category || "All", columns: screen.state.columns } : null;
   el("searchInput").value = state.q;
   el("savedModal").close();
+  state.investmentSearchStarted = true;
   setWorkspaceView("investments");
   runSearch();
 }
@@ -1535,8 +1580,17 @@ function scheduleDetailPrefetch(target) {
   state.prefetchTimer = window.setTimeout(() => fetchDetail(detail.dataset.detailId).catch(() => {}), 160);
 }
 
-document.addEventListener("pointerover", (event) => scheduleDetailPrefetch(event.target));
-document.addEventListener("focusin", (event) => scheduleDetailPrefetch(event.target));
+function prefetchWealthDetail(target) {
+  const account = target.closest?.("[data-wealth-account]");
+  if (account) { loadHouseholdAccount(account.dataset.wealthAccount).catch(() => {}); return; }
+  const goal = target.closest?.("[data-wealth-goal]");
+  if (goal) { loadHouseholdGoal(goal.dataset.wealthGoal).catch(() => {}); return; }
+  const concentration = target.closest?.('[data-wealth-insight="concentration"], [data-wealth-action="concentration"]');
+  if (concentration) loadConcentrationReview().catch(() => {});
+}
+
+document.addEventListener("pointerover", (event) => { scheduleDetailPrefetch(event.target); prefetchWealthDetail(event.target); });
+document.addEventListener("focusin", (event) => { scheduleDetailPrefetch(event.target); prefetchWealthDetail(event.target); });
 
 document.addEventListener("click", (event) => {
   const summary = event.target.closest?.("[data-range-group] > summary");
@@ -1655,8 +1709,9 @@ renderFilterOptions();
 renderActiveFilters();
 renderSavedScreens();
 renderWealthWorkspace();
-setWorkspaceView(state.workspaceView, { updateHistory: false });
 const initialProfile = profileFromPath();
-runSearch({ preserveCursor: true }).finally(() => {
+setWorkspaceView(state.workspaceView, { updateHistory: false });
+const initialInvestmentLoad = state.workspaceView === "investments" ? ensureInvestmentWorkspaceLoaded() : Promise.resolve();
+initialInvestmentLoad.finally(() => {
   if (initialProfile) openDetail(initialProfile, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });
 });
