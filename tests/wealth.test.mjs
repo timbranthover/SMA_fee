@@ -209,7 +209,7 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   assert.match(css, /\.wealth-layout/);
   assert.match(css, /\.wealth-drawer\.open/);
 
-  assert.match(browserWealth, /view: "overview"/);
+  assert.match(browserWealth, /loadHouseholdOverview/);
   assert.match(browserWealth, /loadWealthHistory/);
   assert.match(browserWealth, /loadConcentrationReview/);
   assert.doesNotMatch(browserWealth, /wealth-source|wealth-repository|wealth-service/);
