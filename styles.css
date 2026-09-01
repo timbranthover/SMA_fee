@@ -911,7 +911,12 @@ footer { height: 46px; background: #e6e6e3; border-top: 1px solid #d4d4d0; color
 .book-table th, .book-table td { height: 57px; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); text-align: right; font-size: 9px; font-variant-numeric: tabular-nums; vertical-align: middle; }
 .book-table thead th { height: 33px; color: #8a8a87; background: #fafaf8; font-size: 7px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .book-table th:first-child { width: 27%; text-align: left; padding-left: 14px; }
-.book-table th:last-child { width: 23%; text-align: left; padding-right: 14px; }
+.book-table th:nth-child(2) { width: 10%; }
+.book-table th:nth-child(3) { width: 11%; }
+.book-table th:nth-child(4) { width: 9%; }
+.book-table th:nth-child(5) { width: 7%; }
+.book-table th:nth-child(6), .book-table td:nth-child(6) { width: 7%; text-align: center; }
+.book-table th:last-child { width: 29%; text-align: left; padding-right: 14px; }
 .book-table tbody tr:hover { background: #fafaf8; }
 .book-table td small { display: block; margin-top: 3px; color: #999; font-size: 7px; }
 .book-table .positive { color: var(--green); }
@@ -922,17 +927,20 @@ footer { height: 46px; background: #e6e6e3; border-top: 1px solid #d4d4d0; color
 .book-household-link strong { color: #222; font-size: 9px; }
 .book-household-link small { margin-top: 3px; color: #888; font-size: 7px; font-weight: 400; }
 .book-household-link b { color: #aaa; font-size: 16px; font-weight: 400; }
-.book-priority { min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); align-items: center; gap: 7px; }
-.book-priority i { width: 7px; height: 7px; border-radius: 50%; background: #777; }
+.book-priority { min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); align-items: start; gap: 8px; }
+.book-priority i { width: 7px; height: 7px; margin-top: 2px; border-radius: 50%; background: #777; }
 .book-priority-red i { background: #b51f35; }
 .book-priority-amber i { background: #b28a4d; }
 .book-priority-green i { background: #246a58; }
 .book-priority-blue i { background: #315f8f; }
 .book-priority-slate i { background: #747b7d; }
-.book-priority strong, .book-priority small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.book-priority strong { font-size: 8px; font-weight: 700; }
-.book-priority small { margin-top: 3px; color: #888; font-size: 7px; font-weight: 400; }
-.book-priority-none { color: #aaa; font-size: 8px; }
+.book-priority strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; font-weight: 700; line-height: 1.2; }
+.book-priority small { min-width: 0; display: flex; align-items: center; gap: 6px; margin-top: 3px; color: #888; font-size: 7px; font-weight: 400; line-height: 1.15; }
+.book-priority-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.book-priority-none { min-width: 0; color: #aaa; font-size: 8px; }
+.book-priority-none strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #555; font-size: 8px; }
+.book-priority-none small { min-width: 0; display: flex; align-items: center; gap: 6px; margin-top: 3px; color: #999; font-size: 7px; }
+.book-priority-none small > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .book-empty { height: 150px !important; text-align: center !important; color: #777; }
 .book-empty strong, .book-empty span { display: block; }
 .book-empty strong { margin-bottom: 5px; color: #333; font-family: Georgia, serif; font-size: 16px; font-weight: 400; }
@@ -967,12 +975,8 @@ footer { height: 46px; background: #e6e6e3; border-top: 1px solid #d4d4d0; color
 
 /* Phase Three — decision and action layer */
 body.decision-studio-open { overflow: hidden; }
-.book-attention-stack { min-width: 0; display: flex; align-items: center; gap: 8px; }
-.book-attention-stack > .book-priority, .book-attention-stack > .book-priority-none { min-width: 0; flex: 1; }
-.book-plan-pill { width: max-content; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border: 1px solid #d7d7d2; border-radius: 2px; background: #f7f7f4; color: #555; font-size: 7px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.book-plan-pill i { width: 5px; height: 5px; border-radius: 50%; background: #355f75; }
-.book-priority-none strong, .book-priority-none small { display: block; }
-.book-priority-none small { margin-top: 2px; color: #999; font-size: 7px; }
+.book-attention-stack { min-width: 0; display: block; }
+.book-workflow-status { flex: 0 0 auto; margin-left: auto; padding-left: 7px; border-left: 1px solid #d8d8d4; color: #62625f; font-size: 6px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .wealth-heading-meta { min-width: 330px; }
 .wealth-heading-status { display: grid; justify-items: end; gap: 5px; }
 .household-heading-actions { display: flex; justify-content: flex-end; gap: 6px; }

@@ -285,12 +285,15 @@ function goalProgressMeter(goal) {
 function bookPriorityMarkup(item) {
   const localPlan = getHouseholdPlanSummary(item.id);
   const planStatus = localPlan?.status || (item.planCount ? item.decisionStatus : null);
-  const parts = [];
-  if (planStatus) parts.push(`<span class="book-plan-pill"><i></i>${escapeHtml(planStatus)}</span>`);
-  if (item.priority) parts.push(`<span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong>${escapeHtml(item.priority.title)}</strong><small>${escapeHtml(item.priority.detail)}</small></span></span>`);
-  else if (item.openDecisionCount) parts.push(`<span class="book-priority-none"><strong>${item.openDecisionCount} open ${item.openDecisionCount === 1 ? "decision" : "decisions"}</strong><small>Relationship workflow active</small></span>`);
-  else parts.push(`<span class="book-priority-none">No material exception</span>`);
-  return `<span class="book-attention-stack">${parts.join("")}</span>`;
+  const workflowStatus = planStatus ? `<span class="book-workflow-status">${escapeHtml(planStatus)}</span>` : "";
+  if (item.priority) {
+    const detail = String(item.priority.detail || "").replace(/\s+across\s+/i, " · ");
+    return `<span class="book-attention-stack"><span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong title="${escapeHtml(item.priority.title)}">${escapeHtml(item.priority.title)}</strong><small><span class="book-priority-detail">${escapeHtml(detail)}</span>${workflowStatus}</small></span></span></span>`;
+  }
+  if (item.openDecisionCount) {
+    return `<span class="book-attention-stack"><span class="book-priority-none"><strong>${item.openDecisionCount} open ${item.openDecisionCount === 1 ? "decision" : "decisions"}</strong><small><span>Relationship workflow active</span>${workflowStatus}</small></span></span>`;
+  }
+  return `<span class="book-attention-stack"><span class="book-priority-none">No material exception</span></span>`;
 }
 
 function renderAdvisorIdentity({ displayName, initials, workspaceLabel } = {}) {
