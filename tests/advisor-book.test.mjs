@@ -50,14 +50,21 @@ test("generated households stay materially varied across names, relationships, a
   assert.ok(new Set(generatedInsights.map((insight) => insight.kind)).size >= 6);
   assert.ok(new Set(generatedInsights.map((insight) => insight.title)).size >= 90);
 
-  const concentrationSymbols = ADVISOR_BOOK_DATASET.concentrationPolicies
-    .filter((policy) => generatedIds.has(policy.householdId))
+  const concentrationPolicies = ADVISOR_BOOK_DATASET.concentrationPolicies.filter((policy) => generatedIds.has(policy.householdId));
+  const concentrationSymbols = concentrationPolicies
     .map((policy) => ADVISOR_BOOK_DATASET.householdHoldingSnapshots.find((holding) => holding.householdId === policy.householdId && holding.instrumentId === policy.instrumentId)?.symbol)
     .filter(Boolean);
   const concentrationFrequency = new Map();
   concentrationSymbols.forEach((symbol) => concentrationFrequency.set(symbol, (concentrationFrequency.get(symbol) || 0) + 1));
   assert.ok(new Set(concentrationSymbols).size >= 24, "concentration alerts should span a broad security set");
   assert.ok(Math.max(...concentrationFrequency.values()) <= 2, "no one security should dominate generated concentration alerts");
+  for (const policy of concentrationPolicies) {
+    const matchingSnapshots = ADVISOR_BOOK_DATASET.householdHoldingSnapshots.filter((holding) => holding.householdId === policy.householdId && holding.instrumentId === policy.instrumentId);
+    const matchingPositions = ADVISOR_BOOK_DATASET.positions.filter((position) => position.householdId === policy.householdId && position.instrumentId === policy.instrumentId);
+    assert.equal(matchingSnapshots.length, 1, `${policy.householdId} should carry one household snapshot for its concentration security`);
+    assert.ok(matchingPositions.length >= 1 && matchingPositions.length <= 4, `${policy.householdId} concentration should sit in one to four accounts`);
+    assert.equal(new Set(matchingPositions.map((position) => position.accountId)).size, matchingPositions.length);
+  }
 
   const upcoming = generatedInsights.filter((insight) => insight.severity === "Upcoming");
   assert.ok(upcoming.length >= 20);
