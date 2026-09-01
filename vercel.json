@@ -6,7 +6,8 @@
   "rewrites": [
     { "source": "/household/:id", "destination": "/" },
     { "source": "/investments", "destination": "/" },
-    { "source": "/investment/:slug", "destination": "/" }
+    { "source": "/investment/:slug", "destination": "/" },
+    { "source": "/proposal/:id", "destination": "/" }
   ],
   "headers": [
     {

@@ -16,6 +16,7 @@
     <link rel="modulepreload" href="/lib/range-config.js" />
     <link rel="modulepreload" href="/lib/wealth-data.js" />
     <link rel="modulepreload" href="/lib/decision-data.js" />
+    <link rel="modulepreload" href="/lib/proposal-data.js" />
   </head>
   <body>
     <header class="global-header">
@@ -153,9 +154,10 @@
 
       <section class="investment-view" id="investmentView" hidden>
       <div class="scenario-ribbon" id="scenarioRibbon" hidden>
-        <button type="button" class="scenario-back" id="scenarioBack"><span class="back-arrow" aria-hidden="true">←</span><span>Household</span></button>
-        <div><span id="scenarioSource">FROM CONCENTRATION REVIEW</span><strong id="scenarioTitle">Explore tax-aware diversification</strong></div>
-        <div class="scenario-tags" id="scenarioTags"><span>Taxable assets</span><span>Daily liquidity</span><span>Reduce single-stock exposure</span></div>
+        <div class="scenario-progress" id="scenarioProgress" aria-label="Proposal progress"></div>
+        <div class="scenario-main"><span id="scenarioSource">FROM CONCENTRATION REVIEW</span><strong id="scenarioTitle">Explore tax-aware diversification</strong><div class="scenario-tags" id="scenarioTags"><span>Taxable assets</span><span>Daily liquidity</span><span>Reduce single-stock exposure</span></div></div>
+        <div class="scenario-capital" id="scenarioCapital" hidden><span>Capital to allocate</span><strong id="scenarioCapitalAmount">$0</strong><small id="scenarioCapitalSource">From proposed change</small></div>
+        <button type="button" class="scenario-back" id="scenarioBack"><span class="back-arrow" aria-hidden="true">←</span><span>Review household</span></button>
         <button type="button" class="scenario-dismiss" id="dismissScenario" aria-label="Dismiss household context">×</button>
       </div>
       <section class="page-heading">
@@ -265,6 +267,10 @@
         </section>
       </section>
       </section>
+
+      <section class="proposal-view" id="proposalView" hidden aria-labelledby="proposalPageTitle">
+        <div id="proposalContent"></div>
+      </section>
     </main>
 
     <div class="compare-tray" id="compareTray" hidden>
@@ -272,6 +278,13 @@
       <div class="compare-items" id="compareItems"></div>
       <button class="primary-button" id="compareButton">Compare investments</button>
       <button class="tray-close" id="clearCompare" aria-label="Clear comparison">×</button>
+    </div>
+
+    <div class="proposal-tray" id="proposalTray" hidden>
+      <div class="proposal-tray-context"><span>PROPOSAL BASKET</span><strong id="proposalTrayTitle">Select investments</strong><small id="proposalTraySubtitle">$0 available to allocate</small></div>
+      <div class="proposal-tray-items" id="proposalTrayItems"></div>
+      <div class="proposal-tray-allocation"><span>Allocated</span><strong id="proposalTrayAllocated">$0</strong><small id="proposalTrayRemaining">$0 remaining</small></div>
+      <button type="button" class="primary-button proposal-continue" id="proposalContinue" disabled>Continue to proposal <span aria-hidden="true">→</span></button>
     </div>
 
     <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
@@ -349,6 +362,10 @@
     <dialog class="modal info-modal" id="helpModal">
       <div class="modal-header"><div><span class="eyebrow">QUICK GUIDE</span><h2>Using Investment Screener</h2></div><button data-close-modal="helpModal">×</button></div>
       <div class="info-content"><ul><li>Search by name, ticker, CUSIP, manager, or plain-language intent.</li><li>Combine filters; multiple flags use AND logic.</li><li>Select up to four investments for a side-by-side comparison.</li><li>Save a screen or investment locally in this browser.</li><li>Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to focus search.</li></ul></div>
+    </dialog>
+
+    <dialog class="modal proposal-ready-modal" id="proposalReadyModal">
+      <div id="proposalReadyContent"></div>
     </dialog>
 
     <div class="toast" id="toast" role="status" hidden></div>

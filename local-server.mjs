@@ -91,7 +91,7 @@ const server = createServer(async (request, response) => {
     response.end("Not found");
     return;
   }
-  const requested = url.pathname === "/" || /^\/household\/[^/]+\/?$/.test(url.pathname) || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname)
+  const requested = url.pathname === "/" || /^\/household\/[^/]+\/?$/.test(url.pathname) || /^\/investments\/?$/.test(url.pathname) || /^\/investment\/[^/]+\/?$/.test(url.pathname) || /^\/proposal\/[^/]+\/?$/.test(url.pathname)
     ? "index.html"
     : url.pathname === "/vendor/lightweight-charts.mjs"
       ? "node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.mjs"

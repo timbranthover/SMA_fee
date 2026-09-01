@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { BRAND_LOGOS } from "../lib/brand-logos.js";
 
-const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js", "lib/column-config.js", "lib/sort-config.js", "lib/range-config.js", "lib/decision-data.js"];
+const files = ["index.html", "app.js", "lib/catalog.js", "lib/shared-config.js", "lib/brand-logos.js", "lib/column-config.js", "lib/sort-config.js", "lib/range-config.js", "lib/decision-data.js", "lib/proposal-data.js"];
 
 test("public source is masked and contains no client-context remnants", async () => {
   const source = (await Promise.all(files.map((file) => readFile(new URL(`../${file}`, import.meta.url), "utf8")))).join("\n");
@@ -70,6 +70,27 @@ test("investment profiles support a shared canvas and standalone URLs", async ()
   assert.match(app, /id="profile-changes"/);
   assert.match(css, /\.change-log \{/);
   assert.ok(vercel.rewrites.some((rule) => rule.source === "/investment/:slug" && rule.destination === "/"));
+});
+
+test("proposal selection builds a durable client-ready workflow", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const build = await readFile(new URL("../scripts/build-static.mjs", import.meta.url), "utf8");
+  const localServer = await readFile(new URL("../local-server.mjs", import.meta.url), "utf8");
+  const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.match(html, /id="proposalTray"/);
+  assert.match(html, /id="proposalView" hidden/);
+  assert.match(html, /id="proposalReadyModal"/);
+  assert.match(app, /Add to proposal/);
+  assert.match(app, /function openProposalBuilder/);
+  assert.match(app, /setDecisionCandidates/);
+  assert.match(css, /\.proposal-builder-layout/);
+  assert.match(css, /\.proposal-tray[^}]+transform: translateX\(-50%\)/);
+  assert.match(css, /@media print/);
+  assert.match(build, /"proposal-data\.js"/);
+  assert.match(localServer, /proposal/);
+  assert.ok(vercel.rewrites.some((rule) => rule.source === "/proposal/:id" && rule.destination === "/"));
 });
 
 test("comparison chart stays lazy, local and additive to the decision table", async () => {

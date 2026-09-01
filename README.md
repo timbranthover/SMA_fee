@@ -9,7 +9,8 @@ Desktop-first, masked vision prototype deployed on Vercel. It connects a synthet
 - A concentrated Apple position opens an in-context household analysis with account location, cost basis, scenario impact, policy comparison and research context.
 - The analysis passes an explicit objective bundle into the existing screener. It never claims hidden suitability, eligibility or recommendation logic; the advisor can see and edit every resulting criterion.
 - The same locally bundled Lightweight Charts library powers both investable-wealth history and investment comparison, keeping the experience smooth without a remote charting or market-data dependency.
-- Selected diversification alternatives remain in memory when the advisor returns to Total Wealth, closing the loop from household fact to research activity.
+- A modeled household change creates an explicit amount available to redeploy. The screener becomes a proposal-selection workspace with an e-commerce-style basket, allocation totals and a clear next step.
+- Selected solutions flow into a configurable, client-facing proposal with household impact, costs, considerations and next steps. Finalizing it attaches the exact selection to the originating decision and marks it ready for the client conversation.
 - A deterministic 130,428-record mock catalog exists in server memory. Its equity sleeve begins with nearly 9,000 real SEC-referenced issuer names, tickers, exchanges and CIKs, then uses uniquely named illustrative records to preserve the prototype's stated global-universe scale.
 - Search uses exact ticker/CUSIP priority, field-weighted whole-word relevance, strict multi-term matching and a controlled name/manager typo fallback.
 - Combined filters, exact facets and global sorting run against the complete catalog; sorting adapts to the active vehicle and visible quantitative columns, and each text result explains why it matched.
@@ -38,7 +39,7 @@ npm run build
 npm run refresh:equities # intentionally refresh the checked-in SEC issuer reference snapshot
 ```
 
-Open `http://127.0.0.1:4173` after starting the local server. The screener is also available directly at `/investments`.
+Open `http://127.0.0.1:4173` after starting the local server. The screener is also available directly at `/investments`, and saved proposals have stable `/proposal/:decisionId` routes in the same browser.
 
 ## Production direction
 

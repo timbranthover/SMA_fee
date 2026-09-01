@@ -4,7 +4,8 @@ import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMN
 import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
 import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
-import { addDecisionCandidates, getDecisionPlan, getHouseholdPlanSummary, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, saveDecisionPlan, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
+import { getDecisionPlan, getHouseholdPlanSummary, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, saveDecisionPlan, setDecisionCandidates, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
+import { allocateProposalCandidates, createProposalDraft, getProposal, markProposalReady, saveProposal } from "/lib/proposal-data.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -22,6 +23,8 @@ const state = {
   activeDecisionDetail: null,
   activeDecisionScenario: null,
   activeDecisionPlan: null,
+  proposal: null,
+  proposalCandidates: new Map(),
   decisionController: null,
   decisionScenarioController: null,
   bookController: null,
@@ -199,6 +202,12 @@ function profileFromPath() {
 
 function householdFromPath() {
   const match = location.pathname.match(/^\/household\/([^/]+)\/?$/i);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return match[1]; }
+}
+
+function proposalFromPath() {
+  const match = location.pathname.match(/^\/proposal\/([^/]+)\/?$/i);
   if (!match) return null;
   try { return decodeURIComponent(match[1]); } catch { return match[1]; }
 }
@@ -396,7 +405,10 @@ async function openHousehold(householdId, { updateHistory = true, replaceHistory
   const request = ++householdRequest;
   if (state.householdScenario?.householdId && state.householdScenario.householdId !== householdId) {
     state.householdScenario = null;
+    state.proposalCandidates.clear();
+    document.body.classList.remove("proposal-mode-active");
     el("scenarioRibbon").hidden = true;
+    renderProposalTray();
   }
   closeWealthDrawer({ restoreFocus: false });
   state.currentHouseholdId = householdId;
@@ -529,21 +541,26 @@ function investmentUrl() {
   return params.size ? `/investments?${params}` : "/investments";
 }
 
+function proposalUrl(decisionId = state.proposal?.decisionId || state.householdScenario?.decisionId) {
+  return decisionId ? `/proposal/${encodeURIComponent(decisionId)}` : "/";
+}
+
 function setWorkspaceView(view, { updateHistory = true, replaceHistory = false } = {}) {
-  const next = ["book", "wealth", "investments"].includes(view) ? view : "book";
+  const next = ["book", "wealth", "investments", "proposal"].includes(view) ? view : "book";
   state.workspaceView = next;
-  if (next !== "wealth" && el("decisionStudio") && !el("decisionStudio").hidden) closeDecisionStudio({ restoreFocus: false });
+  if (!['wealth', 'proposal'].includes(next) && el("decisionStudio") && !el("decisionStudio").hidden) closeDecisionStudio({ restoreFocus: false });
   el("bookView").hidden = next !== "book";
   el("wealthView").hidden = next !== "wealth";
   el("investmentView").hidden = next !== "investments";
+  el("proposalView").hidden = next !== "proposal";
   document.body.dataset.workspace = next;
   document.querySelectorAll("[data-workspace-view]").forEach((button) => {
     const target = button.dataset.workspaceView;
-    button.classList.toggle("active", target === "book" ? next === "book" || next === "wealth" : target === next);
+    button.classList.toggle("active", target === "book" ? ["book", "wealth", "proposal"].includes(next) : target === next);
   });
-  document.title = next === "book" ? "Advisor Workspace" : next === "wealth" ? `${HOUSEHOLD?.name || "Household"} | Advisor Workspace` : "Investment Screener | Advisor Workspace";
+  document.title = next === "book" ? "Advisor Workspace" : next === "wealth" ? `${HOUSEHOLD?.name || "Household"} | Advisor Workspace` : next === "proposal" ? `${state.proposal?.householdName || HOUSEHOLD?.name || "Household"} Proposal | Advisor Workspace` : "Investment Screener | Advisor Workspace";
   if (updateHistory && !profileFromPath()) {
-    const href = next === "book" ? "/" : next === "wealth" && state.currentHouseholdId ? `/household/${encodeURIComponent(state.currentHouseholdId)}` : investmentUrl();
+    const href = next === "book" ? "/" : next === "wealth" && state.currentHouseholdId ? `/household/${encodeURIComponent(state.currentHouseholdId)}` : next === "proposal" ? proposalUrl() : investmentUrl();
     history[replaceHistory ? "replaceState" : "pushState"]({ workspaceView: next, householdId: state.currentHouseholdId }, "", href);
   }
   if (next === "book") {
@@ -553,8 +570,14 @@ function setWorkspaceView(view, { updateHistory = true, replaceHistory = false }
   } else if (next === "wealth") {
     if (HOUSEHOLD) requestAnimationFrame(initializeWealthChart);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  } else {
+  } else if (next === "investments") {
     ensureInvestmentWorkspaceLoaded();
+    renderCompareTray();
+    renderProposalTray();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else {
+    closeDrawer({ fromHistory: true });
+    renderProposalBuilder();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 }
@@ -770,9 +793,11 @@ function decisionScenarioOutcomes(detail, scenario) {
 
 function decisionPlanMarkup(detail, plan) {
   if (!plan) return `<div class="decision-plan-empty"><span class="panel-kicker">ACTION PLAN</span><h3>Turn the scenario into work</h3><p>Capture the intended path, then track it across client discussion and implementation.</p><button type="button" class="primary-button" data-decision-build-plan>Build plan</button></div>`;
-  const statuses = ["Plan drafted", "Client discussion", "In progress", "Complete"];
+  const statuses = ["Plan drafted", "Proposal in progress", "Ready for client", "Client discussion", "Client approved", "In progress", "Complete"];
+  const proposal = getProposal(detail.decision.id);
   const candidateMarkup = plan.candidates.length ? `<div class="decision-candidates"><span>Implementation candidates</span>${plan.candidates.map((candidate) => `<div><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.category)}${candidate.symbol ? ` · ${escapeHtml(candidate.symbol)}` : ""}</small></div>`).join("")}</div>` : "";
-  return `<div class="decision-plan-active"><div class="decision-plan-heading"><div><span class="panel-kicker">ACTION PLAN</span><h3>${escapeHtml(plan.title)}</h3></div><label>Status<select data-decision-plan-status>${statuses.map((status) => `<option value="${status}"${status === plan.status ? " selected" : ""}>${status}</option>`).join("")}</select></label></div><div class="decision-plan-steps">${plan.steps.map((step) => `<button type="button" class="${step.complete ? "complete" : ""}" data-decision-plan-step="${escapeHtml(step.id)}"><i>${step.complete ? "✓" : ""}</i><span>${escapeHtml(step.title)}</span></button>`).join("")}</div>${candidateMarkup}</div>`;
+  const proposalMarkup = proposal ? `<button type="button" class="decision-proposal-card" data-open-proposal="${escapeHtml(proposal.decisionId)}"><span><small>CLIENT PROPOSAL · ${escapeHtml(proposal.status.toUpperCase())}</small><strong>${formatWealthCurrency(proposal.totalAmount)} proposed change</strong><em>${proposal.candidates.length} selected ${proposal.candidates.length === 1 ? "solution" : "solutions"}</em></span><b>Open proposal →</b></button>` : "";
+  return `<div class="decision-plan-active"><div class="decision-plan-heading"><div><span class="panel-kicker">ACTION PLAN</span><h3>${escapeHtml(plan.title)}</h3></div><label>Status<select data-decision-plan-status>${statuses.map((status) => `<option value="${status}"${status === plan.status ? " selected" : ""}>${status}</option>`).join("")}</select></label></div>${proposalMarkup}<div class="decision-plan-steps">${plan.steps.map((step) => `<button type="button" class="${step.complete ? "complete" : ""}" data-decision-plan-step="${escapeHtml(step.id)}"><i>${step.complete ? "✓" : ""}</i><span>${escapeHtml(step.title)}</span></button>`).join("")}</div>${candidateMarkup}</div>`;
 }
 
 function renderDecisionStudio() {
@@ -783,7 +808,7 @@ function renderDecisionStudio() {
   state.activeDecisionPlan = plan;
   const status = plan?.status || detail.decision.status;
   const implementation = scenario.implementation;
-  const implementationCard = implementation?.enabled ? `<section class="decision-implementation"><span class="panel-kicker">IMPLEMENTATION</span><h3>${escapeHtml(implementation.objective)}</h3><strong>${formatWealthCurrency(implementation.amount)}</strong><div>${implementation.tags.slice(1, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div><button type="button" class="primary-button" data-decision-implement>Explore investments</button><p>The criteria passed into Investments stay visible and editable. No hidden suitability score is applied.</p></section>` : `<section class="decision-implementation muted"><span class="panel-kicker">IMPLEMENTATION</span><h3>No investment search required yet</h3><p>This scenario is currently about household funding or workflow rather than selecting a product.</p></section>`;
+  const implementationCard = implementation?.enabled ? `<section class="decision-implementation"><span class="proposal-step-kicker">STEP 1 OF 3 · DEFINE THE CHANGE</span><h3>${escapeHtml(implementation.objective)}</h3><div class="decision-funding-envelope"><span>AVAILABLE TO REDEPLOY</span><strong>${formatWealthCurrency(implementation.amount)}</strong><small>Explicit implementation mandate from this scenario</small></div><div>${implementation.tags.slice(1, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div><button type="button" class="primary-button" data-decision-implement>Find investments for proposal <span aria-hidden="true">→</span></button><p>Research and select solutions for a client proposal. Every criterion remains visible and editable.</p></section>` : `<section class="decision-implementation muted"><span class="panel-kicker">IMPLEMENTATION</span><h3>No investment search required yet</h3><p>This scenario is currently about household funding or workflow rather than selecting a product.</p></section>`;
   updateHtml(el("decisionStudioContent"), `<header class="decision-studio-header"><button type="button" class="decision-back" data-close-decision-studio>← ${escapeHtml(HOUSEHOLD.name)}</button><div><span class="eyebrow">DECISION STUDIO · ${escapeHtml(detail.decision.priority.toUpperCase())}</span><h2 id="decisionStudioTitle">${escapeHtml(detail.decision.title)}</h2><p>${escapeHtml(detail.decision.objective)}</p></div><span class="decision-status">${escapeHtml(status)}</span><button type="button" class="decision-close" data-close-decision-studio aria-label="Close decision studio">×</button></header><div class="decision-studio-body"><aside class="decision-facts"><div class="decision-signal tone-${escapeHtml(detail.decision.tone)}"><span>${escapeHtml(detail.evidence.severity)}</span><strong>${escapeHtml(detail.evidence.title)}</strong><p>${escapeHtml(detail.evidence.detail)}</p><small>${escapeHtml(detail.evidence.source)}</small></div><section><span class="panel-kicker">WHAT WE KNOW</span><div class="decision-fact-list">${detail.facts.map((fact) => `<div><span>${escapeHtml(fact.label)}</span><strong>${decisionValue(fact.value, fact.label)}</strong></div>`).join("")}</div></section><section class="decision-assumptions"><span class="panel-kicker">MODEL ASSUMPTIONS</span>${scenario.assumptions.map((assumption) => `<p>${escapeHtml(assumption)}</p>`).join("")}</section></aside><main class="decision-model"><div class="decision-model-heading"><span class="panel-kicker">WHAT COULD CHANGE</span><h3>Model the household consequence</h3><p>Adjust only explicit assumptions. The resulting changes are calculated from this household's current data.</p></div>${decisionScenarioControls(detail, scenario)}<div class="decision-consequence-heading"><span class="panel-kicker">HOUSEHOLD CONSEQUENCE</span><h3>Before and after</h3></div>${decisionScenarioOutcomes(detail, scenario)}</main><aside class="decision-plan-column">${implementationCard}${decisionPlanMarkup(detail, plan)}</aside></div>`);
 }
 
@@ -898,6 +923,27 @@ function launchInvestmentContext(scenario) {
   runSearch();
 }
 
+function proposalImpactFromScenario(detail, scenario) {
+  const impact = {};
+  const add = (key, label, before, after, format = "currency") => {
+    if (before === null || before === undefined || after === null || after === undefined) return;
+    impact[key] = { label, before, after, format };
+  };
+  if (detail.decision.kind === "concentration") {
+    add("concentration", "Largest position", scenario.before.concentrationPct, scenario.after.concentrationPct, "percent");
+    add("stressLoss", "Single-stock stress loss", scenario.before.stressLoss, scenario.after.stressLoss);
+    add("cash", "Household cash", scenario.before.cash, scenario.after.cash);
+    add("usEquity", "US equity allocation", scenario.before.usEquityPct, scenario.after.usEquityPct, "percent");
+  } else if (detail.decision.kind === "liquidity") {
+    add("cash", "Household cash", scenario.before.cash, scenario.after.cash);
+    add("cashWeight", "Cash weight", scenario.before.cashPct, scenario.after.cashPct, "percent");
+  } else if (detail.decision.kind === "allocation") {
+    add("allocation", "Municipal allocation", scenario.before.allocationPct, scenario.after.allocationPct, "percent");
+    add("cash", "Household cash", scenario.before.cash, scenario.after.cash);
+  }
+  return impact;
+}
+
 function launchDecisionImplementation() {
   const detail = state.activeDecisionDetail;
   const scenario = state.activeDecisionScenario;
@@ -905,11 +951,14 @@ function launchDecisionImplementation() {
   if (!getDecisionPlan(detail.decision.id)) buildActiveDecisionPlan();
   const implementation = scenario.implementation;
   state.compare.clear();
+  state.proposalCandidates.clear();
+  const existingProposal = getProposal(detail.decision.id);
+  for (const candidate of existingProposal?.candidates || []) state.proposalCandidates.set(candidate.id, candidate);
   renderCompareTray();
   closeDecisionStudio({ restoreFocus: false });
   launchInvestmentContext({
-    source: "FROM DECISION STUDIO",
-    title: `Implement ${implementation.objective.toLowerCase()}`,
+    source: "CLIENT PROPOSAL · STEP 2 OF 3",
+    title: `Select investments for ${HOUSEHOLD.name}`,
     tags: [formatWealthCurrency(implementation.amount), ...implementation.tags.slice(1)],
     category: implementation.category,
     q: implementation.query,
@@ -917,6 +966,12 @@ function launchDecisionImplementation() {
     risks: implementation.risks,
     decisionId: detail.decision.id,
     implementationAmount: implementation.amount,
+    proposalMode: true,
+    decisionTitle: detail.decision.title,
+    objective: detail.decision.objective,
+    sourceLabel: detail.decision.kind === "concentration" ? `${String(detail.facts.find((fact) => fact.label === "Position")?.value || "Position").split(" · ")[0]} reduction` : implementation.objective,
+    sourceValue: detail.evidence.title,
+    impact: proposalImpactFromScenario(detail, scenario),
   });
 }
 
@@ -924,8 +979,6 @@ async function returnFromInvestmentContext() {
   const context = state.householdScenario;
   if (!context?.householdId) return;
   if (context.decisionId) {
-    const candidates = [...state.compare.values()];
-    if (candidates.length) addDecisionCandidates(context.decisionId, candidates);
     await openHousehold(context.householdId);
     openDecisionStudio(context.decisionId);
     return;
@@ -939,13 +992,22 @@ function openPrimaryConcentrationDecision() {
   else openWealthDrawer("concentration");
 }
 
-function showScenarioRibbon({ source, title, tags, decisionId = null, implementationAmount = 0 }) {
-  state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name, decisionId, implementationAmount };
-  updateHtml(el("scenarioBack"), backLabel(decisionId ? "Decision" : HOUSEHOLD.name));
+function showScenarioRibbon({ source, title, tags, decisionId = null, implementationAmount = 0, proposalMode = false, decisionTitle = "", objective = "", sourceLabel = "", sourceValue = "", impact = {} }) {
+  state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name, decisionId, implementationAmount, proposalMode, decisionTitle, objective, sourceLabel, sourceValue, impact };
+  updateHtml(el("scenarioBack"), backLabel(decisionId ? "Review decision" : HOUSEHOLD.name));
   el("scenarioSource").textContent = source;
   el("scenarioTitle").textContent = title;
   el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+  el("scenarioProgress").innerHTML = proposalMode ? `<span class="complete"><i>1</i>Define change</span><b></b><span class="active"><i>2</i>Select investments</span><b></b><span><i>3</i>Build proposal</span>` : "";
+  el("scenarioCapital").hidden = !proposalMode;
+  if (proposalMode) {
+    el("scenarioCapitalAmount").textContent = formatWealthCurrency(implementationAmount);
+    el("scenarioCapitalSource").textContent = sourceLabel ? `From ${sourceLabel}` : "From proposed change";
+  }
+  el("scenarioRibbon").classList.toggle("proposal-mode", proposalMode);
   el("scenarioRibbon").hidden = false;
+  document.body.classList.toggle("proposal-mode-active", proposalMode);
+  renderProposalTray();
 }
 
 function applyHouseholdScenario(scenario) {
@@ -1206,6 +1268,7 @@ function visibleFlags(flags) {
 function renderMarketHeaders() {
   const columns = selectedColumns();
   el("resultsTable").style.setProperty("--result-columns", String(columns.length));
+  el("resultsTable").classList.toggle("proposal-results-table", proposalModeActive());
   el("columnsButton").textContent = `▦ Columns · ${columns.length}/${MAX_RESULT_COLUMNS}`;
   const sortableHeader = (column, label, className = "") => {
     const config = headerSort(state.appliedCategory, column, state.sort);
@@ -1214,7 +1277,7 @@ function renderMarketHeaders() {
     const indicator = config.active ? (config.direction === "asc" ? "↑" : "↓") : "↕";
     return `<th class="${className} sortable-column ${config.active ? "active-sort" : ""}" aria-sort="${ariaSort}"><button type="button" data-sort-header="${escapeHtml(config.nextSort)}" title="Sort by ${escapeHtml(label)}">${escapeHtml(label)}<span aria-hidden="true">${indicator}</span></button></th>`;
   };
-  updateHtml(el("resultsHeader"), `<th class="check-cell"><span class="sr-only">Compare</span></th>${sortableHeader("investment", "Investment", "col-investment")}${columns.map((column) => sortableHeader(column, columnLabel(state.appliedCategory, column), `result-data-column col-${escapeHtml(column)}`)).join("")}<th class="action-cell"><span class="sr-only">Actions</span></th>`);
+  updateHtml(el("resultsHeader"), `<th class="check-cell"><span class="sr-only">Compare</span></th>${sortableHeader("investment", "Investment", "col-investment")}${columns.map((column) => sortableHeader(column, columnLabel(state.appliedCategory, column), `result-data-column col-${escapeHtml(column)}`)).join("")}<th class="action-cell"><span class="sr-only">${proposalModeActive() ? "Proposal selection" : "Actions"}</span></th>`);
 }
 
 function marketMetric(metric) {
@@ -1283,11 +1346,12 @@ function renderResults() {
   const columns = selectedColumns();
   body.innerHTML = state.items.map((item) => {
     const checked = state.compare.has(item.id);
-    return `<tr data-row-id="${escapeHtml(item.id)}">
+    const proposed = state.proposalCandidates.has(item.id);
+    return `<tr data-row-id="${escapeHtml(item.id)}" class="${proposed ? "proposal-selected-row" : ""}">
       <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
       <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${researchStatus(item.researchStatus)}${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
       ${columns.map((column) => `<td class="result-data-column col-${escapeHtml(column)} ${column === "primary" ? "market-primary" : ""}">${renderResultColumn(item, column)}</td>`).join("")}
-      <td class="action-cell"><a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a></td>
+      <td class="action-cell">${proposalModeActive() ? `<button type="button" class="proposal-add-button ${proposed ? "selected" : ""}" data-proposal-id="${escapeHtml(item.id)}" aria-pressed="${proposed}">${proposed ? "✓ Added" : "Add to proposal"}</button>` : `<a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a>`}</td>
     </tr>`;
   }).join("");
 }
@@ -1521,8 +1585,202 @@ function renderCompareTray() {
   const count = state.compare.size;
   el("compareCountTop").textContent = String(count);
   el("compareTrayCount").textContent = String(count);
-  el("compareTray").hidden = count === 0;
+  el("compareTray").hidden = count === 0 || Boolean(state.householdScenario?.proposalMode);
   el("compareItems").innerHTML = [...state.compare.values()].map((item) => `<div class="compare-item"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(item.symbol)}</small><button data-remove-compare="${escapeHtml(item.id)}" aria-label="Remove ${escapeHtml(item.name)}">×</button></div>`).join("");
+}
+
+function proposalModeActive() {
+  return Boolean(state.householdScenario?.proposalMode && state.householdScenario?.decisionId);
+}
+
+function proposalTargetAmount() {
+  return Math.max(0, Math.round(Number(state.householdScenario?.implementationAmount) || Number(state.proposal?.totalAmount) || 0));
+}
+
+function proposalCandidate(id) {
+  return state.items.find((candidate) => candidate.id === id)
+    || (state.currentDetail?.id === id ? state.currentDetail : null)
+    || state.proposalCandidates.get(id)
+    || state.proposal?.candidates.find((candidate) => candidate.id === id);
+}
+
+function rebalanceProposalCandidates() {
+  const candidates = allocateProposalCandidates([...state.proposalCandidates.values()], proposalTargetAmount());
+  state.proposalCandidates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+}
+
+function renderProposalTray() {
+  const active = proposalModeActive() && state.workspaceView === "investments";
+  const tray = el("proposalTray");
+  if (!active) { tray.hidden = true; return; }
+  const candidates = [...state.proposalCandidates.values()];
+  const target = proposalTargetAmount();
+  const allocated = candidates.reduce((sum, candidate) => sum + (Number(candidate.amount) || 0), 0);
+  const remaining = Math.max(0, target - allocated);
+  tray.hidden = false;
+  el("proposalTrayTitle").textContent = candidates.length ? `${candidates.length} ${candidates.length === 1 ? "solution" : "solutions"} selected` : "Select investments";
+  el("proposalTraySubtitle").textContent = `${formatWealthCurrency(target)} available to allocate`;
+  el("proposalTrayItems").innerHTML = candidates.length
+    ? candidates.map((candidate) => `<div class="proposal-tray-item">${productMark(candidate)}<span><strong>${escapeHtml(candidate.name)}</strong><small>${formatWealthCurrency(candidate.amount)} · ${escapeHtml(candidate.manager || candidate.category)}</small></span><button type="button" data-remove-proposal="${escapeHtml(candidate.id)}" aria-label="Remove ${escapeHtml(candidate.name)} from proposal">×</button></div>`).join("")
+    : `<div class="proposal-tray-empty"><i>＋</i><span>Add one or more investments to build the client proposal.</span></div>`;
+  el("proposalTrayAllocated").textContent = formatWealthCurrency(allocated);
+  el("proposalTrayRemaining").textContent = `${formatWealthCurrency(remaining)} remaining`;
+  el("proposalContinue").disabled = !candidates.length || remaining !== 0;
+}
+
+function toggleProposalCandidate(id, selected) {
+  if (!proposalModeActive()) return;
+  const candidate = proposalCandidate(id);
+  if (selected) {
+    if (state.proposalCandidates.size >= 6) { showToast("A proposal can include up to six investments"); return; }
+    if (candidate) state.proposalCandidates.set(id, candidate);
+  } else state.proposalCandidates.delete(id);
+  rebalanceProposalCandidates();
+  renderProposalTray();
+  renderResults();
+  if (state.currentDetail) renderResearchProfile(state.currentDetail);
+}
+
+function proposalAllocated(proposal = state.proposal) {
+  return (proposal?.candidates || []).reduce((sum, candidate) => sum + (Number(candidate.amount) || 0), 0);
+}
+
+function proposalImpactValue(value, format) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "Not modeled";
+  return format === "percent" ? `${numeric.toFixed(1)}%` : formatWealthCurrency(numeric);
+}
+
+function defaultProposalRationale(context) {
+  if (!context) return "Implement the agreed household change using investments selected for the client's objectives and portfolio context.";
+  return `${context.sourceValue || context.decisionTitle} creates ${formatWealthCurrency(context.implementationAmount)} to reposition. The proposed solutions are intended to advance ${String(context.objective || "the household objective").replace(/\.$/, "").toLowerCase()} while keeping the implementation criteria explicit.`;
+}
+
+function buildProposalFromSelection() {
+  const context = state.householdScenario;
+  if (!context?.decisionId || !state.proposalCandidates.size) return null;
+  const existing = getProposal(context.decisionId);
+  const draft = createProposalDraft({
+    ...existing,
+    decisionId: context.decisionId,
+    householdId: context.householdId,
+    householdName: context.householdName,
+    members: HOUSEHOLD?.members || existing?.members || [],
+    decisionTitle: context.decisionTitle,
+    objective: context.objective,
+    sourceLabel: context.sourceLabel,
+    sourceValue: context.sourceValue,
+    totalAmount: context.implementationAmount,
+    impact: context.impact,
+    candidates: [...state.proposalCandidates.values()],
+    rationale: existing?.rationale || defaultProposalRationale(context),
+    status: existing?.status || "Draft",
+    createdAt: existing?.createdAt,
+  });
+  state.proposal = saveProposal(draft);
+  state.activeDecisionPlan = setDecisionPlanStatus(context.decisionId, "Proposal in progress") || state.activeDecisionPlan;
+  return state.proposal;
+}
+
+function openProposalBuilder(decisionId = state.householdScenario?.decisionId) {
+  let proposal = decisionId ? getProposal(decisionId) : null;
+  const openingStoredProposal = proposal && state.proposal?.decisionId !== proposal.decisionId;
+  if (openingStoredProposal || (proposal && !state.proposalCandidates.size)) state.proposalCandidates = new Map(proposal.candidates.map((candidate) => [candidate.id, candidate]));
+  if (proposalModeActive() && state.proposalCandidates.size) proposal = buildProposalFromSelection();
+  if (!proposal) { showToast("Add an investment before continuing"); return; }
+  state.proposal = proposal;
+  if (!state.householdScenario?.proposalMode) {
+    state.householdScenario = {
+      source: "CLIENT PROPOSAL · STEP 2 OF 3",
+      title: `Select investments for ${proposal.householdName}`,
+      tags: [formatWealthCurrency(proposal.totalAmount), "Client proposal", proposal.sourceLabel],
+      householdId: proposal.householdId,
+      householdName: proposal.householdName,
+      decisionId: proposal.decisionId,
+      implementationAmount: proposal.totalAmount,
+      proposalMode: true,
+      decisionTitle: proposal.decisionTitle,
+      objective: proposal.objective,
+      sourceLabel: proposal.sourceLabel,
+      sourceValue: proposal.sourceValue,
+      impact: proposal.impact,
+    };
+  }
+  document.body.classList.add("proposal-mode-active");
+  closeDrawer({ fromHistory: true });
+  renderCompareTray();
+  renderProposalTray();
+  const href = proposalUrl(proposal.decisionId);
+  setWorkspaceView("proposal", { updateHistory: false });
+  if (`${location.pathname}${location.search}` !== href) history.pushState({ workspaceView: "proposal", householdId: proposal.householdId, decisionId: proposal.decisionId }, "", href);
+}
+
+function proposalImpactMarkup(proposal) {
+  const entries = Object.values(proposal.impact || {});
+  if (!entries.length) return `<p class="proposal-empty-copy">No modeled household impact is available for this decision.</p>`;
+  return `<div class="proposal-impact-grid">${entries.map((item) => `<div><span>${escapeHtml(item.label)}</span><p><small>Current</small><strong>${proposalImpactValue(item.before, item.format)}</strong></p><i aria-hidden="true">→</i><p><small>Proposed</small><strong>${proposalImpactValue(item.after, item.format)}</strong></p></div>`).join("")}</div>`;
+}
+
+function proposalSolutionMarkup(proposal) {
+  return `<div class="proposal-solutions">${proposal.candidates.map((candidate, index) => `<article><span class="proposal-solution-number">${String(index + 1).padStart(2, "0")}</span>${productMark(candidate)}<div><h4>${escapeHtml(candidate.name)}</h4><p>${escapeHtml(candidate.manager)} · ${escapeHtml(candidate.category)}${candidate.symbol ? ` · ${escapeHtml(candidate.symbol)}` : ""}</p><small>${candidate.fee === null ? "Fee available in product research" : `${formatFee(candidate.fee)} annual fee`} · ${formatMinimum(candidate.minimum)} minimum</small></div><strong>${formatWealthCurrency(candidate.amount)}</strong><em>${proposal.totalAmount ? ((candidate.amount / proposal.totalAmount) * 100).toFixed(0) : 0}%</em></article>`).join("")}</div>`;
+}
+
+function renderProposalBuilder() {
+  const proposal = state.proposal;
+  if (!proposal) {
+    updateHtml(el("proposalContent"), `<div class="proposal-route-error"><span>CLIENT PROPOSAL</span><h1 id="proposalPageTitle">Proposal unavailable</h1><p>Return to the household decision and select investments to begin.</p><button type="button" class="primary-button" data-workspace-view="book">Return to My Book</button></div>`);
+    return;
+  }
+  const allocated = proposalAllocated(proposal);
+  const remaining = proposal.totalAmount - allocated;
+  const allocationValid = proposal.candidates.length > 0 && remaining === 0;
+  const weightedFee = proposal.candidates.reduce((sum, candidate) => sum + (Number(candidate.fee) || 0) * candidate.amount, 0) / Math.max(1, allocated);
+  const today = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
+  updateHtml(el("proposalContent"), `<header class="proposal-workspace-header">
+      <div><button type="button" class="proposal-back-link" data-proposal-back-results>${backLabel("Investment selection")}</button><span class="eyebrow">TOTAL WEALTH · CLIENT PROPOSAL</span><h1 id="proposalPageTitle">Build the client proposal</h1><p>Turn the selected implementation into a clear, reviewable household recommendation.</p></div>
+      <div class="proposal-header-actions"><button type="button" class="secondary-button" data-open-decision-from-proposal>Review decision</button><button type="button" class="primary-button" data-proposal-generate ${allocationValid ? "" : "disabled"}>Generate client proposal</button></div>
+    </header>
+    <nav class="proposal-stepper" aria-label="Proposal progress"><span class="complete"><i>✓</i>Define change</span><b></b><span class="complete"><i>✓</i>Select investments</span><b></b><span class="active"><i>3</i>Build proposal</span></nav>
+    <div class="proposal-builder-layout">
+      <main class="proposal-document" id="proposalDocument">
+        <header class="proposal-document-brand"><div><span class="brand-mark" aria-hidden="true">UPS</span><i></i><strong>WEALTH MANAGEMENT</strong></div><span>${escapeHtml(proposal.status.toUpperCase())}</span></header>
+        <section class="proposal-document-title"><span>INVESTMENT PROPOSAL · ${escapeHtml(today.toUpperCase())}</span><h2>Proposed portfolio change</h2><p>Prepared for <strong>${escapeHtml(proposal.members.join(" & ") || proposal.householdName)}</strong></p></section>
+        <section class="proposal-executive-summary"><div><span>HOUSEHOLD</span><strong>${escapeHtml(proposal.householdName)}</strong><small>${escapeHtml(proposal.decisionTitle)}</small></div><div><span>PROPOSED INVESTMENT</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small></div><div><span>SOLUTIONS</span><strong>${proposal.candidates.length}</strong><small>${weightedFee ? `${weightedFee.toFixed(2)}% weighted fee` : "Selected investment mix"}</small></div></section>
+        <section class="proposal-document-section"><span class="proposal-section-label">WHY THIS CHANGE</span><h3>A portfolio decision grounded in the household</h3><p>${escapeHtml(proposal.rationale)}</p><div class="proposal-source-note"><span>Source of funds</span><strong>${escapeHtml(proposal.sourceLabel)}</strong><small>${escapeHtml(proposal.sourceValue)}</small></div></section>
+        ${proposal.sections.householdImpact ? `<section class="proposal-document-section"><span class="proposal-section-label">HOUSEHOLD IMPACT</span><h3>What changes in the modeled portfolio</h3>${proposalImpactMarkup(proposal)}</section>` : ""}
+        ${proposal.sections.proposedSolutions ? `<section class="proposal-document-section"><span class="proposal-section-label">PROPOSED SOLUTIONS</span><h3>How the capital would be allocated</h3>${proposalSolutionMarkup(proposal)}</section>` : ""}
+        ${proposal.sections.costsAndConsiderations ? `<section class="proposal-document-section proposal-considerations"><span class="proposal-section-label">COSTS & CONSIDERATIONS</span><div><p><strong>Costs</strong><span>${weightedFee ? `${weightedFee.toFixed(2)}% weighted annual investment-management fee, before applicable advisory or custody charges.` : "Review product-level fees and applicable advisory charges before implementation."}</span></p><p><strong>Taxes</strong><span>Realized gains and tax consequences require review. No tax liability is estimated in this proposal.</span></p><p><strong>Implementation</strong><span>Final eligibility, restrictions, account funding and operational readiness must be confirmed before execution.</span></p></div></section>` : ""}
+        ${proposal.sections.nextSteps ? `<section class="proposal-document-section proposal-next-steps"><span class="proposal-section-label">NEXT STEPS</span><h3>Review together before anything is implemented</h3><ol><li><i>1</i><span><strong>Discuss the proposed change</strong><small>Confirm the household objective and the amount to reposition.</small></span></li><li><i>2</i><span><strong>Review the selected solutions</strong><small>Consider strategy, fees, risks, liquidity and tax implications.</small></span></li><li><i>3</i><span><strong>Approve implementation</strong><small>No transaction occurs until the required client and firm approvals are complete.</small></span></li></ol></section>` : ""}
+        <footer class="proposal-document-footer"><span>Illustrative proposal · Not a trade confirmation or investment recommendation</span><span>${escapeHtml(proposal.id)}</span></footer>
+      </main>
+      <aside class="proposal-composer">
+        <div class="proposal-composer-heading"><span>PROPOSAL CONFIGURATION</span><h2>Shape the client conversation</h2><p>Amounts and included sections update the proposal preview.</p></div>
+        <section class="proposal-funding-card"><span>CAPITAL TO ALLOCATE</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small><div><i style="width:${Math.min(100, (allocated / Math.max(1, proposal.totalAmount)) * 100)}%"></i></div><p><span>${formatWealthCurrency(allocated)} allocated</span><b class="${remaining === 0 ? "complete" : ""}">${formatWealthCurrency(Math.abs(remaining))} ${remaining < 0 ? "over" : "remaining"}</b></p></section>
+        <section class="proposal-allocation-editor"><div class="proposal-composer-section-heading"><span>ALLOCATION</span><button type="button" data-proposal-rebalance>Split evenly</button></div>${proposal.candidates.map((candidate) => `<label><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.symbol || candidate.category)}</small></span><span class="proposal-money-input">$<input type="number" min="0" max="${proposal.totalAmount}" step="1000" value="${candidate.amount}" data-proposal-amount="${escapeHtml(candidate.id)}" aria-label="Proposed amount for ${escapeHtml(candidate.name)}" /></span></label>`).join("")}</section>
+        <section class="proposal-section-editor"><div class="proposal-composer-section-heading"><span>CLIENT SECTIONS</span></div>${[["householdImpact", "Household impact"], ["proposedSolutions", "Proposed solutions"], ["costsAndConsiderations", "Costs & considerations"], ["nextSteps", "Next steps"]].map(([key, label]) => `<label><input type="checkbox" data-proposal-section="${key}" ${proposal.sections[key] ? "checked" : ""}/><span>${label}</span></label>`).join("")}</section>
+        <label class="proposal-rationale-editor"><span>ADVISOR RATIONALE</span><textarea maxlength="1200" data-proposal-rationale>${escapeHtml(proposal.rationale)}</textarea></label>
+        <button type="button" class="primary-button proposal-generate-button" data-proposal-generate ${allocationValid ? "" : "disabled"}>Generate client proposal <span aria-hidden="true">→</span></button>
+        <small class="proposal-autosave">Draft saved to this household decision</small>
+      </aside>
+    </div>`);
+}
+
+function updateProposal(updates) {
+  if (!state.proposal) return null;
+  state.proposal = saveProposal({ ...state.proposal, ...updates, status: state.proposal.status === "Ready for client" ? "Draft" : state.proposal.status });
+  return state.proposal;
+}
+
+function generateClientProposal() {
+  if (!state.proposal || proposalAllocated() !== state.proposal.totalAmount) { showToast("Allocate the full proposal amount first"); return; }
+  state.proposal = markProposalReady(state.proposal.decisionId);
+  if (!state.proposal) { showToast("Proposal could not be finalized"); return; }
+  setDecisionCandidates(state.proposal.decisionId, state.proposal.candidates);
+  setDecisionPlanStatus(state.proposal.decisionId, "Ready for client");
+  renderProposalBuilder();
+  renderBookRows();
+  updateHtml(el("proposalReadyContent"), `<div class="proposal-ready-state"><button type="button" class="proposal-ready-close" data-close-modal="proposalReadyModal" aria-label="Close">×</button><span class="proposal-ready-check">✓</span><small>CLIENT PROPOSAL READY</small><h2>${escapeHtml(state.proposal.householdName)}</h2><p>The ${formatWealthCurrency(state.proposal.totalAmount)} proposal is attached to the household decision and ready for the client conversation.</p><div><button type="button" class="secondary-button" data-proposal-print>Print or save PDF</button><button type="button" class="primary-button" data-proposal-return-household>Return to household</button></div><span class="proposal-ready-meta">${state.proposal.candidates.length} ${state.proposal.candidates.length === 1 ? "solution" : "solutions"} · ${escapeHtml(state.proposal.status)}</span></div>`);
+  el("proposalReadyModal").showModal();
 }
 
 function toggleCompare(id, checked) {
@@ -1600,6 +1858,7 @@ function renderResearchProfile(item) {
   const profile = item.profile;
   const controls = item.controls;
   const selected = state.compare.has(item.id);
+  const proposed = state.proposalCandidates.has(item.id);
   const saved = isInvestmentSaved(item.id);
   const pageMode = state.detailMode === "page";
   const currentIndex = state.items.findIndex((candidate) => candidate.id === item.id);
@@ -1620,7 +1879,7 @@ function renderResearchProfile(item) {
         <div class="profile-name-block"><div class="profile-large-mark">${productMark(item)}</div><div><span class="drawer-type">${escapeHtml(item.category)} · ${escapeHtml(item.type)}</span><h2 id="detailTitle">${escapeHtml(item.name)}</h2><p>${escapeHtml(item.symbol)} · ${escapeHtml(item.manager)}</p><div class="drawer-badges">${item.flags.map(badge).join("")}</div></div></div>
         <div class="profile-quote"><small>${escapeHtml(profile.quote.label)}</small><strong>${escapeHtml(profile.quote.value)}</strong><span class="quote-change ${escapeHtml(profile.quote.changeTone)}">${escapeHtml(profile.quote.change)}</span><div><small>${escapeHtml(profile.quote.secondaryLabel)}</small><b>${escapeHtml(profile.quote.secondaryValue)}</b></div><em>${escapeHtml(profile.quote.asOf)}</em></div>
       </div>
-      <div class="profile-actions"><button class="secondary-button" data-save-investment="${escapeHtml(item.id)}">${saved ? "★ Saved" : "☆ Save"}</button><button class="primary-button" data-drawer-compare="${escapeHtml(item.id)}">${selected ? "Remove from compare" : "＋ Add to compare"}</button></div>
+      <div class="profile-actions"><button class="secondary-button" data-save-investment="${escapeHtml(item.id)}">${saved ? "★ Saved" : "☆ Save"}</button><button class="secondary-button" data-drawer-compare="${escapeHtml(item.id)}">${selected ? "Remove from compare" : "⇄ Compare"}</button>${proposalModeActive() ? `<button class="primary-button proposal-profile-add ${proposed ? "selected" : ""}" data-proposal-id="${escapeHtml(item.id)}" aria-pressed="${proposed}">${proposed ? "✓ Added to proposal" : "＋ Add to proposal"}</button>` : ""}</div>
       <div class="profile-control-band" aria-label="Research, shelf, operations and data status">
         ${controlCell("Research", controls.research, `Reviewed ${controls.research.reviewed} · Next ${controls.research.nextReview}`)}
         ${controlCell("Shelf", controls.shelf, controls.shelf.detail)}
@@ -1919,8 +2178,12 @@ function hydrateFromUrl() {
   const params = new URLSearchParams(location.search);
   const profile = profileFromPath();
   const household = householdFromPath();
-  state.workspaceView = profile || /^\/investments\/?$/i.test(location.pathname) ? "investments" : household ? "wealth" : "book";
-  state.currentHouseholdId = household;
+  const proposalId = proposalFromPath();
+  const proposal = proposalId ? getProposal(proposalId) : null;
+  state.workspaceView = proposalId ? "proposal" : profile || /^\/investments\/?$/i.test(location.pathname) ? "investments" : household ? "wealth" : "book";
+  state.currentHouseholdId = proposal?.householdId || household;
+  state.proposal = proposal;
+  if (proposal) state.proposalCandidates = new Map(proposal.candidates.map((candidate) => [candidate.id, candidate]));
   state.q = params.get("q") || "";
   const category = params.get("category") || "All";
   state.category = CATEGORY_ORDER.includes(category) ? category : "All";
@@ -1987,6 +2250,28 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-decision-studio]") || event.target === el("decisionStudioBackdrop")) closeDecisionStudio();
   if (event.target.closest("[data-decision-build-plan]")) buildActiveDecisionPlan();
   if (event.target.closest("[data-decision-implement]")) launchDecisionImplementation();
+  const openProposal = event.target.closest("[data-open-proposal]");
+  if (openProposal) { closeDecisionStudio({ restoreFocus: false }); openProposalBuilder(openProposal.dataset.openProposal); }
+  const proposalSelection = event.target.closest("[data-proposal-id]");
+  if (proposalSelection) toggleProposalCandidate(proposalSelection.dataset.proposalId, !state.proposalCandidates.has(proposalSelection.dataset.proposalId));
+  const removeProposal = event.target.closest("[data-remove-proposal]");
+  if (removeProposal) toggleProposalCandidate(removeProposal.dataset.removeProposal, false);
+  if (event.target.closest("[data-proposal-back-results]")) { setWorkspaceView("investments"); renderProposalTray(); }
+  if (event.target.closest("[data-open-decision-from-proposal]") && state.proposal) {
+    openHousehold(state.proposal.householdId).then(() => openDecisionStudio(state.proposal.decisionId));
+  }
+  if (event.target.closest("[data-proposal-generate]")) generateClientProposal();
+  if (event.target.closest("[data-proposal-rebalance]") && state.proposal) {
+    const candidates = allocateProposalCandidates(state.proposal.candidates, state.proposal.totalAmount);
+    state.proposalCandidates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    updateProposal({ candidates });
+    renderProposalBuilder();
+  }
+  if (event.target.closest("[data-proposal-print]")) window.print();
+  if (event.target.closest("[data-proposal-return-household]") && state.proposal) {
+    el("proposalReadyModal").close();
+    openHousehold(state.proposal.householdId);
+  }
   const planStep = event.target.closest("[data-decision-plan-step]");
   if (planStep && state.activeDecisionDetail) { state.activeDecisionPlan = toggleDecisionPlanStep(state.activeDecisionDetail.decision.id, planStep.dataset.decisionPlanStep); renderDecisionStudio(); renderBookRows(); }
   const sortHeader = event.target.closest("[data-sort-header]");
@@ -2140,6 +2425,22 @@ document.addEventListener("change", (event) => {
   if (target.matches('[data-filter="risk"]')) { target.checked ? state.risks.add(target.value) : state.risks.delete(target.value); runSearch(); }
   if (target.matches('[data-filter="status"]')) { target.checked ? state.statuses.add(target.value) : state.statuses.delete(target.value); runSearch(); }
   if (target.matches("[data-compare-id]")) toggleCompare(target.dataset.compareId, target.checked);
+  if (target.matches("[data-proposal-amount]") && state.proposal) {
+    const amount = Math.max(0, Math.round(Number(target.value) || 0));
+    const candidates = state.proposal.candidates.map((candidate) => candidate.id === target.dataset.proposalAmount ? { ...candidate, amount } : candidate);
+    state.proposalCandidates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    updateProposal({ candidates });
+    renderProposalBuilder();
+  }
+  if (target.matches("[data-proposal-section]") && state.proposal) {
+    updateProposal({ sections: { ...state.proposal.sections, [target.dataset.proposalSection]: target.checked } });
+    renderProposalBuilder();
+  }
+});
+
+document.addEventListener("input", (event) => {
+  if (!event.target.matches("[data-proposal-rationale]") || !state.proposal) return;
+  updateProposal({ rationale: event.target.value });
 });
 
 document.addEventListener("error", (event) => {
@@ -2183,12 +2484,18 @@ el("compareModal").addEventListener("pointerdown", (event) => {
   if (event.target === dialog && outside) dialog.close();
 });
 el("clearCompare").addEventListener("click", () => { state.compare.clear(); renderCompareTray(); renderResults(); });
+el("proposalContinue").addEventListener("click", () => openProposalBuilder());
 el("saveScreenButton").addEventListener("click", () => { el("saveName").value = state.q ? state.q.slice(0, 60) : `${state.category} screen`; el("saveModal").showModal(); });
 el("saveForm").addEventListener("submit", (event) => { event.preventDefault(); saveCurrentScreen(el("saveName").value.trim()); el("saveModal").close(); });
 el("dismissInterpretation").addEventListener("click", () => { el("interpretation").hidden = true; });
 el("dismissScenario").addEventListener("click", () => {
   state.householdScenario = null;
+  state.proposalCandidates.clear();
   el("scenarioRibbon").hidden = true;
+  document.body.classList.remove("proposal-mode-active");
+  renderProposalTray();
+  renderCompareTray();
+  renderResults();
   if (state.workspaceView === "investments" && !profileFromPath()) history.replaceState({ workspaceView: "investments" }, "", investmentUrl());
 });
 el("columnsButton").addEventListener("click", openColumnConfigurator);
@@ -2205,6 +2512,16 @@ window.addEventListener("popstate", () => {
   if (slug) {
     setWorkspaceView("investments", { updateHistory: false });
     openDetail(slug, { mode: history.state?.profileCanvas ? "panel" : "page", pushHistory: false });
+    return;
+  }
+  const proposalId = proposalFromPath();
+  if (proposalId) {
+    const proposal = getProposal(proposalId);
+    if (proposal) {
+      state.proposal = proposal;
+      state.proposalCandidates = new Map(proposal.candidates.map((candidate) => [candidate.id, candidate]));
+      openProposalBuilder(proposalId);
+    } else setWorkspaceView("proposal", { updateHistory: false });
     return;
   }
   if (el("detailDrawer").classList.contains("open")) closeDrawer({ fromHistory: true });
@@ -2234,7 +2551,12 @@ renderActiveFilters();
 renderSavedScreens();
 const initialProfile = profileFromPath();
 const initialHousehold = householdFromPath();
-if (initialHousehold) {
+const initialProposalId = proposalFromPath();
+if (initialProposalId && state.proposal) {
+  openHousehold(state.proposal.householdId, { updateHistory: false }).then(() => openProposalBuilder(initialProposalId));
+} else if (initialProposalId) {
+  setWorkspaceView("proposal", { updateHistory: false });
+} else if (initialHousehold) {
   openHousehold(initialHousehold, { updateHistory: false });
 } else {
   setWorkspaceView(state.workspaceView, { updateHistory: false });

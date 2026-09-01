@@ -7,9 +7,11 @@
 3. The server-side wealth service assembles the bounded browser contract and derives household financial assets, net worth, cash and goal counts from underlying account, asset, liability and goal records. Projections are cached by household/account ID for the life of the loaded source dataset.
 4. The browser lazily loads the same locally bundled Lightweight Charts module already used for comparison and draws only the selected 1Y, 3Y or 5Y investable-wealth window. Account and goal detail are bounded projections from the same household contract, so drill-downs need no second source of truth.
 5. A prioritized household insight opens an in-context analysis drawer. The concentration review keeps exposure, account location, cost basis, policy target, scenario impact and research standing visibly separate.
-6. Selecting an implementation path interprets structured action/search-intent metadata from the wealth projection. It switches to `/investments`, paints the household-scoped scenario in a persistent ribbon and executes the normal bounded search request.
-7. The screener remains independently usable and client-agnostic. Every passed criterion is visible and removable; no hidden client-fit or recommendation score is introduced.
-8. Household scenario state records its originating household and is cleared when another relationship opens, preventing context from bleeding between households.
+6. Selecting an implementation path interprets structured action/search-intent metadata from the wealth projection. It switches to `/investments`, paints the household-scoped proposal context and available capital in a persistent ribbon, and executes the normal bounded search request.
+7. Investment selection uses the existing bounded search and detail contracts, but records a separate proposal basket with exact dollar allocation. Continuing opens `/proposal/:decisionId`, where the advisor configures and finalizes a client-facing proposal without executing a trade.
+8. The generated proposal persists through a small versioned browser adapter, replaces the originating plan's implementation candidates, and advances that decision to `Ready for client`.
+9. The screener remains independently usable and client-agnostic. Every passed criterion is visible and removable; no hidden client-fit or recommendation score is introduced.
+10. Household scenario state records its originating household and is cleared when another relationship opens, preventing context from bleeding between households.
 
 The prototype now preserves the production seam as `normalized source → indexed repository → wealth service → bounded household BFF → browser projection`. A real database, portfolio-accounting service or aggregation layer can replace the demo source/repository behind that seam without changing the Total Wealth presentation contract.
 
@@ -87,3 +89,5 @@ Phase Three adds a normalized decision domain above household facts and below im
 Scenario calculations are explicit transformations of the selected household's current values plus visible user-editable assumptions. They model consequences; they do not create a hidden suitability score or investment recommendation. Investment criteria passed from a decision into the existing screener remain visible and editable.
 
 The prototype persists advisor-created action-plan workflow state in a small versioned browser adapter (`lib/decision-data.js`) because this demo has no durable write database. The UI does not own the decision math or canonical household data. A production implementation should replace that adapter with authenticated, audited server writes while preserving the stable decision/plan IDs and read projections.
+
+Client proposal drafts follow the same prototype boundary in `lib/proposal-data.js`. The adapter normalizes candidate identity, caps basket size, validates exact allocation before client-ready status, and stores only the advisor's bounded proposal record. Production should replace this local adapter with versioned, authenticated proposal records, document generation, approval evidence and audit history while preserving the `/proposal/:decisionId` workflow.
