@@ -1,5 +1,5 @@
 import { getInvestmentDetail, getMarketSnapshots } from "../lib/catalog.js";
-import { applyQuoteToSnapshot, getLiveQuotes } from "../lib/market-data.js";
+import { applyMetricsToSnapshot, applyQuoteToSnapshot, getLiveMetrics, getLiveQuotes } from "../lib/market-data.js";
 
 function externalMarketDataEnabled() {
   return process.env.MARKET_DATA_DISABLED !== "1" && process.env.CI !== "true";
@@ -21,10 +21,15 @@ export default {
       const snapshots = getMarketSnapshots(ids);
       if (externalMarketDataEnabled()) {
         const details = ids.map((id) => getInvestmentDetail(id)).filter(Boolean);
-        const quotes = await getLiveQuotes(details);
+        const [quotes, metrics] = await Promise.all([getLiveQuotes(details), getLiveMetrics(details)]);
         for (const detail of details) {
+          let snapshot = snapshots[detail.id];
+          if (!snapshot) continue;
           const quote = quotes.get(detail.id);
-          if (quote && snapshots[detail.id]) snapshots[detail.id] = applyQuoteToSnapshot(snapshots[detail.id], quote);
+          const liveMetrics = metrics.get(detail.id);
+          if (quote) snapshot = applyQuoteToSnapshot(snapshot, quote);
+          if (liveMetrics) snapshot = applyMetricsToSnapshot(snapshot, liveMetrics, detail.category);
+          snapshots[detail.id] = snapshot;
         }
       }
       return Response.json({ snapshots }, {
