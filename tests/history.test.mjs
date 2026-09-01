@@ -33,7 +33,7 @@ test("history API returns complete cached data and rejects bad requests", async 
   const invalid = await historyHandler.fetch(new Request("https://example.test/api/history?ids=%3Cscript%3E"));
   const missing = await historyHandler.fetch(new Request("https://example.test/api/history?ids=missing"));
   assert.equal(valid.status, 200);
-  assert.match(valid.headers.get("cache-control"), /s-maxage=3600/);
+  assert.match(valid.headers.get("cache-control"), /s-maxage=900/);
   const data = await valid.json();
   assert.equal(data.series[0].symbol, "AAPL");
   assert.equal(data.series[1].symbol, "MSFT");
