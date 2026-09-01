@@ -1,0 +1,34 @@
+name: Price Column Polish
+
+on:
+  push:
+    branches:
+      - polish/price-intraday-and-1y-return
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: polish/price-intraday-and-1y-return
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Apply guarded price-column polish
+        run: node scripts/apply-price-column-polish.mjs
+      - name: Validate full build
+        run: npm run build
+      - name: Commit verified product changes
+        run: |
+          rm scripts/apply-price-column-polish.mjs .github/workflows/price-column-polish.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Polish price column and 1Y return defaults"
+          git push origin HEAD:polish/price-intraday-and-1y-return
