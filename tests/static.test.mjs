@@ -220,3 +220,13 @@ test("every allowlisted brand mark is local, unique and present", async () => {
     assert.ok(asset.size > 100, `brand asset is unexpectedly empty: ${logo.src}`);
   }
 });
+
+test("price column owns the full intraday sparkline while trend stays out of the table", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(app, /marketSparkline\(snapshot\.intraday\)/);
+  assert.match(app, /market-primary-layout/);
+  assert.equal(app.includes('if (column === "trend")'), false);
+  assert.match(css, /\.results-table th\.col-primary \{ width: 236px; \}/);
+  assert.equal(css.includes("market-live-sparkline"), false);
+});
