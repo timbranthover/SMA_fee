@@ -1,0 +1,139 @@
+name: Book attention cleanup
+
+on:
+  push:
+    branches:
+      - ui/book-attention-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply guarded UI cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match in {path}: found {count}\n{old[:160]}")
+              path.write_text(text.replace(old, new, 1))
+
+          app = Path('app.js')
+          replace_once(app,
+          '''function bookPriorityMarkup(item) {
+  const localPlan = getHouseholdPlanSummary(item.id);
+  const planStatus = localPlan?.status || (item.planCount ? item.decisionStatus : null);
+  const parts = [];
+  if (planStatus) parts.push(`<span class="book-plan-pill"><i></i>${escapeHtml(planStatus)}</span>`);
+  if (item.priority) parts.push(`<span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong>${escapeHtml(item.priority.title)}</strong><small>${escapeHtml(item.priority.detail)}</small></span></span>`);
+  else if (item.openDecisionCount) parts.push(`<span class="book-priority-none"><strong>${item.openDecisionCount} open ${item.openDecisionCount === 1 ? "decision" : "decisions"}</strong><small>Relationship workflow active</small></span>`);
+  else parts.push(`<span class="book-priority-none">No material exception</span>`);
+  return `<span class="book-attention-stack">${parts.join("")}</span>`;
+}''',
+          '''function bookPriorityMarkup(item) {
+  const localPlan = getHouseholdPlanSummary(item.id);
+  const planStatus = localPlan?.status || (item.planCount ? item.decisionStatus : null);
+  const workflowStatus = planStatus ? `<span class="book-workflow-status">${escapeHtml(planStatus)}</span>` : "";
+  if (item.priority) {
+    const detail = String(item.priority.detail || "").replace(/\\s+across\\s+/i, " · ");
+    return `<span class="book-attention-stack"><span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong title="${escapeHtml(item.priority.title)}">${escapeHtml(item.priority.title)}</strong><small><span class="book-priority-detail">${escapeHtml(detail)}</span>${workflowStatus}</small></span></span></span>`;
+  }
+  if (item.openDecisionCount) {
+    return `<span class="book-attention-stack"><span class="book-priority-none"><strong>${item.openDecisionCount} open ${item.openDecisionCount === 1 ? "decision" : "decisions"}</strong><small><span>Relationship workflow active</span>${workflowStatus}</small></span></span>`;
+  }
+  return `<span class="book-attention-stack"><span class="book-priority-none">No material exception</span></span>`;
+}''')
+
+          html = Path('index.html')
+          replace_once(html,
+          '''<th>Household</th><th>Net worth</th><th>Financial assets</th><th>Cash</th><th>YTD</th><th>Goals</th><th>Decision / attention</th>''',
+          '''<th>Household</th><th>Net worth</th><th>Financial assets</th><th>Cash</th><th>YTD</th><th>Goals</th><th>Attention</th>''')
+
+          css = Path('styles.css')
+          replace_once(css,
+          '''.book-table th:first-child { width: 27%; text-align: left; padding-left: 14px; }
+.book-table th:last-child { width: 23%; text-align: left; padding-right: 14px; }''',
+          '''.book-table th:first-child { width: 27%; text-align: left; padding-left: 14px; }
+.book-table th:nth-child(2) { width: 10%; }
+.book-table th:nth-child(3) { width: 11%; }
+.book-table th:nth-child(4) { width: 9%; }
+.book-table th:nth-child(5) { width: 7%; }
+.book-table th:nth-child(6), .book-table td:nth-child(6) { width: 7%; text-align: center; }
+.book-table th:last-child { width: 29%; text-align: left; padding-right: 14px; }''')
+          replace_once(css,
+          '''.book-priority { min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); align-items: center; gap: 7px; }
+.book-priority i { width: 7px; height: 7px; border-radius: 50%; background: #777; }''',
+          '''.book-priority { min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); align-items: start; gap: 8px; }
+.book-priority i { width: 7px; height: 7px; margin-top: 2px; border-radius: 50%; background: #777; }''')
+          replace_once(css,
+          '''.book-priority strong, .book-priority small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.book-priority strong { font-size: 8px; font-weight: 700; }
+.book-priority small { margin-top: 3px; color: #888; font-size: 7px; font-weight: 400; }
+.book-priority-none { color: #aaa; font-size: 8px; }''',
+          '''.book-priority strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; font-weight: 700; line-height: 1.2; }
+.book-priority small { min-width: 0; display: flex; align-items: center; gap: 6px; margin-top: 3px; color: #888; font-size: 7px; font-weight: 400; line-height: 1.15; }
+.book-priority-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.book-priority-none { min-width: 0; color: #aaa; font-size: 8px; }
+.book-priority-none strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #555; font-size: 8px; }
+.book-priority-none small { min-width: 0; display: flex; align-items: center; gap: 6px; margin-top: 3px; color: #999; font-size: 7px; }
+.book-priority-none small > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }''')
+          replace_once(css,
+          '''.book-attention-stack { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.book-attention-stack > .book-priority, .book-attention-stack > .book-priority-none { min-width: 0; flex: 1; }
+.book-plan-pill { width: max-content; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border: 1px solid #d7d7d2; border-radius: 2px; background: #f7f7f4; color: #555; font-size: 7px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.book-plan-pill i { width: 5px; height: 5px; border-radius: 50%; background: #355f75; }
+.book-priority-none strong, .book-priority-none small { display: block; }
+.book-priority-none small { margin-top: 2px; color: #999; font-size: 7px; }''',
+          '''.book-attention-stack { min-width: 0; display: block; }
+.book-workflow-status { flex: 0 0 auto; margin-left: auto; padding-left: 7px; border-left: 1px solid #d8d8d4; color: #62625f; font-size: 6px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }''')
+
+          tests = Path('tests/static.test.mjs')
+          replace_once(tests,
+          '''test("advisor book controls and decision signals stay horizontally aligned", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(html, /class="book-sort"><span class="sr-only">Sort households<\\/span><select/);
+  assert.match(css, /\\.book-sort \\{[^}]*display: block;/);
+  assert.match(css, /\\.book-attention-stack \\{[^}]*display: flex;[^}]*align-items: center;/);
+  assert.match(css, /\\.book-attention-stack > \\.book-priority[^}]*flex: 1;/);
+});''',
+          '''test("advisor book controls and attention cells stay compact and aligned", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(html, /class="book-sort"><span class="sr-only">Sort households<\\/span><select/);
+  assert.match(css, /\\.book-sort \\{[^}]*display: block;/);
+  assert.match(html, /<th>Goals<\\/th><th>Attention<\\/th>/);
+  assert.doesNotMatch(html, /Decision \\/ attention/);
+  assert.match(app, /class="book-workflow-status"/);
+  assert.doesNotMatch(app, /book-plan-pill/);
+  assert.match(css, /\\.book-table th, \\.book-table td \\{ height: 57px;/);
+  assert.match(css, /\\.book-table th:nth-child\\(6\\), \\.book-table td:nth-child\\(6\\) \\{[^}]*width: 7%;[^}]*text-align: center;/);
+  assert.match(css, /\\.book-table th:last-child \\{[^}]*width: 29%;/);
+  assert.match(css, /\\.book-workflow-status \\{[^}]*border-left: 1px solid/);
+});''')
+          PY
+      - run: npm ci
+      - run: npm run build
+      - run: git diff --check
+      - name: Commit UI cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js index.html styles.css tests/static.test.mjs
+          git commit -m "Clean up advisor book attention column"
+          git push origin HEAD:ui/book-attention-cleanup
