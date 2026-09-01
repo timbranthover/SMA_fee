@@ -12,7 +12,7 @@ const decisionService = createDecisionService(ADVISOR_WORKSPACE_DATASET, { repos
 
 test("decision domain is normalized, linked and advisor bounded", () => {
   assert.equal(repository.listAdvisorHouseholds(DEFAULT_ADVISOR_ID).length, 128);
-  assert.ok(ADVISOR_WORKSPACE_DATASET.decisions.length > 100);
+  assert.ok(ADVISOR_WORKSPACE_DATASET.decisions.length >= 25 && ADVISOR_WORKSPACE_DATASET.decisions.length <= 80);
   assert.ok(ADVISOR_WORKSPACE_DATASET.householdEvents.length > 250);
   assert.equal(new Set(ADVISOR_WORKSPACE_DATASET.decisions.map((decision) => decision.id)).size, ADVISOR_WORKSPACE_DATASET.decisions.length);
   for (const decision of ADVISOR_WORKSPACE_DATASET.decisions) {
@@ -70,7 +70,7 @@ test("Morrison concentration decision produces explicit household-wide scenario 
 });
 
 test("liquidity and goal decisions model from real household cash and goals", () => {
-  const cashHousehold = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "cash", pageSize: 200 }).items.find((item) => item.id !== "household-morrison");
+  const cashHousehold = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "cash", pageSize: 200 }).items.find((item) => item.id !== "household-morrison" && decisionService.getHouseholdDecisionSummary(item.id).decisions.some((decision) => decision.kind === "liquidity"));
   assert.ok(cashHousehold);
   const cashDecision = decisionService.getHouseholdDecisionSummary(cashHousehold.id).decisions.find((decision) => decision.kind === "liquidity");
   assert.ok(cashDecision);
@@ -83,7 +83,7 @@ test("liquidity and goal decisions model from real household cash and goals", ()
   const reserveProtected = decisionService.modelDecisionScenario("household-morrison", morrisonCashDecision.id, { reservePct: 15, deployAmount: 740000 });
   assert.equal(reserveProtected.economics.deployAmount, 0);
 
-  const goalHousehold = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "goals", pageSize: 200 }).items.find((item) => item.id !== "household-morrison");
+  const goalHousehold = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "goals", pageSize: 200 }).items.find((item) => item.id !== "household-morrison" && decisionService.getHouseholdDecisionSummary(item.id).decisions.some((decision) => decision.kind === "goal-funding"));
   assert.ok(goalHousehold);
   const goalDecision = decisionService.getHouseholdDecisionSummary(goalHousehold.id).decisions.find((decision) => decision.kind === "goal-funding");
   assert.ok(goalDecision);
@@ -105,8 +105,9 @@ test("meeting brief and relationship timeline are data-grounded projections", ()
 test("advisor book carries decision and plan state without loading decision detail", () => {
   const book = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "decisions", pageSize: 200 });
   assert.equal(book.total, book.focusCounts.decisions);
-  assert.ok(book.metrics.openDecisions > 0);
-  assert.ok(book.metrics.plansInProgress > 0);
+  assert.ok(book.metrics.openDecisions >= 20 && book.metrics.openDecisions <= 70);
+  assert.ok(book.metrics.plansInProgress >= 8 && book.metrics.plansInProgress <= 35);
+  assert.ok(book.focusCounts.decisions < book.metrics.householdCount / 2, "active decisions should involve a minority of the book");
   assert.ok(book.items.every((item) => item.openDecisionCount > 0));
   const plans = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "plans", pageSize: 200 });
   assert.equal(plans.total, book.focusCounts.plans);

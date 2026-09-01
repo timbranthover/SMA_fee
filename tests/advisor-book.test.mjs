@@ -49,7 +49,7 @@ test("generated households stay materially varied across names, relationships, a
 
   const generatedInsights = ADVISOR_BOOK_DATASET.insights.filter((insight) => generatedIds.has(insight.householdId));
   assert.ok(new Set(generatedInsights.map((insight) => insight.kind)).size >= 6);
-  assert.ok(new Set(generatedInsights.map((insight) => insight.title)).size >= 90);
+  assert.ok(new Set(generatedInsights.map((insight) => insight.title)).size >= 70);
 
   const concentrationPolicies = ADVISOR_BOOK_DATASET.concentrationPolicies.filter((policy) => generatedIds.has(policy.householdId));
   const concentrationSymbols = concentrationPolicies
@@ -57,7 +57,7 @@ test("generated households stay materially varied across names, relationships, a
     .filter(Boolean);
   const concentrationFrequency = new Map();
   concentrationSymbols.forEach((symbol) => concentrationFrequency.set(symbol, (concentrationFrequency.get(symbol) || 0) + 1));
-  assert.ok(new Set(concentrationSymbols).size >= 24, "concentration alerts should span a broad security set");
+  assert.ok(new Set(concentrationSymbols).size >= 14, "concentration alerts should span a broad security set");
   assert.ok(Math.max(...concentrationFrequency.values()) <= 2, "no one security should dominate generated concentration alerts");
   const screenerEquitySymbols = new Set(EQUITY_UNIVERSE.map(([symbol]) => symbol));
   assert.ok(concentrationSymbols.every((symbol) => screenerEquitySymbols.has(symbol)), "generated concentration equities must come from the Screener equity reference universe");
@@ -68,10 +68,14 @@ test("generated households stay materially varied across names, relationships, a
     assert.ok(matchingPositions.length >= 1 && matchingPositions.length <= 4, `${policy.householdId} concentration should sit in one to four accounts`);
     assert.equal(new Set(matchingPositions.map((position) => position.accountId)).size, matchingPositions.length);
   }
+  const concentrationAccountCounts = concentrationPolicies.map((policy) => ADVISOR_BOOK_DATASET.positions.filter((position) => position.householdId === policy.householdId && position.instrumentId === policy.instrumentId).length);
+  assert.ok(new Set(concentrationAccountCounts).size >= 3, "concentrated positions should not always span the same number of accounts");
+  const concentrationWeights = concentrationPolicies.map((policy) => ADVISOR_BOOK_DATASET.householdHoldingSnapshots.find((holding) => holding.householdId === policy.householdId && holding.instrumentId === policy.instrumentId)?.householdWeightPct).filter(Number.isFinite);
+  assert.ok(new Set(concentrationWeights.map((weight) => weight.toFixed(1))).size >= 12, "concentration percentages should not look bucketed");
 
   const upcoming = generatedInsights.filter((insight) => insight.severity === "Upcoming");
-  assert.ok(upcoming.length >= 20);
-  assert.ok(new Set(upcoming.map((insight) => insight.title)).size >= 15);
+  assert.ok(upcoming.length >= 12 && upcoming.length <= 20);
+  assert.ok(new Set(upcoming.map((insight) => insight.title)).size >= 8);
 });
 
 test("advisor book projection stays bounded, searchable, sortable and filterable", () => {
@@ -106,7 +110,11 @@ test("advisor book projection stays bounded, searchable, sortable and filterable
   for (let index = 1; index < cash.items.length; index += 1) assert.ok(cash.items[index - 1].cash >= cash.items[index].cash);
 
   const generatedCalls = ADVISOR_BOOK_DATASET.insights.filter((insight) => insight.severity === "Upcoming" && insight.id !== "capital-call");
-  assert.ok(new Set(generatedCalls.map((insight) => insight.title)).size >= 15);
+  assert.ok(new Set(generatedCalls.map((insight) => insight.title)).size >= 8);
+  assert.ok(firstPage.metrics.attentionHouseholds >= 35 && firstPage.metrics.attentionHouseholds <= 75, "attention should be selective across the book");
+  assert.ok(firstPage.focusCounts.priority >= 5 && firstPage.focusCounts.priority <= 20, "priority risk should be material but uncommon");
+  assert.ok(firstPage.focusCounts.goals >= 20 && firstPage.focusCounts.goals <= 60, "planning review should affect a minority of households");
+  assert.ok(firstPage.focusCounts.upcoming >= 10 && firstPage.focusCounts.upcoming <= 24, "upcoming obligations should stay episodic");
   assert.equal(service.householdBelongsToAdvisor(DEFAULT_ADVISOR_ID, "household-morrison"), true);
   assert.equal(service.householdBelongsToAdvisor("advisor-other", "household-morrison"), false);
 });
