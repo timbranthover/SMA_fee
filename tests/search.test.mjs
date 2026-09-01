@@ -56,6 +56,28 @@ test("the ETF shelf uses 1,117 current real listed identities", () => {
     assert.equal(result.items[0]?.symbol, ticker, `ticker search failed for ${ticker}`);
   }
   assert.equal(searchCatalog({ q: "QQQ" }).items[0]?.category, "ETFs");
+  for (const item of etfs) {
+    const detail = getInvestmentDetail(item.id);
+    assert.ok(detail, `ETF detail failed for ${item.symbol}`);
+    assert.equal(detail.symbol, item.symbol, `ETF detail resolved wrong symbol for ${item.symbol}`);
+  }
+  const expectedClassifications = {
+    SPY: ["US Large Blend", "Core equity", "S&P 500"],
+    VOO: ["US Large Blend", "Core equity", "S&P 500"],
+    VTI: ["US Broad Market Equity", "Core equity", "Broad US Equity Market"],
+    QQQ: ["US Large Growth", "Capital appreciation", "Nasdaq-100"],
+    JEPI: ["US Large Blend", "Income", "Broad US Equity Market"],
+    AVUV: ["US Small Cap Equity", "Core equity", "US Small Cap Index"],
+    BND: ["Core Bond", "Income", "Bloomberg US Aggregate"],
+    GLD: ["Commodities", "Diversification", "Commodity Reference"],
+  };
+  for (const [ticker, [assetClass, objective, benchmark]] of Object.entries(expectedClassifications)) {
+    const item = searchCatalog({ q: ticker, category: "ETFs" }).items[0];
+    assert.equal(item?.assetClass, assetClass, `${ticker} asset class drifted`);
+    const detail = getInvestmentDetail(ticker);
+    assert.equal(detail?.objective, objective, `${ticker} objective drifted`);
+    assert.equal(detail?.benchmark, benchmark, `${ticker} benchmark drifted`);
+  }
 });
 
 

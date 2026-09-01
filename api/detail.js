@@ -1,7 +1,12 @@
 import { getInvestmentDetail } from "../lib/catalog.js";
+import { applyQuoteToDetail, getLiveQuote } from "../lib/market-data.js";
+
+function externalMarketDataEnabled() {
+  return process.env.MARKET_DATA_DISABLED !== "1" && process.env.CI !== "true";
+}
 
 export default {
-  fetch(request) {
+  async fetch(request) {
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed" }, { status: 405, headers: { Allow: "GET" } });
     }
@@ -9,8 +14,11 @@ export default {
     if (!/^[a-z0-9-]{1,100}$/i.test(id)) return Response.json({ error: "Invalid investment identifier" }, { status: 400 });
     const detail = getInvestmentDetail(id);
     if (!detail) return Response.json({ error: "Investment not found" }, { status: 404 });
-    return Response.json(detail, {
-      headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" },
+    const liveDetail = externalMarketDataEnabled() && ["Equities", "ETFs"].includes(detail.category)
+      ? applyQuoteToDetail(detail, await getLiveQuote(detail.symbol))
+      : detail;
+    return Response.json(liveDetail, {
+      headers: { "Cache-Control": "public, s-maxage=45, stale-while-revalidate=180" },
     });
   },
 };
