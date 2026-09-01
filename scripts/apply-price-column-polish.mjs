@@ -7,42 +7,25 @@ async function replaceOnce(path, before, after) {
   await writeFile(path, source.replace(before, after));
 }
 
-const oldAppBlock = `function marketMicroSparkline(trend) {
-  const values = (trend?.points || []).filter((value) => Number.isFinite(Number(value))).map(Number);
-  if (values.length < 2) return "";
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const spread = maximum - minimum || 1;
-  const points = values.map((value, index) => {
-    const x = index * (50 / (values.length - 1));
-    const y = 2 + (maximum - value) * (12 / spread);
-    return [Number(x.toFixed(1)), Number(y.toFixed(1))];
-  });
-  const line = points.map(([x, y], index) => \`${index ? "L" : "M"}\${x} \${y}\`).join(" ");
-  const [endX, endY] = points.at(-1);
-  return \`<span class="live-sparkline \${escapeHtml(trend.tone || "neutral")}" title="\${escapeHtml(\`Today: \${trend.value || "—"}\`)}"><svg class="market-live-sparkline" viewBox="0 0 50 16" preserveAspectRatio="none" role="img" aria-label="\${escapeHtml(\`Today \${trend.value || ""}\`)}"><path d="\${line}"></path><circle cx="\${endX}" cy="\${endY}" r="1.5"></circle></svg></span>\`;
-}
+let app = await readFile("app.js", "utf8");
+const primaryPattern = /function marketMicroSparkline\(trend\) \{[\s\S]*?\n\}\n\nfunction marketPrimary\(snapshot\) \{[\s\S]*?\n\}/;
+if (!primaryPattern.test(app)) throw new Error("app.js: live price renderer did not match expected current shape");
+const newPrimary = [
+  "function marketPrimary(snapshot) {",
+  "  const intraday = snapshot.intraday ? marketSparkline(snapshot.intraday) : \"\";",
+  '  return `<div class="market-primary-layout"><div class="market-primary-quote"><div class="market-value-line"><span class="metric-primary">${escapeHtml(snapshot.primary.value)}</span><span class="snapshot-change ${escapeHtml(snapshot.primary.tone)}">${escapeHtml(snapshot.primary.change)}</span></div><span class="metric-secondary market-price-time">${escapeHtml(snapshot.asOf || "")}</span></div>${intraday}</div>`;',
+  "}",
+].join("\n");
+app = app.replace(primaryPattern, newPrimary);
 
-function marketPrimary(snapshot) {
-  return \`<div class="market-value-line"><span class="metric-primary">\${escapeHtml(snapshot.primary.value)}</span><span class="snapshot-change \${escapeHtml(snapshot.primary.tone)}">\${escapeHtml(snapshot.primary.change)}</span></div><div class="market-live-meta"><span class="metric-secondary">\${escapeHtml(snapshot.asOf || "")}</span>\${marketMicroSparkline(snapshot.intraday)}</div>\`;
-}`;
-
-const newAppBlock = `function marketPrimary(snapshot) {
-  const intraday = snapshot.intraday ? marketSparkline(snapshot.intraday) : "";
-  return \`<div class="market-primary-layout"><div class="market-primary-quote"><div class="market-value-line"><span class="metric-primary">\${escapeHtml(snapshot.primary.value)}</span><span class="snapshot-change \${escapeHtml(snapshot.primary.tone)}">\${escapeHtml(snapshot.primary.change)}</span></div><span class="metric-secondary market-price-time">\${escapeHtml(snapshot.asOf || "")}</span></div>\${intraday}</div>\`;
-}`;
-
-await replaceOnce("app.js", oldAppBlock, newAppBlock);
-await replaceOnce(
-  "app.js",
-  `const SNAPSHOT_COLUMNS = new Set(["primary", "trend", "featuredDecision", "featuredImplementation", "forwardPE", "dividendYield", "secYield", "expenseRatio", "managerFee", "yieldToWorst", "creditRating", "reportedReturn3Y", "reportedLiquidity", "contingentCoupon", "term", "annualFee", "guaranteePeriod", "return1Y", "custodyFee"]);`,
-  `const SNAPSHOT_COLUMNS = new Set(["primary", "featuredDecision", "featuredImplementation", "forwardPE", "dividendYield", "secYield", "expenseRatio", "managerFee", "yieldToWorst", "creditRating", "reportedReturn3Y", "reportedLiquidity", "contingentCoupon", "term", "annualFee", "guaranteePeriod", "return1Y", "custodyFee"]);`,
-);
-await replaceOnce(
-  "app.js",
-  `  if (column === "trend") return snapshot ? marketSparkline(snapshot.trend) : marketSnapshotPlaceholder();\n`,
-  "",
-);
+const oldSnapshotColumns = `const SNAPSHOT_COLUMNS = new Set(["primary", "trend", "featuredDecision", "featuredImplementation", "forwardPE", "dividendYield", "secYield", "expenseRatio", "managerFee", "yieldToWorst", "creditRating", "reportedReturn3Y", "reportedLiquidity", "contingentCoupon", "term", "annualFee", "guaranteePeriod", "return1Y", "custodyFee"]);`;
+const newSnapshotColumns = `const SNAPSHOT_COLUMNS = new Set(["primary", "featuredDecision", "featuredImplementation", "forwardPE", "dividendYield", "secYield", "expenseRatio", "managerFee", "yieldToWorst", "creditRating", "reportedReturn3Y", "reportedLiquidity", "contingentCoupon", "term", "annualFee", "guaranteePeriod", "return1Y", "custodyFee"]);`;
+if ((app.split(oldSnapshotColumns).length - 1) !== 1) throw new Error("app.js: snapshot column set did not match expected current shape");
+app = app.replace(oldSnapshotColumns, newSnapshotColumns);
+const trendBranch = `  if (column === "trend") return snapshot ? marketSparkline(snapshot.trend) : marketSnapshotPlaceholder();\n`;
+if ((app.split(trendBranch).length - 1) !== 1) throw new Error("app.js: trend render branch did not match expected current shape");
+app = app.replace(trendBranch, "");
+await writeFile("app.js", app);
 
 const oldCss = `.results-table th.result-data-column { width: 98px; }
 .results-table th.col-primary { width: 126px; }
@@ -73,7 +56,18 @@ const staticPath = "tests/static.test.mjs";
 const staticSource = await readFile(staticPath, "utf8");
 const testName = `test("price column owns the full intraday sparkline while trend stays out of the table", async () => {`;
 if (!staticSource.includes(testName)) {
-  await writeFile(staticPath, `${staticSource.trimEnd()}\n\n${testName}\n  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");\n  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");\n  assert.match(app, /marketSparkline\\(snapshot\\.intraday\\)/);\n  assert.match(app, /market-primary-layout/);\n  assert.equal(app.includes('if (column === "trend")'), false);\n  assert.match(css, /\\.results-table th\\.col-primary \\{ width: 236px; \\}/);\n  assert.equal(css.includes("market-live-sparkline"), false);\n});\n`);
+  const addition = [
+    testName,
+    '  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");',
+    '  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");',
+    '  assert.match(app, /marketSparkline\\(snapshot\\.intraday\\)/);',
+    '  assert.match(app, /market-primary-layout/);',
+    '  assert.equal(app.includes(\'if (column === "trend")\'), false);',
+    '  assert.match(css, /\\.results-table th\\.col-primary \\{ width: 236px; \\}/);',
+    '  assert.equal(css.includes("market-live-sparkline"), false);',
+    "});",
+  ].join("\n");
+  await writeFile(staticPath, `${staticSource.trimEnd()}\n\n${addition}\n`);
 }
 
 console.log("Applied price-column intraday polish.");
