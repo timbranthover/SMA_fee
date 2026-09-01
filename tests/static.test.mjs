@@ -194,6 +194,15 @@ test("back controls preserve a consistent arrow and label hierarchy", async () =
   assert.match(css, /\.scenario-back, \.wealth-drawer-back, \.profile-back \{[^}]*gap: 8px;/);
 });
 
+test("advisor book controls and decision signals stay horizontally aligned", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(html, /class="book-sort"><span class="sr-only">Sort households<\/span><select/);
+  assert.match(css, /\.book-sort \{[^}]*display: block;/);
+  assert.match(css, /\.book-attention-stack \{[^}]*display: flex;[^}]*align-items: center;/);
+  assert.match(css, /\.book-attention-stack > \.book-priority[^}]*flex: 1;/);
+});
+
 test("every allowlisted brand mark is local, unique and present", async () => {
   const logos = Object.values(BRAND_LOGOS);
   assert.equal(logos.length, 18);
