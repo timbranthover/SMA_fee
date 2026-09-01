@@ -39,6 +39,13 @@ test("live quote parsing uses provider price, change and intraday points", async
   assert.equal(quote.provider, "Yahoo Finance");
 });
 
+test("null provider bars are omitted instead of becoming zero-price chart spikes", async () => {
+  const quote = await getLiveQuote("TESTNULLQ", { fetchImpl: async () => response(chartPayload({ symbol: "TESTNULLQ", closes: [100, null, 102] })) });
+  assert.deepEqual(quote.points.map((point) => point.value), [100, 102]);
+  const history = await getDailyHistory("TESTNULLH", { fetchImpl: async () => response(chartPayload({ symbol: "TESTNULLH", closes: [50, null, 53], adjusted: [49, null, 52] })) });
+  assert.deepEqual(history.points.map((point) => point.value), [49, 52]);
+});
+
 test("daily history prefers adjusted closes and preserves dates", async () => {
   const timestamps = [1788134400, 1788220800, 1788307200];
   const history = await getDailyHistory("TESTH", { fetchImpl: async () => response(chartPayload({ symbol: "TESTH", timestamps, closes: [50, 52, 53], adjusted: [49, 51, 52] })) });
