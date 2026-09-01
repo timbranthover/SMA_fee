@@ -227,6 +227,10 @@ test("price column owns the full intraday sparkline while trend stays out of the
   assert.match(app, /marketSparkline\(snapshot\.intraday\)/);
   assert.match(app, /market-primary-layout/);
   assert.equal(app.includes('if (column === "trend")'), false);
-  assert.match(css, /\.results-table th\.col-primary \{ width: 236px; \}/);
+  assert.match(css, /\.results-table th\.col-primary \{ width: 218px; \}/);
+  assert.match(css, /\.results-table th:nth-child\(2\) \{ width: auto; min-width: 270px; \}/);
+  assert.match(css, /\.results-table th\.result-data-column \{ width: 96px; \}/);
+  assert.match(css, /\.results-table td\.result-data-column \{ padding-left: 4px; padding-right: 4px; \}/);
+  assert.match(css, /\.market-primary-layout \{[^}]*gap: 8px;/);
   assert.equal(css.includes("market-live-sparkline"), false);
 });
