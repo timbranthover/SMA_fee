@@ -26,6 +26,44 @@ test("advisor book contains many coherent distinct households", () => {
   }
 });
 
+test("generated households stay materially varied across names, relationships, assets and signals", () => {
+  const households = repository.listAdvisorHouseholds(DEFAULT_ADVISOR_ID).filter((household) => household.id !== "household-morrison");
+  const familyRoots = households.map((household) => household.name.replace(/ (?:Household|Family)$/, "").split("-")[0]);
+  assert.equal(new Set(familyRoots).size, households.length, "generated households should not recycle the same lead surname");
+  assert.ok(new Set(households.map((household) => household.location)).size >= 24);
+  assert.ok(new Set(households.map((household) => household.relationshipType)).size >= 6);
+
+  const generatedIds = new Set(households.map((household) => household.id));
+  const accounts = ADVISOR_BOOK_DATASET.accounts.filter((account) => generatedIds.has(account.householdId));
+  assert.ok(new Set(accounts.map((account) => account.registration)).size >= 8);
+  assert.ok(new Set(accounts.map((account) => account.purpose)).size >= 15);
+
+  const goals = ADVISOR_BOOK_DATASET.goals.filter((goal) => generatedIds.has(goal.householdId));
+  assert.ok(new Set(goals.map((goal) => goal.name)).size >= 12);
+
+  const nonFinancialAssets = ADVISOR_BOOK_DATASET.nonFinancialAssets.filter((asset) => generatedIds.has(asset.householdId));
+  const liabilities = ADVISOR_BOOK_DATASET.liabilities.filter((liability) => generatedIds.has(liability.householdId));
+  assert.ok(new Set(nonFinancialAssets.map((asset) => asset.category)).size >= 4);
+  assert.ok(new Set(liabilities.map((liability) => liability.category)).size >= 4);
+
+  const generatedInsights = ADVISOR_BOOK_DATASET.insights.filter((insight) => generatedIds.has(insight.householdId));
+  assert.ok(new Set(generatedInsights.map((insight) => insight.kind)).size >= 6);
+  assert.ok(new Set(generatedInsights.map((insight) => insight.title)).size >= 90);
+
+  const concentrationSymbols = ADVISOR_BOOK_DATASET.concentrationPolicies
+    .filter((policy) => generatedIds.has(policy.householdId))
+    .map((policy) => ADVISOR_BOOK_DATASET.householdHoldingSnapshots.find((holding) => holding.householdId === policy.householdId && holding.instrumentId === policy.instrumentId)?.symbol)
+    .filter(Boolean);
+  const concentrationFrequency = new Map();
+  concentrationSymbols.forEach((symbol) => concentrationFrequency.set(symbol, (concentrationFrequency.get(symbol) || 0) + 1));
+  assert.ok(new Set(concentrationSymbols).size >= 24, "concentration alerts should span a broad security set");
+  assert.ok(Math.max(...concentrationFrequency.values()) <= 2, "no one security should dominate generated concentration alerts");
+
+  const upcoming = generatedInsights.filter((insight) => insight.severity === "Upcoming");
+  assert.ok(upcoming.length >= 20);
+  assert.ok(new Set(upcoming.map((insight) => insight.title)).size >= 15);
+});
+
 test("advisor book projection stays bounded, searchable, sortable and filterable", () => {
   const firstPage = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { pageSize: 25 });
   assert.equal(firstPage.metrics.householdCount, 128);
@@ -46,8 +84,11 @@ test("advisor book projection stays bounded, searchable, sortable and filterable
   assert.equal(morrison.total, 1);
   assert.equal(morrison.items[0].id, "household-morrison");
 
-  const hyphenated = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { query: "Patel-Brooks" });
-  assert.equal(hyphenated.items[0].initials, "PB");
+  const hyphenatedHousehold = ADVISOR_BOOK_DATASET.households.find((household) => household.id !== "household-morrison" && household.name.includes("-"));
+  assert.ok(hyphenatedHousehold);
+  const hyphenated = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { query: hyphenatedHousehold.name.replace(/ Household$/, "") });
+  assert.equal(hyphenated.items[0].id, hyphenatedHousehold.id);
+  assert.equal(hyphenated.items[0].initials.length, 2);
 
   const cash = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "cash", sort: "cash-desc", pageSize: 200 });
   assert.equal(cash.total, firstPage.focusCounts.cash);
@@ -55,7 +96,7 @@ test("advisor book projection stays bounded, searchable, sortable and filterable
   for (let index = 1; index < cash.items.length; index += 1) assert.ok(cash.items[index - 1].cash >= cash.items[index].cash);
 
   const generatedCalls = ADVISOR_BOOK_DATASET.insights.filter((insight) => insight.severity === "Upcoming" && insight.id !== "capital-call");
-  assert.ok(new Set(generatedCalls.map((insight) => insight.title)).size >= 4);
+  assert.ok(new Set(generatedCalls.map((insight) => insight.title)).size >= 15);
   assert.equal(service.householdBelongsToAdvisor(DEFAULT_ADVISOR_ID, "household-morrison"), true);
   assert.equal(service.householdBelongsToAdvisor("advisor-other", "household-morrison"), false);
 });
