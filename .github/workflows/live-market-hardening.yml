@@ -1,0 +1,93 @@
+name: Live market hardening
+on:
+  push:
+    branches: [market/live-equity-etf-data]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: market/live-equity-etf-data
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply ETF detail and classification hardening
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+          path = Path('lib/catalog.js')
+          text = path.read_text()
+
+          anchor = '''function illustrativeEquityName(index) {\n  const companies = pools.Equities.names;\n  const company = companies[index % companies.length];\n  const industry = illustrativeEquityIndustries[Math.floor(index / companies.length) % illustrativeEquityIndustries.length];\n  const suffix = illustrativeEquitySuffixes[Math.floor(index / (companies.length * illustrativeEquityIndustries.length)) % illustrativeEquitySuffixes.length];\n  return `${company} ${industry} ${suffix}`;\n}\n'''
+          helper = anchor + '''\nfunction illustrativeETFClassification(name, ticker) {\n  const text = `${ticker} ${name}`.toLowerCase();\n  const matches = (pattern) => pattern.test(text);\n  if (matches(/\\b(?:2x|3x|ultra|inverse|bear|bull)\\b|\\bdaily\\b.*\\b(?:leveraged|bull|bear)\\b|\\bshort\\b.*\\b(?:s&p|nasdaq|dow|russell|equity|bitcoin|ether)\\b/))\n    return { assetClass: "Leveraged / Inverse", objective: "Tactical exposure", risk: "High", benchmark: "Reference Index" };\n  if (matches(/\\b(?:bitcoin|ether|ethereum|crypto|digital asset)\\b/))\n    return { assetClass: "Digital Assets", objective: "Diversification", risk: "High", benchmark: "Digital Asset Reference" };\n  if (matches(/\\b(?:gold|silver|platinum|palladium|commodity|commodities|oil|natural gas|uranium|copper|agriculture)\\b/))\n    return { assetClass: "Commodities", objective: "Diversification", risk: "High", benchmark: "Commodity Reference" };\n  if (matches(/\\b(?:municipal|muni)\\b/))\n    return { assetClass: "Municipal Bond", objective: "Tax-exempt income", risk: "Conservative", benchmark: "Municipal Bond Index" };\n  if (matches(/\\b(?:treasury|t-bill|government bond)\\b/))\n    return { assetClass: matches(/\\b(?:short|ultrashort|0-3|0 to 3|1-3|1 to 3|floating rate)\\b/) ? "Short Government" : "US Government", objective: "Income", risk: "Conservative", benchmark: "US Treasury Index" };\n  if (matches(/\\b(?:high yield|junk bond)\\b/))\n    return { assetClass: "High Yield Bond", objective: "Income", risk: "High", benchmark: "High Yield Bond Index" };\n  if (matches(/\\b(?:corporate bond|investment grade|credit bond)\\b/))\n    return { assetClass: "Investment Grade Corporate", objective: "Income", risk: "Moderate", benchmark: "US Corporate Bond Index" };\n  if (matches(/\\b(?:bond|fixed income|aggregate|mortgage-backed|mbs|clo|senior loan|bank loan)\\b/))\n    return { assetClass: "Core Bond", objective: "Income", risk: "Conservative", benchmark: "Bloomberg US Aggregate" };\n  if (matches(/\\b(?:preferred|preferred securities)\\b/))\n    return { assetClass: "Preferred Securities", objective: "Income", risk: "Moderate", benchmark: "Preferred Securities Index" };\n  if (matches(/\\b(?:real estate|reit)\\b/))\n    return { assetClass: "Real Estate Equity", objective: "Income", risk: "Moderate", benchmark: "Real Estate Index" };\n  if (matches(/\\b(?:emerging markets|emerging market)\\b/))\n    return { assetClass: "Emerging Markets Equity", objective: "Diversification", risk: "High", benchmark: "Emerging Markets Index" };\n  if (matches(/\\b(?:international|developed markets|eafe|ex[- ]?u\\.?s\\.?|europe|japan|china|india|asia|latin america)\\b/))\n    return { assetClass: "International Equity", objective: "Diversification", risk: matches(/\\b(?:china|india|latin america)\\b/) ? "High" : "Moderate", benchmark: "International Equity Index" };\n  if (matches(/\\b(?:global|world|all-country|acwi)\\b/))\n    return { assetClass: "Global Equity", objective: "Diversification", risk: "Moderate", benchmark: "Global Equity Index" };\n  if (matches(/\\bsmall[- ]?cap\\b|\\brussell 2000\\b/))\n    return { assetClass: "US Small Cap Equity", objective: matches(/\\bvalue\\b/) ? "Core equity" : "Capital appreciation", risk: "High", benchmark: "US Small Cap Index" };\n  if (matches(/\\bmid[- ]?cap\\b/))\n    return { assetClass: "US Mid Cap Equity", objective: "Capital appreciation", risk: "Moderate", benchmark: "US Mid Cap Index" };\n  if (matches(/\\b(?:nasdaq[- ]?100|qqq)\\b/))\n    return { assetClass: "US Large Growth", objective: "Capital appreciation", risk: "Moderate", benchmark: "Nasdaq-100" };\n  if (matches(/\\bs&p\\s*500\\b|\\b500 index\\b/))\n    return { assetClass: "US Large Blend", objective: "Core equity", risk: "Moderate", benchmark: "S&P 500" };\n  if (matches(/\\b(?:total stock market|total market|broad market)\\b/))\n    return { assetClass: "US Broad Market Equity", objective: "Core equity", risk: "Moderate", benchmark: "Broad US Equity Market" };\n  if (matches(/\\b(?:dividend|equity premium income|covered call|option income)\\b/))\n    return { assetClass: "US Large Blend", objective: "Income", risk: "Moderate", benchmark: "Broad US Equity Market" };\n  if (matches(/\\b(?:technology|semiconductor|software|cybersecurity|artificial intelligence|robotics|biotech|health care|healthcare|financial|energy|utilities|industrials|consumer|materials|communication services)\\b/))\n    return { assetClass: "Sector / Thematic Equity", objective: "Capital appreciation", risk: "High", benchmark: "Sector Equity Index" };\n  if (matches(/\\bvalue\\b/))\n    return { assetClass: "US Large Value", objective: "Core equity", risk: "Moderate", benchmark: "US Value Index" };\n  if (matches(/\\bgrowth\\b/))\n    return { assetClass: "US Large Growth", objective: "Capital appreciation", risk: "Moderate", benchmark: "US Growth Index" };\n  return { assetClass: "US Large Blend", objective: "Core equity", risk: "Moderate", benchmark: "Broad US Equity Market" };\n}\n'''
+          text = replace_once(text, anchor, helper, 'ETF classification helper')
+
+          text = replace_once(text,
+              '  const [etfTicker, etfName, etfExchange, etfIssuer] = etfReference || [];\n  const longTailEquityIndex = Math.max(0, index - EQUITY_UNIVERSE.length);',
+              '  const [etfTicker, etfName, etfExchange, etfIssuer] = etfReference || [];\n  const etfClassification = etfReference ? illustrativeETFClassification(etfName, etfTicker) : null;\n  const longTailEquityIndex = Math.max(0, index - EQUITY_UNIVERSE.length);',
+              'ETF classification binding')
+
+          text = replace_once(text,
+              '  let objective = pick(pool.objectives, seed, 10);\n  if (category === "SMAs" && flags.includes("Direct Indexing")) {',
+              '  let objective = pick(pool.objectives, seed, 10);\n  let benchmark = equityReference ? "Broad Equity Market" : pick(["S&P 500", "Russell 1000", "Bloomberg US Aggregate", "Custom Strategy Benchmark"], seed, 11);\n  if (etfClassification) {\n    assetClass = etfClassification.assetClass;\n    objective = etfClassification.objective;\n    risk = etfClassification.risk;\n    benchmark = etfClassification.benchmark;\n  }\n  if (category === "SMAs" && flags.includes("Direct Indexing")) {',
+              'ETF classification application')
+
+          text = replace_once(text,
+              '    benchmark: equityReference ? "Broad Equity Market" : pick(["S&P 500", "Russell 1000", "Bloomberg US Aggregate", "Custom Strategy Benchmark"], seed, 11),',
+              '    benchmark,',
+              'ETF benchmark output')
+
+          text = replace_once(text,
+              '        ? `${etfName} is included in the prototype ETF universe using current Nasdaq Trader ticker, fund-name and listing-exchange reference data. Classification, market, performance, fee, AUM, research and product-control fields remain illustrative.`',
+              '        ? `${etfName} is included in the prototype ETF universe using current Nasdaq Trader ticker, fund-name and listing-exchange reference data. Asset-class, objective, risk and benchmark labels are illustrative classifications derived from the fund name; fee, AUM, research and product-control fields remain illustrative.`',
+              'ETF description')
+
+          old_category = '''function categoryFacets(category) {\n  const counts = CATEGORY_FACET_COUNTS[category];\n  return {\n    categories: Object.fromEntries(CATEGORY_ORDER.slice(1).map((name) => [name, name === category ? CATEGORY_COUNTS[name] : 0])),\n    flags: Object.fromEntries(allFlagNames.map((name, index) => [name, counts.flags[index]])),\n    risks: Object.fromEntries(RISKS.map((name, index) => [name, counts.risks[index]])),\n    statuses: Object.fromEntries(STATUSES.map((name, index) => [name, counts.statuses[index]])),\n  };\n}\n'''
+          new_category = '''let currentEtfRiskCountsCache = null;\nfunction currentEtfRiskCounts() {\n  if (!currentEtfRiskCountsCache) currentEtfRiskCountsCache = RISKS.map((risk) => getCategorySearchIndex("ETFs").filter((item) => item.risk === risk).length);\n  return currentEtfRiskCountsCache;\n}\n\nfunction categoryFacets(category) {\n  const counts = CATEGORY_FACET_COUNTS[category];\n  const risks = category === "ETFs" ? currentEtfRiskCounts() : counts.risks;\n  return {\n    categories: Object.fromEntries(CATEGORY_ORDER.slice(1).map((name) => [name, name === category ? CATEGORY_COUNTS[name] : 0])),\n    flags: Object.fromEntries(allFlagNames.map((name, index) => [name, counts.flags[index]])),\n    risks: Object.fromEntries(RISKS.map((name, index) => [name, risks[index]])),\n    statuses: Object.fromEntries(STATUSES.map((name, index) => [name, counts.statuses[index]])),\n  };\n}\n\nlet currentDefaultFacetsCache = null;\nfunction currentDefaultFacets() {\n  if (currentDefaultFacetsCache) return currentDefaultFacetsCache;\n  const previousEtfRisks = CATEGORY_FACET_COUNTS.ETFs.risks;\n  const currentEtfRisks = currentEtfRiskCounts();\n  currentDefaultFacetsCache = {\n    ...DEFAULT_FACETS,\n    risks: Object.fromEntries(RISKS.map((risk, index) => [risk, DEFAULT_FACETS.risks[risk] - previousEtfRisks[index] + currentEtfRisks[index]])),\n  };\n  return currentDefaultFacetsCache;\n}\n'''
+          text = replace_once(text, old_category, new_category, 'dynamic ETF facets')
+          text = replace_once(text,
+              '  return options.category === "All" ? { ...DEFAULT_FACETS } : categoryFacets(options.category);',
+              '  return options.category === "All" ? currentDefaultFacets() : categoryFacets(options.category);',
+              'default ETF facet adjustment')
+
+          text = replace_once(text,
+              '    source: item.referenceSource ? "SEC issuer reference + illustrative market data" : sources[item.category] || "UPS Product Master",',
+              '    source: item.category === "ETFs" && item.referenceSource ? "Nasdaq Trader ETF reference + illustrative market data" : item.category === "Equities" && item.referenceSource ? "SEC issuer reference + illustrative market data" : sources[item.category] || "UPS Product Master",',
+              'reference source labeling')
+
+          old_resolver = '''function resolveInvestmentRecord(id) {\n  const requested = String(id || "").toLowerCase();\n  let item = CURATED.find((record) => record.id.toLowerCase() === requested || record.symbol.toLowerCase() === requested);\n  if (!item) {\n    const referenceIndex = equityReferenceIndexByTicker.get(normalizeIdentifier(requested));\n    if (referenceIndex !== undefined) item = makeSynthetic("Equities", referenceIndex);\n  }\n  if (!item && requested.startsWith("eq-sec-")) {\n'''
+          new_resolver = '''function resolveInvestmentRecord(id) {\n  const requested = String(id || "").toLowerCase();\n  let item = CURATED.find((record) => record.id.toLowerCase() === requested || record.symbol.toLowerCase() === requested);\n  if (!item) {\n    const etfIndex = etfReferenceIndexByTicker.get(normalizeIdentifier(requested));\n    if (etfIndex !== undefined) item = makeSynthetic("ETFs", etfIndex);\n  }\n  if (!item && requested.startsWith("etf-listed-")) {\n    const etfIndex = Number(requested.slice("etf-listed-".length));\n    if (Number.isInteger(etfIndex) && etfIndex >= 0 && etfIndex < etfReferenceTail.length) item = makeSynthetic("ETFs", etfIndex);\n  }\n  if (!item) {\n    const referenceIndex = equityReferenceIndexByTicker.get(normalizeIdentifier(requested));\n    if (referenceIndex !== undefined) item = makeSynthetic("Equities", referenceIndex);\n  }\n  if (!item && requested.startsWith("eq-sec-")) {\n'''
+          text = replace_once(text, old_resolver, new_resolver, 'ETF detail resolver')
+          path.write_text(text)
+
+          path = Path('tests/search.test.mjs')
+          text = path.read_text()
+          old = '''  assert.equal(searchCatalog({ q: "QQQ" }).items[0]?.category, "ETFs");\n});'''
+          new = '''  assert.equal(searchCatalog({ q: "QQQ" }).items[0]?.category, "ETFs");\n  for (const item of etfs) {\n    const detail = getInvestmentDetail(item.id);\n    assert.ok(detail, `ETF detail failed for ${item.symbol}`);\n    assert.equal(detail.symbol, item.symbol, `ETF detail resolved wrong symbol for ${item.symbol}`);\n  }\n  const expectedClassifications = {\n    SPY: ["US Large Blend", "Core equity", "S&P 500"],\n    VOO: ["US Large Blend", "Core equity", "S&P 500"],\n    VTI: ["US Broad Market Equity", "Core equity", "Broad US Equity Market"],\n    QQQ: ["US Large Growth", "Capital appreciation", "Nasdaq-100"],\n    JEPI: ["US Large Blend", "Income", "Broad US Equity Market"],\n    AVUV: ["US Small Cap Equity", "Core equity", "US Small Cap Index"],\n    BND: ["Core Bond", "Income", "Bloomberg US Aggregate"],\n    GLD: ["Commodities", "Diversification", "Commodity Reference"],\n  };\n  for (const [ticker, [assetClass, objective, benchmark]] of Object.entries(expectedClassifications)) {\n    const item = searchCatalog({ q: ticker, category: "ETFs" }).items[0];\n    assert.equal(item?.assetClass, assetClass, `${ticker} asset class drifted`);\n    const detail = getInvestmentDetail(ticker);\n    assert.equal(detail?.objective, objective, `${ticker} objective drifted`);\n    assert.equal(detail?.benchmark, benchmark, `${ticker} benchmark drifted`);\n  }\n});'''
+          text = replace_once(text, old, new, 'ETF detail and classification regression')
+          path.write_text(text)
+          PY
+      - run: npm ci
+      - run: npm run build
+      - run: git diff --check
+      - name: Commit hardened catalog
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib/catalog.js tests/search.test.mjs
+          git commit -m "Harden real ETF detail and classifications"
+          git push origin HEAD:market/live-equity-etf-data
