@@ -956,20 +956,20 @@ footer { height: 46px; background: #e6e6e3; border-top: 1px solid #d4d4d0; color
 .book-intelligence-panel { position: sticky; top: 72px; }
 .book-intelligence-heading { padding: 17px 16px 14px; border-bottom: 1px solid var(--line-soft); }
 .book-intelligence-heading h2 { margin: 0; font-family: Georgia, serif; font-size: 22px; font-weight: 400; }
-.book-intelligence-heading p { margin: 7px 0 0; color: #777; font-size: 8px; line-height: 1.5; }
+.book-intelligence-heading p { margin: 7px 0 0; color: #666; font-size: 9px; line-height: 1.5; }
 .book-intelligence-list { display: grid; }
 .book-intelligence-list button { min-height: 59px; display: grid; grid-template-columns: 8px minmax(0, 1fr) 12px; align-items: center; gap: 10px; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line-soft); background: #fff; text-align: left; }
 .book-intelligence-list button:hover, .book-intelligence-list button.active { background: #fafaf8; }
 .book-intelligence-list button.active { box-shadow: inset 2px 0 #111; }
 .book-intelligence-list small, .book-intelligence-list strong { display: block; }
-.book-intelligence-list small { margin-bottom: 4px; color: #888; font-size: 7px; text-transform: uppercase; letter-spacing: .07em; }
-.book-intelligence-list strong { color: #222; font-size: 9px; }
+.book-intelligence-list small { margin-bottom: 4px; color: #777; font-size: 8px; text-transform: uppercase; letter-spacing: .07em; }
+.book-intelligence-list strong { color: #222; font-size: 10px; }
 .book-intelligence-list b { color: #aaa; font-size: 16px; font-weight: 400; }
 .book-signal { width: 7px; height: 7px; border-radius: 50%; background: #777; }
 .book-signal.red { background: #b51f35; }.book-signal.green { background: #246a58; }.book-signal.amber { background: #b28a4d; }.book-signal.blue { background: #315f8f; }.book-signal.slate { background: #747b7d; }
 .book-intelligence-note { padding: 15px 16px; background: #f7f7f5; }
 .book-intelligence-note span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .1em; }
-.book-intelligence-note p { margin: 6px 0 0; color: #666; font-size: 8px; line-height: 1.5; }
+.book-intelligence-note p { margin: 6px 0 0; color: #5f5f5b; font-size: 9px; line-height: 1.5; }
 .household-heading-left { display: grid; gap: 10px; }
 .household-book-back { width: max-content; border: 0; background: transparent; padding: 0; color: #70706d; font-size: 9px; font-weight: 600; }
 .household-book-back:hover { color: #111; }
@@ -980,7 +980,7 @@ footer { height: 46px; background: #e6e6e3; border-top: 1px solid #d4d4d0; color
 /* Phase Three — decision and action layer */
 body.decision-studio-open { overflow: hidden; }
 .book-attention-stack { min-width: 0; display: block; }
-.book-workflow-status { flex: 0 0 auto; margin-left: auto; padding-left: 7px; border-left: 1px solid #d8d8d4; color: #62625f; font-size: 6px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.book-workflow-status { flex: 0 0 auto; margin-left: auto; padding-left: 7px; border-left: 1px solid #d8d8d4; color: #62625f; font-size: 7px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .wealth-heading-meta { min-width: 330px; }
 .wealth-heading-status { display: grid; justify-items: end; gap: 5px; }
 .household-heading-actions { display: flex; justify-content: flex-end; gap: 6px; }
@@ -1348,10 +1348,13 @@ body[data-workspace="proposal"] > footer, body[data-workspace="proposal"] .compa
 }
 
 @media print {
+  @page { size: letter; margin: .42in; }
   body { min-width: 0; background: #fff; }
   .global-header, .proposal-workspace-header, .proposal-stepper, .proposal-composer, body > footer, dialog { display: none !important; }
   main, .proposal-view, .proposal-builder-layout { max-width: none; margin: 0; padding: 0; background: #fff; }
   .proposal-builder-layout { display: block; }
-  .proposal-document { min-height: 0; border: 0; box-shadow: none; }
+  .proposal-document { min-height: 0; border: 0; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .proposal-document-brand, .proposal-document-title, .proposal-executive-summary, .proposal-document-section, .proposal-disclosures, .proposal-document-footer { break-inside: avoid; }
+  .proposal-solutions-table tr, .proposal-allocation-table tr { break-inside: avoid; }
 }
 .relationship-timeline li p { margin: 3px 0 0; color: #777; font-size: 8px; }
