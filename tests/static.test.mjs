@@ -82,7 +82,13 @@ test("proposal selection builds a durable client-ready workflow", async () => {
   assert.match(html, /id="proposalTray"/);
   assert.match(html, /id="proposalView" hidden/);
   assert.match(html, /id="proposalReadyModal"/);
+  assert.match(html, /id="scenarioMandate"/);
   assert.match(app, /Add to proposal/);
+  assert.match(app, /function openDecisionInScreener/);
+  assert.match(app, /data-scenario-amount/);
+  assert.match(app, /data-proposal-allocation/);
+  assert.doesNotMatch(app, /data-proposal-amount/);
+  assert.match(app, /Important information/);
   assert.match(app, /function openProposalBuilder/);
   assert.match(app, /setDecisionCandidates/);
   assert.match(app, /function workspaceTitle/);
@@ -217,7 +223,7 @@ test("back controls preserve a consistent arrow and label hierarchy", async () =
   assert.match(css, /\.scenario-back, \.wealth-drawer-back, \.profile-back \{[^}]*gap: 8px;/);
 });
 
-test("advisor book controls and attention cells stay compact and aligned", async () => {
+test("advisor book controls and attention cells stay readable and aligned", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
@@ -227,7 +233,8 @@ test("advisor book controls and attention cells stay compact and aligned", async
   assert.doesNotMatch(html, /Decision \/ attention/);
   assert.match(app, /class="book-workflow-status"/);
   assert.doesNotMatch(app, /book-plan-pill/);
-  assert.match(css, /\.book-table th, \.book-table td \{ height: 57px;/);
+  assert.match(css, /\.book-table th, \.book-table td \{ height: 64px;/);
+  assert.match(css, /\.book-table thead th \{ height: 38px;[^}]*font-size: 9px;/);
   assert.match(css, /\.book-table th:nth-child\(6\), \.book-table td:nth-child\(6\) \{[^}]*width: 7%;[^}]*text-align: center;/);
   assert.match(css, /\.book-table th:last-child \{[^}]*width: 29%;/);
   assert.match(css, /\.book-workflow-status \{[^}]*border-left: 1px solid/);

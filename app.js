@@ -1,11 +1,11 @@
 import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, STATUSES } from "/lib/shared-config.js";
 import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
-import { defaultSort, headerSort, isSortAllowed, sortOptions, SORTS } from "/lib/sort-config.js";
+import { defaultSort, headerSort, isSortAllowed, sortLoadedItems, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
 import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
 import { getDecisionPlan, getHouseholdPlanSummary, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, saveDecisionPlan, setDecisionCandidates, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
-import { allocateProposalCandidates, createProposalDraft, getProposal, markProposalReady, saveProposal } from "/lib/proposal-data.js";
+import { allocateProposalCandidates, createProposalDraft, getProposal, markProposalReady, reallocateProposalCandidate, saveProposal } from "/lib/proposal-data.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -938,8 +938,8 @@ function proposalImpactFromScenario(detail, scenario) {
   };
   if (detail.decision.kind === "concentration") {
     add("concentration", "Largest position", scenario.before.concentrationPct, scenario.after.concentrationPct, "percent");
-    add("stressLoss", "Single-stock stress loss", scenario.before.stressLoss, scenario.after.stressLoss);
     add("cash", "Household cash", scenario.before.cash, scenario.after.cash);
+    add("cashWeight", "Cash allocation", scenario.before.cashPct, scenario.after.cashPct, "percent");
     add("usEquity", "US equity allocation", scenario.before.usEquityPct, scenario.after.usEquityPct, "percent");
   } else if (detail.decision.kind === "liquidity") {
     add("cash", "Household cash", scenario.before.cash, scenario.after.cash);
@@ -955,7 +955,9 @@ function launchDecisionImplementation() {
   const detail = state.activeDecisionDetail;
   const scenario = state.activeDecisionScenario;
   if (!detail || !scenario?.implementation?.enabled) return;
-  if (!getDecisionPlan(detail.decision.id)) buildActiveDecisionPlan();
+  if (!getDecisionPlan(detail.decision.id)) {
+    state.activeDecisionPlan = saveDecisionPlan({ decision: detail.decision, householdId: state.currentHouseholdId, steps: detail.planTemplate, implementationAmount: scenario.implementation.amount });
+  }
   const implementation = scenario.implementation;
   state.compare.clear();
   state.proposalCandidates.clear();
@@ -985,23 +987,87 @@ function launchDecisionImplementation() {
 async function returnFromInvestmentContext() {
   const context = state.householdScenario;
   if (!context?.householdId) return;
-  if (context.decisionId) {
-    await openHousehold(context.householdId);
-    openDecisionStudio(context.decisionId);
-    return;
-  }
-  openHousehold(context.householdId);
+  await openHousehold(context.householdId);
 }
 
 function openPrimaryConcentrationDecision() {
   const decision = state.decisionSummary?.decisions?.find((item) => item.kind === "concentration");
-  if (decision) openDecisionStudio(decision.id);
+  if (decision) openDecisionInScreener(decision.id);
   else openWealthDrawer("concentration");
+}
+
+async function openDecisionInScreener(decisionId) {
+  if (!state.currentHouseholdId) return;
+  const request = ++decisionRequest;
+  state.decisionController?.abort();
+  const controller = new AbortController();
+  state.decisionController = controller;
+  closeWealthDrawer({ restoreFocus: false });
+  showToast("Preparing investment mandate…");
+  try {
+    const detail = await loadDecisionDetail(decisionId, state.currentHouseholdId, { signal: controller.signal });
+    if (request !== decisionRequest || controller !== state.decisionController) return;
+    const scenario = await modelDecisionScenario(decisionId, state.currentHouseholdId, detail.model.defaults, { signal: controller.signal });
+    if (request !== decisionRequest) return;
+    state.activeDecisionDetail = detail;
+    state.activeDecisionScenario = scenario;
+    state.activeDecisionPlan = getDecisionPlan(decisionId);
+    launchDecisionImplementation();
+  } catch (error) {
+    if (error.name !== "AbortError") showToast("Unable to prepare this investment mandate");
+  }
+}
+
+function scenarioAmountOptions(scenario, detail) {
+  const bounds = detail?.model?.bounds || {};
+  const maximum = Number(bounds.redeployAmount?.max || bounds.deployAmount?.max || bounds.allocationAmount?.max || scenario?.economics?.release || scenario?.implementation?.amount || 0);
+  const current = Number(scenario?.implementation?.amount || 0);
+  return [...new Set([750_000, 1_000_000, current, maximum].map((value) => Math.min(maximum, Math.max(0, Math.round(value / 5000) * 5000))).filter(Boolean))].sort((a, b) => a - b);
+}
+
+function scenarioAmountKey(detail) {
+  if (detail?.decision?.kind === "liquidity") return "deployAmount";
+  if (detail?.decision?.kind === "allocation") return "allocationAmount";
+  return "redeployAmount";
+}
+
+function renderScenarioMandate() {
+  const container = el("scenarioMandate");
+  const scenario = state.activeDecisionScenario;
+  const detail = state.activeDecisionDetail;
+  if (!container || !state.householdScenario?.proposalMode || !scenario || !detail) { if (container) container.innerHTML = ""; return; }
+  const target = Number(scenario.inputs?.targetWeight);
+  const targetControl = detail.decision.kind === "concentration" ? `<label><span>Target position</span><select data-scenario-target aria-label="Target position weight">${[8, 10, 12, 15, target].filter((value, index, values) => Number.isFinite(value) && value >= detail.model.bounds.targetWeight.min && value <= detail.model.bounds.targetWeight.max && values.indexOf(value) === index).sort((a, b) => a - b).map((value) => `<option value="${value}"${value === target ? " selected" : ""}>${decisionPercent(value)}</option>`).join("")}</select></label>` : "";
+  const amount = Number(scenario.implementation.amount || 0);
+  const amountKey = scenarioAmountKey(detail);
+  const amountMaximum = Number(detail.model.bounds[amountKey]?.max);
+  container.innerHTML = `${targetControl}<div class="scenario-amount-choice"><span>Invest now</span><div>${scenarioAmountOptions(scenario, detail).map((value) => `<button type="button" data-scenario-amount="${value}" data-scenario-amount-key="${amountKey}" aria-pressed="${value === amount}">${value === amountMaximum ? `All ${formatWealthCurrency(value)}` : formatWealthCurrency(value)}</button>`).join("")}</div></div>`;
+}
+
+async function refreshEmbeddedMandate(updates) {
+  const detail = state.activeDecisionDetail;
+  if (!detail || !state.currentHouseholdId) return;
+  state.decisionScenarioController?.abort();
+  const controller = new AbortController();
+  state.decisionScenarioController = controller;
+  try {
+    const scenario = await modelDecisionScenario(detail.decision.id, state.currentHouseholdId, { ...(state.activeDecisionScenario?.inputs || {}), ...updates }, { signal: controller.signal });
+    if (controller !== state.decisionScenarioController) return;
+    state.activeDecisionScenario = scenario;
+    state.householdScenario.implementationAmount = scenario.implementation.amount;
+    state.householdScenario.impact = proposalImpactFromScenario(detail, scenario);
+    state.householdScenario.tags = [formatWealthCurrency(scenario.implementation.amount), ...scenario.implementation.tags.slice(1)];
+    rebalanceProposalCandidates();
+    showScenarioRibbon(state.householdScenario);
+    renderResults();
+  } catch (error) {
+    if (error.name !== "AbortError") showToast("Unable to update the investment mandate");
+  }
 }
 
 function showScenarioRibbon({ source, title, tags, decisionId = null, implementationAmount = 0, proposalMode = false, decisionTitle = "", objective = "", sourceLabel = "", sourceValue = "", impact = {} }) {
   state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name, decisionId, implementationAmount, proposalMode, decisionTitle, objective, sourceLabel, sourceValue, impact };
-  updateHtml(el("scenarioBack"), backLabel(decisionId ? "Review decision" : HOUSEHOLD.name));
+  updateHtml(el("scenarioBack"), backLabel(HOUSEHOLD.name));
   el("scenarioSource").textContent = source;
   el("scenarioTitle").textContent = title;
   el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
@@ -1014,6 +1080,7 @@ function showScenarioRibbon({ source, title, tags, decisionId = null, implementa
   el("scenarioRibbon").classList.toggle("proposal-mode", proposalMode);
   el("scenarioRibbon").hidden = false;
   document.body.classList.toggle("proposal-mode-active", proposalMode);
+  renderScenarioMandate();
   renderProposalTray();
 }
 
@@ -1024,7 +1091,7 @@ function applyHouseholdScenario(scenario) {
 
 function handleWealthInsight(id) {
   const decision = state.decisionSummary?.decisions?.find((item) => item.sourceInsightId === id);
-  if (decision) { openDecisionStudio(decision.id); return; }
+  if (decision) { openDecisionInScreener(decision.id); return; }
   const insight = HOUSEHOLD_INSIGHTS.find((candidate) => candidate.id === id);
   if (!insight) return;
   if (insight.action.type === "concentration") { openWealthDrawer("concentration"); return; }
@@ -1274,6 +1341,7 @@ function visibleFlags(flags) {
 
 function renderMarketHeaders() {
   const columns = selectedColumns();
+  const proposalMode = proposalModeActive();
   el("resultsTable").style.setProperty("--result-columns", String(columns.length));
   el("resultsTable").classList.toggle("proposal-results-table", proposalModeActive());
   el("columnsButton").textContent = `▦ Columns · ${columns.length}/${MAX_RESULT_COLUMNS}`;
@@ -1284,7 +1352,7 @@ function renderMarketHeaders() {
     const indicator = config.active ? (config.direction === "asc" ? "↑" : "↓") : "↕";
     return `<th class="${className} sortable-column ${config.active ? "active-sort" : ""}" aria-sort="${ariaSort}"><button type="button" data-sort-header="${escapeHtml(config.nextSort)}" title="Sort by ${escapeHtml(label)}">${escapeHtml(label)}<span aria-hidden="true">${indicator}</span></button></th>`;
   };
-  updateHtml(el("resultsHeader"), `<th class="check-cell"><span class="sr-only">Compare</span></th>${sortableHeader("investment", "Investment", "col-investment")}${columns.map((column) => sortableHeader(column, columnLabel(state.appliedCategory, column), `result-data-column col-${escapeHtml(column)}`)).join("")}<th class="action-cell"><span class="sr-only">${proposalModeActive() ? "Proposal selection" : "Actions"}</span></th>`);
+  updateHtml(el("resultsHeader"), `<th class="check-cell"><span class="sr-only">${proposalMode ? "Proposal selection" : "Compare"}</span></th>${sortableHeader("investment", "Investment", "col-investment")}${columns.map((column) => sortableHeader(column, columnLabel(state.appliedCategory, column), `result-data-column col-${escapeHtml(column)}`)).join("")}${proposalMode ? "" : `<th class="action-cell"><span class="sr-only">Actions</span></th>`}`);
 }
 
 function marketMetric(metric) {
@@ -1341,7 +1409,7 @@ function renderResultColumn(item, column) {
   return marketMetric({ value: "—", label: columnLabel(item.category, column) });
 }
 
-function resultColspan() { return selectedColumns().length + 3; }
+function resultColspan() { return selectedColumns().length + (proposalModeActive() ? 2 : 3); }
 
 function renderResults() {
   const body = el("resultsBody");
@@ -1351,14 +1419,15 @@ function renderResults() {
     return;
   }
   const columns = selectedColumns();
+  const proposalMode = proposalModeActive();
   body.innerHTML = state.items.map((item) => {
     const checked = state.compare.has(item.id);
     const proposed = state.proposalCandidates.has(item.id);
     return `<tr data-row-id="${escapeHtml(item.id)}" class="${proposed ? "proposal-selected-row" : ""}">
-      <td class="check-cell"><input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/></td>
+      <td class="check-cell">${proposalMode ? `<button type="button" class="proposal-select-button ${proposed ? "selected" : ""}" data-proposal-id="${escapeHtml(item.id)}" aria-pressed="${proposed}" aria-label="${proposed ? "Remove" : "Add"} ${escapeHtml(item.name)} ${proposed ? "from" : "to"} proposal"><span>${proposed ? "✓" : "+"}</span></button>` : `<input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/>`}</td>
       <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${researchStatus(item.researchStatus)}${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
       ${columns.map((column) => `<td class="result-data-column col-${escapeHtml(column)} ${column === "primary" ? "market-primary" : ""}">${renderResultColumn(item, column)}</td>`).join("")}
-      <td class="action-cell">${proposalModeActive() ? `<button type="button" class="proposal-add-button ${proposed ? "selected" : ""}" data-proposal-id="${escapeHtml(item.id)}" aria-pressed="${proposed}">${proposed ? "✓ Added" : "Add to proposal"}</button>` : `<a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a>`}</td>
+      ${proposalMode ? "" : `<td class="action-cell"><a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a></td>`}
     </tr>`;
   }).join("");
 }
@@ -1446,7 +1515,7 @@ async function loadMarketSnapshots(items) {
     const data = await response.json();
     if (controller !== state.snapshotController) return;
     Object.entries(data.snapshots || {}).forEach(([id, snapshot]) => state.snapshotCache.set(id, snapshot));
-    state.items = state.items.map((item) => ({ ...item, marketSnapshot: state.snapshotCache.get(item.id) }));
+    state.items = sortLoadedItems(state.items.map((item) => ({ ...item, marketSnapshot: state.snapshotCache.get(item.id) })), state.sort, state.appliedCategory);
     for (const item of state.items) {
       if (state.compare.has(item.id)) state.compare.set(item.id, item);
     }
@@ -1737,7 +1806,14 @@ function proposalImpactMarkup(proposal) {
 }
 
 function proposalSolutionMarkup(proposal) {
-  return `<div class="proposal-solutions">${proposal.candidates.map((candidate, index) => `<article><span class="proposal-solution-number">${String(index + 1).padStart(2, "0")}</span>${productMark(candidate)}<div><h4>${escapeHtml(candidate.name)}</h4><p>${escapeHtml(candidate.manager)} · ${escapeHtml(candidate.category)}${candidate.symbol ? ` · ${escapeHtml(candidate.symbol)}` : ""}</p><small>${candidate.fee === null ? "Fee available in product research" : `${formatFee(candidate.fee)} annual fee`} · ${formatMinimum(candidate.minimum)} minimum</small></div><strong>${formatWealthCurrency(candidate.amount)}</strong><em>${proposal.totalAmount ? ((candidate.amount / proposal.totalAmount) * 100).toFixed(0) : 0}%</em></article>`).join("")}</div>`;
+  return `<div class="proposal-solutions-table-wrap"><table class="proposal-solutions-table"><thead><tr><th>Strategy</th><th>Portfolio role</th><th>Allocation</th><th>Weight</th><th>Product fee</th><th>Liquidity</th></tr></thead><tbody>${proposal.candidates.map((candidate) => `<tr><th><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.manager)} · ${escapeHtml(candidate.symbol || candidate.category)}</small></th><td>${escapeHtml(candidate.objective || candidate.assetClass || candidate.category)}</td><td>${formatWealthCurrency(candidate.amount)}</td><td>${proposal.totalAmount ? ((candidate.amount / proposal.totalAmount) * 100).toFixed(1) : 0}%</td><td>${candidate.fee === null ? "See materials" : formatFee(candidate.fee)}</td><td>${escapeHtml(candidate.liquidity || "See product materials")}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function proposalAllocationMarkup(proposal) {
+  const keys = ["concentration", "usEquity", "cashWeight"];
+  const entries = keys.map((key) => proposal.impact?.[key]).filter((item) => item?.format === "percent");
+  if (!entries.length) return "";
+  return `<section class="proposal-document-section proposal-allocation-table"><span class="proposal-section-label">MODELED ALLOCATION</span><h3>Current and proposed household positioning</h3><table><thead><tr><th>Exposure</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead><tbody>${entries.map((item) => `<tr><th>${escapeHtml(item.label)}</th><td>${proposalImpactValue(item.before, "percent")}</td><td>${proposalImpactValue(item.after, "percent")}</td><td class="${Number(item.after) - Number(item.before) < 0 ? "negative" : "positive"}">${Number(item.after) - Number(item.before) >= 0 ? "+" : ""}${(Number(item.after) - Number(item.before)).toFixed(1)} pts</td></tr>`).join("")}</tbody></table><small>Modeled at the household level. Unchanged asset classes are omitted for clarity.</small></section>`;
 }
 
 function renderProposalBuilder() {
@@ -1751,31 +1827,34 @@ function renderProposalBuilder() {
   const minimumsMet = proposal.candidates.every((candidate) => candidate.amount >= candidate.minimum);
   const allocationValid = proposal.candidates.length > 0 && remaining === 0 && minimumsMet;
   const weightedFee = proposal.candidates.reduce((sum, candidate) => sum + (Number(candidate.fee) || 0) * candidate.amount, 0) / Math.max(1, allocated);
+  const annualProductCost = allocated * weightedFee / 100;
   const today = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
   updateHtml(el("proposalContent"), `<header class="proposal-workspace-header">
-      <div><button type="button" class="proposal-back-link" data-proposal-back-results>${backLabel("Investment selection")}</button><span class="eyebrow">TOTAL WEALTH · CLIENT PROPOSAL</span><h1 id="proposalPageTitle">Build the client proposal</h1><p>Turn the selected implementation into a clear, reviewable household recommendation.</p></div>
-      <div class="proposal-header-actions"><button type="button" class="secondary-button" data-open-decision-from-proposal>Review decision</button><button type="button" class="primary-button" data-proposal-generate ${allocationValid ? "" : "disabled"}>Generate client proposal</button></div>
+      <div><button type="button" class="proposal-back-link" data-proposal-back-results>${backLabel("Investment selection")}</button><span class="eyebrow">TOTAL WEALTH · CLIENT PROPOSAL</span><h1 id="proposalPageTitle">Proposal for client review</h1><p>Finalize the recommendation, disclosures and client-ready document.</p></div>
+      <div class="proposal-header-actions"><button type="button" class="secondary-button" data-open-decision-from-proposal>Edit investments</button><button type="button" class="primary-button" data-proposal-generate ${allocationValid ? "" : "disabled"}>Finalize proposal</button></div>
     </header>
     <nav class="proposal-stepper" aria-label="Proposal progress"><span class="complete"><i>✓</i>Define change</span><b></b><span class="complete"><i>✓</i>Select investments</span><b></b><span class="active"><i>3</i>Build proposal</span></nav>
     <div class="proposal-builder-layout">
       <main class="proposal-document" id="proposalDocument">
         <header class="proposal-document-brand"><div><span class="brand-mark" aria-hidden="true">UPS</span><i></i><strong>WEALTH MANAGEMENT</strong></div><span>${escapeHtml(proposal.status.toUpperCase())}</span></header>
-        <section class="proposal-document-title"><span>INVESTMENT PROPOSAL · ${escapeHtml(today.toUpperCase())}</span><h2>Proposed portfolio change</h2><p>Prepared for <strong>${escapeHtml(proposal.members.join(" & ") || proposal.householdName)}</strong></p></section>
+        <section class="proposal-document-title"><span>INVESTMENT PROPOSAL · ${escapeHtml(today.toUpperCase())}</span><h2>Household investment proposal</h2><p>Prepared for <strong>${escapeHtml(proposal.members.join(" & ") || proposal.householdName)}</strong></p></section>
         <section class="proposal-executive-summary"><div><span>HOUSEHOLD</span><strong>${escapeHtml(proposal.householdName)}</strong><small>${escapeHtml(proposal.decisionTitle)}</small></div><div><span>PROPOSED INVESTMENT</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small></div><div><span>SOLUTIONS</span><strong>${proposal.candidates.length}</strong><small>${weightedFee ? `${weightedFee.toFixed(2)}% weighted fee` : "Selected investment mix"}</small></div></section>
         <section class="proposal-document-section"><span class="proposal-section-label">WHY THIS CHANGE</span><h3>A portfolio decision grounded in the household</h3><p>${escapeHtml(proposal.rationale)}</p><div class="proposal-source-note"><span>Source of funds</span><strong>${escapeHtml(proposal.sourceLabel)}</strong><small>${escapeHtml(proposal.sourceValue)}</small></div></section>
         ${proposal.sections.householdImpact ? `<section class="proposal-document-section"><span class="proposal-section-label">HOUSEHOLD IMPACT</span><h3>What changes in the modeled portfolio</h3>${proposalImpactMarkup(proposal)}</section>` : ""}
+        ${proposal.sections.householdImpact ? proposalAllocationMarkup(proposal) : ""}
         ${proposal.sections.proposedSolutions ? `<section class="proposal-document-section"><span class="proposal-section-label">PROPOSED SOLUTIONS</span><h3>How the capital would be allocated</h3>${proposalSolutionMarkup(proposal)}</section>` : ""}
-        ${proposal.sections.costsAndConsiderations ? `<section class="proposal-document-section proposal-considerations"><span class="proposal-section-label">COSTS & CONSIDERATIONS</span><div><p><strong>Costs</strong><span>${weightedFee ? `${weightedFee.toFixed(2)}% weighted annual investment-management fee, before applicable advisory or custody charges.` : "Review product-level fees and applicable advisory charges before implementation."}</span></p><p><strong>Taxes</strong><span>Realized gains and tax consequences require review. No tax liability is estimated in this proposal.</span></p><p><strong>Implementation</strong><span>Final eligibility, restrictions, account funding and operational readiness must be confirmed before execution.</span></p></div></section>` : ""}
+        ${proposal.sections.costsAndConsiderations ? `<section class="proposal-document-section proposal-considerations"><span class="proposal-section-label">COSTS & CONSIDERATIONS</span><div><p><strong>Estimated product cost</strong><span>${weightedFee ? `${weightedFee.toFixed(2)}% weighted annual product fee, approximately ${formatWealthCurrency(annualProductCost)} per year on the proposed amount. Advisory, custody and transaction charges are additional where applicable.` : "Review product-level fees and applicable advisory charges before implementation."}</span></p><p><strong>Taxes</strong><span>Realized gains and tax consequences require review. No tax liability is estimated in this proposal.</span></p><p><strong>Implementation</strong><span>Final eligibility, restrictions, account funding and operational readiness must be confirmed before execution.</span></p></div></section>` : ""}
         ${proposal.sections.nextSteps ? `<section class="proposal-document-section proposal-next-steps"><span class="proposal-section-label">NEXT STEPS</span><h3>Review together before anything is implemented</h3><ol><li><i>1</i><span><strong>Discuss the proposed change</strong><small>Confirm the household objective and the amount to reposition.</small></span></li><li><i>2</i><span><strong>Review the selected solutions</strong><small>Consider strategy, fees, risks, liquidity and tax implications.</small></span></li><li><i>3</i><span><strong>Approve implementation</strong><small>No transaction occurs until the required client and firm approvals are complete.</small></span></li></ol></section>` : ""}
-        <footer class="proposal-document-footer"><span>Illustrative proposal · Not a trade confirmation or investment recommendation</span><span>${escapeHtml(proposal.id)}</span></footer>
+        <section class="proposal-disclosures"><strong>Important information</strong><p>This document is an illustrative discussion aid and is not a trade confirmation, offer or solicitation. It does not by itself authorize a transaction. Proposed investments remain subject to suitability, best-interest, product eligibility, concentration, liquidity, tax, account and firm-approval review. Values and market data are as of the date shown and may change. Past performance does not guarantee future results. Fees reduce returns; consult current product materials, Form CRS, applicable Form ADV disclosures and offering documents before implementation. Tax information is general and is not tax advice. Client consent and all required supervisory approvals must be documented before any transaction.</p></section>
+        <footer class="proposal-document-footer"><span>Illustrative client proposal · Prepared for discussion</span><span>${escapeHtml(proposal.id)}</span></footer>
       </main>
       <aside class="proposal-composer">
         <div class="proposal-composer-heading"><span>PROPOSAL CONFIGURATION</span><h2>Shape the client conversation</h2><p>Amounts and included sections update the proposal preview.</p></div>
         <section class="proposal-funding-card"><span>CAPITAL TO ALLOCATE</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small><div><i style="width:${Math.min(100, (allocated / Math.max(1, proposal.totalAmount)) * 100)}%"></i></div><p><span>${formatWealthCurrency(allocated)} allocated</span><b class="${allocationValid ? "complete" : ""}">${!minimumsMet ? "Investment minimum not met" : `${formatWealthCurrency(Math.abs(remaining))} ${remaining < 0 ? "over" : "remaining"}`}</b></p></section>
-        <section class="proposal-allocation-editor"><div class="proposal-composer-section-heading"><span>ALLOCATION</span><button type="button" data-proposal-rebalance>Meet minimums & split</button></div>${proposal.candidates.map((candidate) => { const belowMinimum = candidate.amount < candidate.minimum; return `<label class="${belowMinimum ? "below-minimum" : ""}"><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.symbol || candidate.category)} · ${formatWealthCurrency(candidate.minimum)} minimum${belowMinimum ? " · Below minimum" : ""}</small></span><span class="proposal-money-input">$<input type="number" min="${candidate.minimum}" max="${proposal.totalAmount}" step="1000" value="${candidate.amount}" data-proposal-amount="${escapeHtml(candidate.id)}" aria-label="Proposed amount for ${escapeHtml(candidate.name)}" /></span></label>`; }).join("")}</section>
+        <section class="proposal-allocation-editor"><div class="proposal-composer-section-heading"><span>ALLOCATION</span><button type="button" data-proposal-rebalance>Split evenly</button></div>${proposal.candidates.map((candidate) => { const belowMinimum = candidate.amount < candidate.minimum; const otherMinimums = proposal.candidates.filter((item) => item.id !== candidate.id).reduce((sum, item) => sum + item.minimum, 0); const maximum = Math.max(candidate.minimum, proposal.totalAmount - otherMinimums); return `<label class="${belowMinimum ? "below-minimum" : ""}"><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.symbol || candidate.category)} · ${formatWealthCurrency(candidate.minimum)} minimum</small></span><output>${formatWealthCurrency(candidate.amount)} <em>${proposal.totalAmount ? ((candidate.amount / proposal.totalAmount) * 100).toFixed(0) : 0}%</em></output><input type="range" min="${candidate.minimum}" max="${maximum}" step="5000" value="${candidate.amount}" data-proposal-allocation="${escapeHtml(candidate.id)}" aria-label="Allocation for ${escapeHtml(candidate.name)}" ${proposal.candidates.length === 1 ? "disabled" : ""}/></label>`; }).join("")}</section>
         <section class="proposal-section-editor"><div class="proposal-composer-section-heading"><span>CLIENT SECTIONS</span></div>${[["householdImpact", "Household impact"], ["proposedSolutions", "Proposed solutions"], ["costsAndConsiderations", "Costs & considerations"], ["nextSteps", "Next steps"]].map(([key, label]) => `<label><input type="checkbox" data-proposal-section="${key}" ${proposal.sections[key] ? "checked" : ""}/><span>${label}</span></label>`).join("")}</section>
         <label class="proposal-rationale-editor"><span>ADVISOR RATIONALE</span><textarea maxlength="1200" data-proposal-rationale>${escapeHtml(proposal.rationale)}</textarea></label>
-        <button type="button" class="primary-button proposal-generate-button" data-proposal-generate ${allocationValid ? "" : "disabled"}>Generate client proposal <span aria-hidden="true">→</span></button>
+        <button type="button" class="primary-button proposal-generate-button" data-proposal-generate ${allocationValid ? "" : "disabled"}>Finalize client proposal <span aria-hidden="true">→</span></button>
         <small class="proposal-autosave">Draft saved to this household decision</small>
       </aside>
     </div>`);
@@ -2253,7 +2332,7 @@ document.addEventListener("click", (event) => {
   const wealthGoal = event.target.closest("[data-wealth-goal]");
   if (wealthGoal) openWealthDrawer(`goal:${wealthGoal.dataset.wealthGoal}`);
   const decisionOpen = event.target.closest("[data-decision-open]");
-  if (decisionOpen) { closeWealthDrawer({ restoreFocus: false }); openDecisionStudio(decisionOpen.dataset.decisionOpen); }
+  if (decisionOpen) { closeWealthDrawer({ restoreFocus: false }); openDecisionInScreener(decisionOpen.dataset.decisionOpen); }
   const wealthAction = event.target.closest("[data-wealth-action]");
   if (wealthAction?.dataset.wealthAction === "accounts") openWealthDrawer("accounts");
   if (wealthAction?.dataset.wealthAction === "concentration") openPrimaryConcentrationDecision();
@@ -2274,9 +2353,9 @@ document.addEventListener("click", (event) => {
   const removeProposal = event.target.closest("[data-remove-proposal]");
   if (removeProposal) toggleProposalCandidate(removeProposal.dataset.removeProposal, false);
   if (event.target.closest("[data-proposal-back-results]")) { setWorkspaceView("investments"); renderProposalTray(); }
-  if (event.target.closest("[data-open-decision-from-proposal]") && state.proposal) {
-    openHousehold(state.proposal.householdId).then(() => openDecisionStudio(state.proposal.decisionId));
-  }
+  if (event.target.closest("[data-open-decision-from-proposal]")) { setWorkspaceView("investments"); renderProposalTray(); }
+  const amountChoice = event.target.closest("[data-scenario-amount]");
+  if (amountChoice) refreshEmbeddedMandate({ [amountChoice.dataset.scenarioAmountKey || "redeployAmount"]: Number(amountChoice.dataset.scenarioAmount) });
   if (event.target.closest("[data-proposal-generate]")) generateClientProposal();
   if (event.target.closest("[data-proposal-rebalance]") && state.proposal) {
     const candidates = allocateProposalCandidates(state.proposal.candidates, state.proposal.totalAmount);
@@ -2442,9 +2521,10 @@ document.addEventListener("change", (event) => {
   if (target.matches('[data-filter="risk"]')) { target.checked ? state.risks.add(target.value) : state.risks.delete(target.value); runSearch(); }
   if (target.matches('[data-filter="status"]')) { target.checked ? state.statuses.add(target.value) : state.statuses.delete(target.value); runSearch(); }
   if (target.matches("[data-compare-id]")) toggleCompare(target.dataset.compareId, target.checked);
-  if (target.matches("[data-proposal-amount]") && state.proposal) {
+  if (target.matches("[data-scenario-target]")) refreshEmbeddedMandate({ targetWeight: Number(target.value) });
+  if (target.matches("[data-proposal-allocation]") && state.proposal) {
     const amount = Math.max(0, Math.round(Number(target.value) || 0));
-    const candidates = state.proposal.candidates.map((candidate) => candidate.id === target.dataset.proposalAmount ? { ...candidate, amount } : candidate);
+    const candidates = reallocateProposalCandidate(state.proposal.candidates, state.proposal.totalAmount, target.dataset.proposalAllocation, amount);
     state.proposalCandidates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     updateProposal({ candidates });
     renderProposalBuilder();

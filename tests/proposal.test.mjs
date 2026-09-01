@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allocateProposalCandidates, createProposalDraft, getProposal, markProposalReady, saveProposal } from "../lib/proposal-data.js";
+import { allocateProposalCandidates, createProposalDraft, getProposal, markProposalReady, reallocateProposalCandidate, saveProposal } from "../lib/proposal-data.js";
 
 const storage = new Map();
 globalThis.localStorage = {
@@ -38,6 +38,21 @@ test("proposal allocation meets investment minimums before splitting the remaind
   const candidates = context.candidates.slice(0, 2).map((candidate, index) => ({ ...candidate, minimum: [500000, 100000][index] }));
   const allocated = allocateProposalCandidates(candidates, context.totalAmount);
   assert.deepEqual(allocated.map((candidate) => candidate.amount), [700000, 300000]);
+});
+
+test("slider allocation preserves the total and every other minimum", () => {
+  const candidates = [
+    { id: "a", name: "A", minimum: 100000 },
+    { id: "b", name: "B", minimum: 200000 },
+    { id: "c", name: "C", minimum: 50000 },
+  ];
+  const allocated = reallocateProposalCandidate(candidates, 1_000_000, "a", 700_000);
+  assert.equal(allocated.reduce((sum, candidate) => sum + candidate.amount, 0), 1_000_000);
+  assert.equal(allocated.find(({ id }) => id === "a").amount, 700_000);
+  assert.ok(allocated.every((candidate) => candidate.amount >= candidate.minimum));
+  const clamped = reallocateProposalCandidate(candidates, 1_000_000, "a", 990_000);
+  assert.equal(clamped.find(({ id }) => id === "a").amount, 750_000);
+  assert.equal(clamped.reduce((sum, candidate) => sum + candidate.amount, 0), 1_000_000);
 });
 
 test("proposal drafts preserve a valid advisor allocation", () => {

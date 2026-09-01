@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, MAX_RESULT_COLUMNS, normalizeColumns } from "../lib/column-config.js";
-import { defaultSort, headerSort, sortOptions } from "../lib/sort-config.js";
+import { defaultSort, headerSort, sortLoadedItems, sortOptions } from "../lib/sort-config.js";
 
 test("every category default and preset stays valid and within the five-column cap", () => {
   for (const [category, allowed] of Object.entries(CATEGORY_COLUMN_RULES)) {
@@ -67,4 +67,17 @@ test("market size columns are first-class for equities and ETFs", () => {
   assert.ok(sortOptions("ETFs", ["aum"], false).some(({ value }) => value === "aum-desc"));
   assert.equal(headerSort("Equities", "marketCap", "name-asc").nextSort, "marketCap-desc");
   assert.equal(headerSort("ETFs", "aum", "name-asc").nextSort, "aum-desc");
+});
+
+test("loaded Yahoo values control the visible equity and ETF order", () => {
+  const rows = [
+    { id: "first", marketSnapshot: { live: { primary: 120, marketCap: 50, perf1: 4, forwardPE: 22 } } },
+    { id: "missing", marketSnapshot: { live: {} } },
+    { id: "third", marketSnapshot: { live: { primary: 80, marketCap: 90, perf1: 12, forwardPE: 16 } } },
+  ];
+  assert.deepEqual(sortLoadedItems(rows, "primary-asc", "Equities").map(({ id }) => id), ["third", "first", "missing"]);
+  assert.deepEqual(sortLoadedItems(rows, "marketCap-desc", "Equities").map(({ id }) => id), ["third", "first", "missing"]);
+  assert.deepEqual(sortLoadedItems(rows, "perf1-desc", "Equities").map(({ id }) => id), ["third", "first", "missing"]);
+  assert.deepEqual(sortLoadedItems(rows, "forwardPE-asc", "Equities").map(({ id }) => id), ["third", "first", "missing"]);
+  assert.strictEqual(sortLoadedItems(rows, "name-asc", "Equities"), rows);
 });
