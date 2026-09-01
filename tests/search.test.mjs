@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CATEGORY_ORDER, EQUITY_REFERENCE_AS_OF, EQUITY_REFERENCE_SOURCE, FLAG_DEFINITIONS, getInvestmentDetail, getMarketSnapshots, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
+import { CATEGORY_ORDER, EQUITY_REFERENCE_AS_OF, EQUITY_REFERENCE_SOURCE, ETF_REFERENCE_AS_OF, ETF_REFERENCE_SOURCES, FLAG_DEFINITIONS, getInvestmentDetail, getMarketSnapshots, getSearchIndex, searchCatalog, UNIVERSE_SIZE } from "../lib/catalog.js";
 import { EQUITY_UNIVERSE } from "../lib/equity-universe.js";
+import { ETF_UNIVERSE } from "../lib/etf-universe.js";
 import searchHandler, { inputFromQuery } from "../api/search.js";
 import detailHandler from "../api/detail.js";
 import snapshotHandler from "../api/snapshots.js";
@@ -34,6 +35,29 @@ test("the equity shelf uses a broad real issuer reference without repeated place
   assert.ok(result.items.every((item) => !/\b(?:ETF|ETN|Fund)\b/i.test(item.name)));
   assert.ok(result.items.every((item) => item.id.startsWith("eq-")));
 });
+
+test("the ETF shelf uses 1,117 current real listed identities", () => {
+  assert.equal(ETF_UNIVERSE.length, 1117);
+  assert.match(ETF_REFERENCE_AS_OF, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(ETF_REFERENCE_SOURCES.length, 2);
+  assert.ok(ETF_REFERENCE_SOURCES.every((url) => /^https:\/\/www\.nasdaqtrader\.com\//.test(url)));
+  const etfs = getSearchIndex("ETFs");
+  assert.equal(etfs.length, 1117);
+  assert.equal(new Set(etfs.map((item) => item.symbol)).size, 1117);
+  assert.ok(new Set(etfs.map((item) => item.name)).size >= 1100);
+  assert.ok(etfs.every((item) => !/^(?:US Quality Leaders|Short Treasury|Global Infrastructure|Tax-Aware Municipal) ETF [A-R]$/i.test(item.name)));
+  assert.ok(etfs.every((item) => !/^ET\d{4}$/i.test(item.symbol)));
+  for (const ticker of ["SPY", "VOO", "VTI", "QQQ", "JEPI", "AVUV"]) {
+    const row = etfs.find((item) => item.symbol === ticker);
+    assert.ok(row, `missing current ETF ${ticker}`);
+    assert.ok(row.name.length > ticker.length);
+    assert.ok(row.manager);
+    const result = searchCatalog({ q: ticker, category: "ETFs" });
+    assert.equal(result.items[0]?.symbol, ticker, `ticker search failed for ${ticker}`);
+  }
+  assert.equal(searchCatalog({ q: "QQQ" }).items[0]?.category, "ETFs");
+});
+
 
 test("SEC-referenced equities support ticker, issuer-name, profile and snapshot flows", () => {
   const ticker = searchCatalog({ q: "AMZN" });
@@ -121,7 +145,7 @@ test("multiword manager search requires every meaningful term", () => {
 });
 
 test("whole-word matching does not confuse Vest with Investments", () => {
-  const result = searchCatalog({ q: "Vest" });
+  const result = searchCatalog({ q: "Vest", category: "Managed Options" });
   assert.ok(result.total > 0);
   assert.ok(result.items.every((item) => /\bvest/i.test(`${item.name} ${item.manager}`)));
   assert.ok(result.items.some((item) => item.manager === "Cboe Vest"));
