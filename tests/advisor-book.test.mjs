@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ADVISOR_BOOK_DATASET, DEFAULT_ADVISOR_ID } from "../lib/advisor-book-source.js";
+import { EQUITY_UNIVERSE } from "../lib/equity-universe.js";
 import { createWealthRepository } from "../lib/wealth-repository.js";
 import { createWealthService } from "../lib/wealth-service.js";
 
@@ -58,6 +59,8 @@ test("generated households stay materially varied across names, relationships, a
   concentrationSymbols.forEach((symbol) => concentrationFrequency.set(symbol, (concentrationFrequency.get(symbol) || 0) + 1));
   assert.ok(new Set(concentrationSymbols).size >= 24, "concentration alerts should span a broad security set");
   assert.ok(Math.max(...concentrationFrequency.values()) <= 2, "no one security should dominate generated concentration alerts");
+  const screenerEquitySymbols = new Set(EQUITY_UNIVERSE.map(([symbol]) => symbol));
+  assert.ok(concentrationSymbols.every((symbol) => screenerEquitySymbols.has(symbol)), "generated concentration equities must come from the Screener equity reference universe");
   for (const policy of concentrationPolicies) {
     const matchingSnapshots = ADVISOR_BOOK_DATASET.householdHoldingSnapshots.filter((holding) => holding.householdId === policy.householdId && holding.instrumentId === policy.instrumentId);
     const matchingPositions = ADVISOR_BOOK_DATASET.positions.filter((position) => position.householdId === policy.householdId && position.instrumentId === policy.instrumentId);
