@@ -42,3 +42,12 @@ test("sortable headers toggle direction without exposing incompatible fields", (
   assert.equal(headerSort("Equities", "forwardPE", "forwardPE-asc").nextSort, "forwardPE-desc");
   assert.equal(headerSort("Equities", "custodyFee", "name-asc"), null);
 });
+
+test("market size columns are first-class for equities and ETFs", () => {
+  assert.ok(CATEGORY_DEFAULT_COLUMNS.Equities.includes("marketCap"));
+  assert.ok(CATEGORY_DEFAULT_COLUMNS.ETFs.includes("aum"));
+  assert.ok(sortOptions("Equities", ["marketCap"], false).some(({ value }) => value === "marketCap-desc"));
+  assert.ok(sortOptions("ETFs", ["aum"], false).some(({ value }) => value === "aum-desc"));
+  assert.equal(headerSort("Equities", "marketCap", "name-asc").nextSort, "marketCap-desc");
+  assert.equal(headerSort("ETFs", "aum", "name-asc").nextSort, "aum-desc");
+});
