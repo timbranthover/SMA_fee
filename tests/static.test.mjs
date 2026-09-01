@@ -194,13 +194,20 @@ test("back controls preserve a consistent arrow and label hierarchy", async () =
   assert.match(css, /\.scenario-back, \.wealth-drawer-back, \.profile-back \{[^}]*gap: 8px;/);
 });
 
-test("advisor book controls and decision signals stay horizontally aligned", async () => {
+test("advisor book controls and attention cells stay compact and aligned", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(html, /class="book-sort"><span class="sr-only">Sort households<\/span><select/);
   assert.match(css, /\.book-sort \{[^}]*display: block;/);
-  assert.match(css, /\.book-attention-stack \{[^}]*display: flex;[^}]*align-items: center;/);
-  assert.match(css, /\.book-attention-stack > \.book-priority[^}]*flex: 1;/);
+  assert.match(html, /<th>Goals<\/th><th>Attention<\/th>/);
+  assert.doesNotMatch(html, /Decision \/ attention/);
+  assert.match(app, /class="book-workflow-status"/);
+  assert.doesNotMatch(app, /book-plan-pill/);
+  assert.match(css, /\.book-table th, \.book-table td \{ height: 57px;/);
+  assert.match(css, /\.book-table th:nth-child\(6\), \.book-table td:nth-child\(6\) \{[^}]*width: 7%;[^}]*text-align: center;/);
+  assert.match(css, /\.book-table th:last-child \{[^}]*width: 29%;/);
+  assert.match(css, /\.book-workflow-status \{[^}]*border-left: 1px solid/);
 });
 
 test("every allowlisted brand mark is local, unique and present", async () => {
