@@ -1329,13 +1329,13 @@ function renderResultColumn(item, column) {
   const snapshot = item.marketSnapshot;
   if (column === "primary") return snapshot ? marketPrimary(snapshot) : marketSnapshotPlaceholder();
   if (SNAPSHOT_COLUMNS.has(column)) return snapshot ? marketMetric(snapshotMetric(snapshot, column) || { value: "—", label: columnLabel(item.category, column) }) : marketSnapshotPlaceholder();
-  if (column === "marketCap") return marketMetric({ value: String(item.aum || "—").replace(/\s+market cap$/i, ""), label: "Market cap" });
-  if (column === "aum") return marketMetric({ value: item.aum || "—", label: "Fund assets" });
+  if (column === "marketCap") return marketMetric(snapshotMetric(snapshot, "marketCap") || { value: String(item.aum || "—").replace(/\s+market cap$/i, ""), label: "Market cap" });
+  if (column === "aum") return marketMetric(snapshotMetric(snapshot, "aum") || { value: item.aum || "—", label: "Fund assets" });
   if (column === "minimum") return marketMetric({ value: formatMinimum(item.minimum), label: "Opening" });
   if (column === "fee") return marketMetric({ value: formatFee(item.fee), label: "Annual" });
   if (column === "risk") return marketMetric({ value: item.risk, label: "Risk level" });
-  if (column === "perf1") return marketMetric({ value: formatReturn(item.perf1), label: "Annualized" });
-  if (column === "perf3") return marketMetric({ value: formatReturn(item.perf3), label: "Annualized" });
+  if (column === "perf1") return marketMetric(snapshotMetric(snapshot, "perf1") || { value: formatReturn(item.perf1), label: "Annualized" });
+  if (column === "perf3") return marketMetric(snapshotMetric(snapshot, "perf3") || { value: formatReturn(item.perf3), label: "Annualized" });
   if (column === "liquidity") return marketMetric({ value: item.liquidity || "—", label: "Terms" });
   if (column === "assetClass") return marketMetric({ value: item.assetClass || "—", label: "Classification" });
   return marketMetric({ value: "—", label: columnLabel(item.category, column) });
@@ -1447,6 +1447,9 @@ async function loadMarketSnapshots(items) {
     if (controller !== state.snapshotController) return;
     Object.entries(data.snapshots || {}).forEach(([id, snapshot]) => state.snapshotCache.set(id, snapshot));
     state.items = state.items.map((item) => ({ ...item, marketSnapshot: state.snapshotCache.get(item.id) }));
+    for (const item of state.items) {
+      if (state.compare.has(item.id)) state.compare.set(item.id, item);
+    }
     renderResults();
   } catch (error) {
     if (error.name !== "AbortError") console.warn("Market snapshots unavailable", error);
@@ -2132,8 +2135,8 @@ function renderCompareModal() {
   const rows = [
     ["Vehicle", (item) => item.type], ["Manager / issuer", (item) => item.manager], ["Asset class", (item) => item.assetClass],
     ["Objective", (item) => item.objective], ["Minimum", (item) => formatMinimum(item.minimum)],
-    ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk], ["1-year return", (item) => formatReturn(item.perf1)],
-    ["3-year return", (item) => formatReturn(item.perf3)], ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
+    ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk], ["1-year return", (item) => formatReturn(item.marketSnapshot?.live?.perf1 ?? item.perf1)],
+    ["3-year return", (item) => formatReturn(item.marketSnapshot?.live?.perf3 ?? item.perf3)], ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
   ];
   renderCompareLegend(items);
   el("compareBenchmark").checked = compareBenchmarkVisible;
