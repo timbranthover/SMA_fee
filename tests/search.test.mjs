@@ -387,3 +387,19 @@ test("detail API validates identifiers and returns 404 for unknown records", asy
   assert.equal(invalid.status, 400);
   assert.equal(missing.status, 404);
 });
+
+test("size sorting is global and semantically correct for equities and ETFs", () => {
+  const equities = searchCatalog({ category: "Equities", sort: "marketCap-desc" });
+  const etfs = searchCatalog({ category: "ETFs", sort: "aum-desc" });
+  assert.ok(equities.items.every((item) => /market cap$/i.test(item.aum)));
+  assert.ok(etfs.items.every((item) => /^\$/.test(item.aum)));
+  assert.ok(equities.items.slice(0, 10).some((item) => ["NVDA", "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN"].includes(item.symbol)));
+  assert.ok(etfs.items.slice(0, 10).some((item) => ["SPY", "VOO", "IVV", "VTI", "QQQ"].includes(item.symbol)));
+  const numberFromSize = (value) => {
+    const match = value.replace(/,/g, "").match(/\$([0-9.]+)([TBMK])/i);
+    const multiplier = { T: 1e12, B: 1e9, M: 1e6, K: 1e3 }[match[2].toUpperCase()];
+    return Number(match[1]) * multiplier;
+  };
+  assert.ok(equities.items.every((item, index, rows) => index === 0 || numberFromSize(rows[index - 1].aum) >= numberFromSize(item.aum)));
+  assert.ok(etfs.items.every((item, index, rows) => index === 0 || numberFromSize(rows[index - 1].aum) >= numberFromSize(item.aum)));
+});

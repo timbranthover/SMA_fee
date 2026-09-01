@@ -58,8 +58,12 @@ test("live quote overlays preserve the existing snapshot and detail contracts", 
   const snapshot = applyQuoteToSnapshot({ primary: { label: "Market price", value: "$99.00" }, trend: { label: "1Y", value: "+4.0%", points: [1, 2] }, asOf: "Illustrative" }, quote);
   assert.equal(snapshot.primary.value, "$123.45");
   assert.equal(snapshot.primary.change, "+2.88%");
-  assert.deepEqual(snapshot.trend.points, [120, 123.45]);
-  assert.match(snapshot.asOf, /Yahoo Finance/);
+  assert.deepEqual(snapshot.trend.points, [1, 2]);
+  assert.equal(snapshot.trend.label, "1Y");
+  assert.deepEqual(snapshot.intraday.points, [120, 123.45]);
+  assert.equal(snapshot.intraday.label, "Today");
+  assert.doesNotMatch(snapshot.asOf, /Yahoo Finance/);
+  assert.match(snapshot.asOf, /(?:AM|PM)/);
 
   const detail = applyQuoteToDetail({ category: "ETFs", profile: { quote: { value: "$99.00" } }, controls: { data: { source: "Illustrative" } } }, quote);
   assert.equal(detail.profile.quote.value, "$123.45");

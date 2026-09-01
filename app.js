@@ -1221,8 +1221,24 @@ function marketMetric(metric) {
   return `<span class="metric-primary">${escapeHtml(metric.value)}</span><span class="metric-secondary">${escapeHtml(metric.label)}</span>`;
 }
 
+function marketMicroSparkline(trend) {
+  const values = (trend?.points || []).filter((value) => Number.isFinite(Number(value))).map(Number);
+  if (values.length < 2) return "";
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const spread = maximum - minimum || 1;
+  const points = values.map((value, index) => {
+    const x = index * (50 / (values.length - 1));
+    const y = 2 + (maximum - value) * (12 / spread);
+    return [Number(x.toFixed(1)), Number(y.toFixed(1))];
+  });
+  const line = points.map(([x, y], index) => `${index ? "L" : "M"}${x} ${y}`).join(" ");
+  const [endX, endY] = points.at(-1);
+  return `<span class="live-sparkline ${escapeHtml(trend.tone || "neutral")}" title="${escapeHtml(`Today: ${trend.value || "—"}`)}"><svg class="market-live-sparkline" viewBox="0 0 50 16" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(`Today ${trend.value || ""}`)}"><path d="${line}"></path><circle cx="${endX}" cy="${endY}" r="1.5"></circle></svg></span>`;
+}
+
 function marketPrimary(snapshot) {
-  return `<div class="market-value-line"><span class="metric-primary">${escapeHtml(snapshot.primary.value)}</span><span class="snapshot-change ${escapeHtml(snapshot.primary.tone)}">${escapeHtml(snapshot.primary.change)}</span></div><span class="metric-secondary">${escapeHtml(snapshot.primary.label)} · ${escapeHtml(snapshot.asOf)}</span>`;
+  return `<div class="market-value-line"><span class="metric-primary">${escapeHtml(snapshot.primary.value)}</span><span class="snapshot-change ${escapeHtml(snapshot.primary.tone)}">${escapeHtml(snapshot.primary.change)}</span></div><div class="market-live-meta"><span class="metric-secondary">${escapeHtml(snapshot.asOf || "")}</span>${marketMicroSparkline(snapshot.intraday)}</div>`;
 }
 
 function marketSparkline(trend) {
@@ -1259,6 +1275,8 @@ function renderResultColumn(item, column) {
   if (column === "primary") return snapshot ? marketPrimary(snapshot) : marketSnapshotPlaceholder();
   if (column === "trend") return snapshot ? marketSparkline(snapshot.trend) : marketSnapshotPlaceholder();
   if (SNAPSHOT_COLUMNS.has(column)) return snapshot ? marketMetric(snapshotMetric(snapshot, column) || { value: "—", label: columnLabel(item.category, column) }) : marketSnapshotPlaceholder();
+  if (column === "marketCap") return marketMetric({ value: String(item.aum || "—").replace(/\s+market cap$/i, ""), label: "Market cap" });
+  if (column === "aum") return marketMetric({ value: item.aum || "—", label: "Fund assets" });
   if (column === "minimum") return marketMetric({ value: formatMinimum(item.minimum), label: "Opening" });
   if (column === "fee") return marketMetric({ value: formatFee(item.fee), label: "Annual" });
   if (column === "risk") return marketMetric({ value: item.risk, label: "Risk level" });

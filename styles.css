@@ -516,7 +516,16 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .metric-primary { font-weight: 700; }
 .metric-secondary { display: block; color: #888; font-size: 8px; margin-top: 3px; }
 .market-value-line { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-.market-primary .metric-secondary { max-width: 122px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.market-live-meta { display: flex; align-items: center; gap: 5px; margin-top: 3px; }
+.market-live-meta .metric-secondary { flex: 0 0 auto; max-width: 61px; margin-top: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-sparkline { width: 50px; height: 16px; display: block; margin-left: auto; }
+.market-live-sparkline { display: block; width: 50px; height: 16px; overflow: visible; }
+.market-live-sparkline path { fill: none; stroke: var(--green); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.market-live-sparkline circle { fill: var(--green); }
+.live-sparkline.negative .market-live-sparkline path { stroke: var(--red); }
+.live-sparkline.negative .market-live-sparkline circle { fill: var(--red); }
+.live-sparkline.neutral .market-live-sparkline path { stroke: #777; }
+.live-sparkline.neutral .market-live-sparkline circle { fill: #777; }
 .snapshot-change { font-size: 8px; font-weight: 700; white-space: nowrap; }
 .snapshot-change.positive { color: var(--green); }
 .snapshot-change.negative { color: var(--red); }
