@@ -545,6 +545,13 @@ function proposalUrl(decisionId = state.proposal?.decisionId || state.householdS
   return decisionId ? `/proposal/${encodeURIComponent(decisionId)}` : "/";
 }
 
+function workspaceTitle(view = state.workspaceView) {
+  if (view === "book") return "Advisor Workspace";
+  if (view === "wealth") return `${HOUSEHOLD?.name || "Household"} | Advisor Workspace`;
+  if (view === "proposal") return `${state.proposal?.householdName || HOUSEHOLD?.name || "Household"} Proposal | Advisor Workspace`;
+  return "Investment Screener | Advisor Workspace";
+}
+
 function setWorkspaceView(view, { updateHistory = true, replaceHistory = false } = {}) {
   const next = ["book", "wealth", "investments", "proposal"].includes(view) ? view : "book";
   state.workspaceView = next;
@@ -558,7 +565,7 @@ function setWorkspaceView(view, { updateHistory = true, replaceHistory = false }
     const target = button.dataset.workspaceView;
     button.classList.toggle("active", target === "book" ? ["book", "wealth", "proposal"].includes(next) : target === next);
   });
-  document.title = next === "book" ? "Advisor Workspace" : next === "wealth" ? `${HOUSEHOLD?.name || "Household"} | Advisor Workspace` : next === "proposal" ? `${state.proposal?.householdName || HOUSEHOLD?.name || "Household"} Proposal | Advisor Workspace` : "Investment Screener | Advisor Workspace";
+  document.title = workspaceTitle(next);
   if (updateHistory && !profileFromPath()) {
     const href = next === "book" ? "/" : next === "wealth" && state.currentHouseholdId ? `/household/${encodeURIComponent(state.currentHouseholdId)}` : next === "proposal" ? proposalUrl() : investmentUrl();
     history[replaceHistory ? "replaceState" : "pushState"]({ workspaceView: next, householdId: state.currentHouseholdId }, "", href);
@@ -1617,6 +1624,8 @@ function renderProposalTray() {
   const target = proposalTargetAmount();
   const allocated = candidates.reduce((sum, candidate) => sum + (Number(candidate.amount) || 0), 0);
   const remaining = Math.max(0, target - allocated);
+  const requiredMinimum = candidates.reduce((sum, candidate) => sum + (Number(candidate.minimum) || 0), 0);
+  const minimumsMet = candidates.every((candidate) => (Number(candidate.amount) || 0) >= (Number(candidate.minimum) || 0));
   tray.hidden = false;
   el("proposalTrayTitle").textContent = candidates.length ? `${candidates.length} ${candidates.length === 1 ? "solution" : "solutions"} selected` : "Select investments";
   el("proposalTraySubtitle").textContent = `${formatWealthCurrency(target)} available to allocate`;
@@ -1624,8 +1633,11 @@ function renderProposalTray() {
     ? candidates.map((candidate) => `<div class="proposal-tray-item">${productMark(candidate)}<span><strong>${escapeHtml(candidate.name)}</strong><small>${formatWealthCurrency(candidate.amount)} · ${escapeHtml(candidate.manager || candidate.category)}</small></span><button type="button" data-remove-proposal="${escapeHtml(candidate.id)}" aria-label="Remove ${escapeHtml(candidate.name)} from proposal">×</button></div>`).join("")
     : `<div class="proposal-tray-empty"><i>＋</i><span>Add one or more investments to build the client proposal.</span></div>`;
   el("proposalTrayAllocated").textContent = formatWealthCurrency(allocated);
-  el("proposalTrayRemaining").textContent = `${formatWealthCurrency(remaining)} remaining`;
-  el("proposalContinue").disabled = !candidates.length || remaining !== 0;
+  el("proposalTrayRemaining").textContent = requiredMinimum > target
+    ? `${formatWealthCurrency(requiredMinimum - target)} above available capital in minimums`
+    : !minimumsMet ? "Adjust allocation to meet investment minimums" : `${formatWealthCurrency(remaining)} remaining`;
+  el("proposalTrayRemaining").classList.toggle("warning", !minimumsMet);
+  el("proposalContinue").disabled = !candidates.length || remaining !== 0 || !minimumsMet;
 }
 
 function toggleProposalCandidate(id, selected) {
@@ -1653,7 +1665,7 @@ function proposalImpactValue(value, format) {
 
 function defaultProposalRationale(context) {
   if (!context) return "Implement the agreed household change using investments selected for the client's objectives and portfolio context.";
-  return `${context.sourceValue || context.decisionTitle} creates ${formatWealthCurrency(context.implementationAmount)} to reposition. The proposed solutions are intended to advance ${String(context.objective || "the household objective").replace(/\.$/, "").toLowerCase()} while keeping the implementation criteria explicit.`;
+  return `${context.sourceValue || context.decisionTitle} creates ${formatWealthCurrency(context.implementationAmount)} to reposition. The proposed solutions are intended to support the household objective: ${String(context.objective || "implement the agreed change").replace(/\.$/, "").toLowerCase()}. Implementation criteria remain explicit.`;
 }
 
 function buildProposalFromSelection() {
@@ -1733,7 +1745,8 @@ function renderProposalBuilder() {
   }
   const allocated = proposalAllocated(proposal);
   const remaining = proposal.totalAmount - allocated;
-  const allocationValid = proposal.candidates.length > 0 && remaining === 0;
+  const minimumsMet = proposal.candidates.every((candidate) => candidate.amount >= candidate.minimum);
+  const allocationValid = proposal.candidates.length > 0 && remaining === 0 && minimumsMet;
   const weightedFee = proposal.candidates.reduce((sum, candidate) => sum + (Number(candidate.fee) || 0) * candidate.amount, 0) / Math.max(1, allocated);
   const today = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
   updateHtml(el("proposalContent"), `<header class="proposal-workspace-header">
@@ -1755,8 +1768,8 @@ function renderProposalBuilder() {
       </main>
       <aside class="proposal-composer">
         <div class="proposal-composer-heading"><span>PROPOSAL CONFIGURATION</span><h2>Shape the client conversation</h2><p>Amounts and included sections update the proposal preview.</p></div>
-        <section class="proposal-funding-card"><span>CAPITAL TO ALLOCATE</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small><div><i style="width:${Math.min(100, (allocated / Math.max(1, proposal.totalAmount)) * 100)}%"></i></div><p><span>${formatWealthCurrency(allocated)} allocated</span><b class="${remaining === 0 ? "complete" : ""}">${formatWealthCurrency(Math.abs(remaining))} ${remaining < 0 ? "over" : "remaining"}</b></p></section>
-        <section class="proposal-allocation-editor"><div class="proposal-composer-section-heading"><span>ALLOCATION</span><button type="button" data-proposal-rebalance>Split evenly</button></div>${proposal.candidates.map((candidate) => `<label><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.symbol || candidate.category)}</small></span><span class="proposal-money-input">$<input type="number" min="0" max="${proposal.totalAmount}" step="1000" value="${candidate.amount}" data-proposal-amount="${escapeHtml(candidate.id)}" aria-label="Proposed amount for ${escapeHtml(candidate.name)}" /></span></label>`).join("")}</section>
+        <section class="proposal-funding-card"><span>CAPITAL TO ALLOCATE</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small><div><i style="width:${Math.min(100, (allocated / Math.max(1, proposal.totalAmount)) * 100)}%"></i></div><p><span>${formatWealthCurrency(allocated)} allocated</span><b class="${allocationValid ? "complete" : ""}">${!minimumsMet ? "Investment minimum not met" : `${formatWealthCurrency(Math.abs(remaining))} ${remaining < 0 ? "over" : "remaining"}`}</b></p></section>
+        <section class="proposal-allocation-editor"><div class="proposal-composer-section-heading"><span>ALLOCATION</span><button type="button" data-proposal-rebalance>Meet minimums & split</button></div>${proposal.candidates.map((candidate) => { const belowMinimum = candidate.amount < candidate.minimum; return `<label class="${belowMinimum ? "below-minimum" : ""}"><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.symbol || candidate.category)} · ${formatWealthCurrency(candidate.minimum)} minimum${belowMinimum ? " · Below minimum" : ""}</small></span><span class="proposal-money-input">$<input type="number" min="${candidate.minimum}" max="${proposal.totalAmount}" step="1000" value="${candidate.amount}" data-proposal-amount="${escapeHtml(candidate.id)}" aria-label="Proposed amount for ${escapeHtml(candidate.name)}" /></span></label>`; }).join("")}</section>
         <section class="proposal-section-editor"><div class="proposal-composer-section-heading"><span>CLIENT SECTIONS</span></div>${[["householdImpact", "Household impact"], ["proposedSolutions", "Proposed solutions"], ["costsAndConsiderations", "Costs & considerations"], ["nextSteps", "Next steps"]].map(([key, label]) => `<label><input type="checkbox" data-proposal-section="${key}" ${proposal.sections[key] ? "checked" : ""}/><span>${label}</span></label>`).join("")}</section>
         <label class="proposal-rationale-editor"><span>ADVISOR RATIONALE</span><textarea maxlength="1200" data-proposal-rationale>${escapeHtml(proposal.rationale)}</textarea></label>
         <button type="button" class="primary-button proposal-generate-button" data-proposal-generate ${allocationValid ? "" : "disabled"}>Generate client proposal <span aria-hidden="true">→</span></button>
@@ -1772,7 +1785,8 @@ function updateProposal(updates) {
 }
 
 function generateClientProposal() {
-  if (!state.proposal || proposalAllocated() !== state.proposal.totalAmount) { showToast("Allocate the full proposal amount first"); return; }
+  const minimumsMet = state.proposal?.candidates.every((candidate) => candidate.amount >= candidate.minimum);
+  if (!state.proposal || proposalAllocated() !== state.proposal.totalAmount || !minimumsMet) { showToast(minimumsMet ? "Allocate the full proposal amount first" : "Meet every investment minimum first"); return; }
   state.proposal = markProposalReady(state.proposal.decisionId);
   if (!state.proposal) { showToast("Proposal could not be finalized"); return; }
   setDecisionCandidates(state.proposal.decisionId, state.proposal.candidates);
@@ -1944,7 +1958,7 @@ function closeDrawer({ fromHistory = false } = {}) {
   document.body.classList.remove("profile-panel-open");
   document.querySelector("main").inert = false;
   document.querySelector(".global-header").inert = false;
-  document.title = state.workspaceView === "wealth" ? "Advisor Workspace" : "Investment Screener | Advisor Workspace";
+  document.title = workspaceTitle();
   state.detailMode = null;
   state.detailHistoryPushed = false;
   state.currentDetail = null;

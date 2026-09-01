@@ -85,6 +85,8 @@ test("proposal selection builds a durable client-ready workflow", async () => {
   assert.match(app, /Add to proposal/);
   assert.match(app, /function openProposalBuilder/);
   assert.match(app, /setDecisionCandidates/);
+  assert.match(app, /function workspaceTitle/);
+  assert.match(app, /Meet every investment minimum first/);
   assert.match(css, /\.proposal-builder-layout/);
   assert.match(css, /\.proposal-tray[^}]+transform: translateX\(-50%\)/);
   assert.match(css, /@media print/);

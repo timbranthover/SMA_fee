@@ -34,6 +34,12 @@ test("proposal allocation is exact and bounded", () => {
   assert.deepEqual(allocated.map((candidate) => candidate.amount), [333334, 333333, 333333]);
 });
 
+test("proposal allocation meets investment minimums before splitting the remainder", () => {
+  const candidates = context.candidates.slice(0, 2).map((candidate, index) => ({ ...candidate, minimum: [500000, 100000][index] }));
+  const allocated = allocateProposalCandidates(candidates, context.totalAmount);
+  assert.deepEqual(allocated.map((candidate) => candidate.amount), [700000, 300000]);
+});
+
 test("proposal drafts preserve a valid advisor allocation", () => {
   const candidates = context.candidates.map((candidate, index) => ({ ...candidate, amount: [500000, 300000, 200000][index] }));
   const proposal = createProposalDraft({ ...context, candidates });
@@ -47,5 +53,8 @@ test("saved proposals can only become client-ready when fully allocated", () => 
   assert.equal(markProposalReady(context.decisionId).status, "Ready for client");
 
   saveProposal({ ...draft, candidates: draft.candidates.map((candidate, index) => ({ ...candidate, amount: index ? candidate.amount : 0 })) });
+  assert.equal(markProposalReady(context.decisionId), null);
+
+  saveProposal({ ...draft, candidates: draft.candidates.map((candidate, index) => ({ ...candidate, minimum: index ? 0 : 500000, amount: [400000, 300000, 300000][index] })) });
   assert.equal(markProposalReady(context.decisionId), null);
 });

@@ -1188,6 +1188,7 @@ body[data-workspace="proposal"] > footer, body[data-workspace="proposal"] .compa
 .proposal-tray-allocation span { color: #999; font-size: 7px; letter-spacing: .07em; text-transform: uppercase; }
 .proposal-tray-allocation strong { font-family: Georgia, serif; font-size: 17px; font-weight: 400; }
 .proposal-tray-allocation small { color: #aaa; font-size: 7px; }
+.proposal-tray-allocation small.warning { color: #f0b6a2; }
 .proposal-continue { height: 46px; font-size: 9px; }
 .proposal-continue:disabled, .proposal-generate-button:disabled, .proposal-header-actions .primary-button:disabled { border-color: #666; background: #666; color: #cfcfcf; cursor: not-allowed; }
 
@@ -1282,6 +1283,8 @@ body[data-workspace="proposal"] > footer, body[data-workspace="proposal"] .compa
 .proposal-composer-section-heading button { border: 0; background: transparent; color: #555; font-size: 7px; font-weight: 700; }
 .proposal-allocation-editor > label { min-height: 47px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #ecece8; }
 .proposal-allocation-editor > label:nth-child(2) { border-top: 0; }
+.proposal-allocation-editor > label.below-minimum { margin: 0 -17px; padding: 0 17px; background: #fff6f2; }
+.proposal-allocation-editor > label.below-minimum small { color: #9f3d24; }
 .proposal-allocation-editor label strong, .proposal-allocation-editor label small { display: block; max-width: 165px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proposal-allocation-editor label strong { font-size: 8px; }
 .proposal-allocation-editor label small { margin-top: 3px; color: #999; font-size: 7px; }
