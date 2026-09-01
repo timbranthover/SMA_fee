@@ -96,7 +96,8 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .household-identity .eyebrow { margin: 0 0 5px; font-size: 8px; }
 .household-identity h1 { margin: 0 0 4px; font-size: 28px; }
 .household-identity p { margin: 0; color: #777; font-size: 10px; }
-.household-switcher { width: 28px; height: 28px; margin-left: 2px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: #666; }
+.household-profile-button { min-height: 30px; margin-left: 6px; border: 1px solid var(--line); border-radius: 3px; padding: 0 10px; background: #fff; color: #555; font-size: 8px; font-weight: 700; }
+.household-profile-button:hover { border-color: #999; color: #111; }
 .wealth-heading-meta { display: grid; justify-items: end; gap: 6px; }
 .wealth-heading-meta span { padding: 4px 7px; border: 1px solid #d9d9d5; border-radius: 2px; color: #6f6f6c; background: #fafaf8; font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .wealth-heading-meta strong { color: #777; font-size: 9px; font-weight: 400; }
@@ -219,6 +220,8 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 
 .scenario-ribbon { min-height: 58px; display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 18px; padding: 9px 34px; border-bottom: 1px solid #d7d7d3; background: #eeeee9; }
 .scenario-back { border: 0; border-right: 1px solid #cfcfca; background: transparent; padding: 0 18px 0 0; color: #444; font-size: 9px; font-weight: 700; }
+.scenario-back, .wealth-drawer-back, .profile-back { display: inline-flex; align-items: center; gap: 8px; }
+.back-arrow { flex: none; font-size: 1.15em; line-height: 1; }
 .scenario-ribbon > div:nth-child(2) { display: grid; gap: 3px; }
 .scenario-ribbon > div:nth-child(2) span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .1em; }
 .scenario-ribbon > div:nth-child(2) strong { font-family: Georgia, serif; font-size: 15px; font-weight: 400; }

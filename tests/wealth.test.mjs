@@ -112,7 +112,7 @@ test("household totals are derived from normalized records instead of duplicated
   changed.accounts[0].cashBalance += 100000;
   changed.nonFinancialAssets[0].marketValue += 500000;
   changed.liabilities[0].balance += 100000;
-  changed.goals[4].tone = "good";
+  changed.goals[4].status = "On track";
   changed.goals[4].fundedAmount = 1000000;
 
   const workspace = createWealthService(changed).getHouseholdWorkspace(DEFAULT_HOUSEHOLD_ID);
@@ -167,6 +167,22 @@ test("repository validates relationships and indexes books with thousands of hou
   assert.throws(() => createWealthRepository(broken), /references missing householdId/);
 });
 
+test("large household collections are priority-sorted and size-bounded", () => {
+  const expanded = structuredClone(MORRISON_WEALTH_DATASET);
+  for (let index = 0; index < 12; index += 1) {
+    expanded.positions.push({ id: `extra-position-${index}`, householdId: DEFAULT_HOUSEHOLD_ID, accountId: "joint-brokerage", instrumentId: `EXTRA-${index}`, symbol: `E${index}`, name: `Extra holding ${index}`, marketValue: 1000 + index, accountWeightPct: 0.1, unrealizedGain: 0, brandKey: null });
+    expanded.householdHoldingSnapshots.push({ id: `extra-holding-${index}`, householdId: DEFAULT_HOUSEHOLD_ID, asOf: expanded.households[0].asOf, instrumentId: `EXTRA-${index}`, symbol: `E${index}`, name: `Extra holding ${index}`, marketValue: 1000 + index, householdWeightPct: 0.1, ytdReturnPct: 0, brandKey: null });
+  }
+  expanded.insights.push({ id: "extra-insight", householdId: DEFAULT_HOUSEHOLD_ID, severity: "Other", tone: "slate", title: "Extra", detail: "Extra", actionLabel: "View", actionMetadata: { type: "detail" } });
+  const service = createWealthService(expanded, { projectionLimits: { topHoldings: 3, priorityInsights: 4, accountHoldings: 4 } });
+  const overview = service.getHouseholdOverview(DEFAULT_HOUSEHOLD_ID);
+  const account = service.getHouseholdAccount(DEFAULT_HOUSEHOLD_ID, "joint-brokerage");
+  assert.equal(overview.holdings.length, 3);
+  assert.equal(overview.insights.length, 4);
+  assert.equal(account.holdings.length, 4);
+  assert.equal(account.holdingsTotal, 15);
+});
+
 test("wealth BFF exposes bounded book and household projections and rejects invalid identifiers", () => {
   assert.equal(parseAdvisorId("advisor-042"), "advisor-042");
   assert.equal(parseHouseholdId(DEFAULT_HOUSEHOLD_ID), DEFAULT_HOUSEHOLD_ID);
@@ -205,6 +221,8 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   const build = await readFile(new URL("../scripts/build-static.mjs", import.meta.url), "utf8");
   const browserWealth = await readFile(new URL("../lib/wealth-data.js", import.meta.url), "utf8");
+  const wealthSource = await readFile(new URL("../lib/wealth-source.js", import.meta.url), "utf8");
+  const advisorSource = await readFile(new URL("../lib/advisor-book-source.js", import.meta.url), "utf8");
   const wealthApi = await readFile(new URL("../api/wealth.js", import.meta.url), "utf8");
   const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 
@@ -236,7 +254,9 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   assert.match(app, /import\("\/vendor\/nouislider\.mjs"\)/);
   assert.doesNotMatch(app, /import noUiSlider from/);
   assert.match(app, /data-household-scenario="concentration"/);
-  assert.match(app, /flags: \["Tax-Aware", "Direct Indexing"\]/);
+  assert.match(wealthSource, /actionMetadata/);
+  assert.match(advisorSource, /actionMetadata/);
+  assert.match(advisorSource, /flags: \["Tax-Aware", "Direct Indexing"\]/);
   assert.match(app, /Carry the objective—not hidden client data/);
   assert.match(app, /library\.AreaSeries/);
   assert.match(css, /\.wealth-layout/);

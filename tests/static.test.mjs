@@ -184,6 +184,16 @@ test("compare closes from its backdrop while preserving explicit controls", asyn
   assert.match(html, /data-close-modal="compareModal"/);
 });
 
+test("back controls preserve a consistent arrow and label hierarchy", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(html, /class="scenario-back"[^>]*><span class="back-arrow"/);
+  assert.match(app, /const backLabel =/);
+  assert.match(app, /class="profile-back"[^>]*>\$\{backLabel\("Back to/);
+  assert.match(css, /\.scenario-back, \.wealth-drawer-back, \.profile-back \{[^}]*gap: 8px;/);
+});
+
 test("every allowlisted brand mark is local, unique and present", async () => {
   const logos = Object.values(BRAND_LOGOS);
   assert.equal(logos.length, 18);

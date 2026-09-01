@@ -93,7 +93,7 @@
 
       <section class="wealth-view" id="wealthView" hidden>
         <header class="wealth-heading" id="wealthHeading">
-          <div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">—</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Household</h1><p>Loading relationship…</p></div><button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button></div></div>
+          <div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">—</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Household</h1><p>Loading relationship…</p></div><button class="household-profile-button" type="button" data-wealth-action="relationship">Relationship profile</button></div></div>
           <div class="wealth-heading-meta"><span>Illustrative household</span><strong>Loading current data…</strong></div>
         </header>
 
@@ -117,7 +117,7 @@
                 <div id="wealthChart" class="wealth-chart" role="img" aria-label="Illustrative household investable wealth history"></div>
                 <div class="wealth-chart-loading" id="wealthChartLoading"><span></span><p>Preparing household history…</p></div>
               </div>
-              <div class="wealth-chart-footer"><span id="wealthChartPeriod">Aug 2025–Aug 2026</span><span>Illustrative values · Includes net flows</span></div>
+              <div class="wealth-chart-footer"><span id="wealthChartPeriod">Loading range…</span><span>Illustrative values · Includes net flows</span></div>
               <div class="allocation-overview">
                 <div class="allocation-heading"><strong>Current allocation</strong><span id="wealthAllocationTotal">— financial assets</span></div>
                 <div class="allocation-bar" id="wealthAllocationBar" aria-label="Household asset allocation"></div>
@@ -153,7 +153,7 @@
 
       <section class="investment-view" id="investmentView" hidden>
       <div class="scenario-ribbon" id="scenarioRibbon" hidden>
-        <button type="button" class="scenario-back" id="scenarioBack">← Household</button>
+        <button type="button" class="scenario-back" id="scenarioBack"><span class="back-arrow" aria-hidden="true">←</span><span>Household</span></button>
         <div><span id="scenarioSource">FROM CONCENTRATION REVIEW</span><strong id="scenarioTitle">Explore tax-aware diversification</strong></div>
         <div class="scenario-tags" id="scenarioTags"><span>Taxable assets</span><span>Daily liquidity</span><span>Reduce single-stock exposure</span></div>
         <button type="button" class="scenario-dismiss" id="dismissScenario" aria-label="Dismiss household context">×</button>

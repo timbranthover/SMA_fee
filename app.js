@@ -16,6 +16,7 @@ const WEALTH_ALLOCATION_COLORS = Object.freeze({ navy: "#203f52", blue: "#4f7892
 const state = {
   workspaceView: "book",
   householdScenario: null,
+  concentrationSearchIntent: null,
   currentHouseholdId: null,
   decisionSummary: null,
   activeDecisionDetail: null,
@@ -103,6 +104,7 @@ const el = (id) => {
   return elementCache.get(id);
 };
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+const backLabel = (label) => `<span class="back-arrow" aria-hidden="true">←</span><span>${escapeHtml(label)}</span>`;
 
 function loadColumnPreferences() {
   try {
@@ -389,6 +391,10 @@ function renderHouseholdLoading(id) {
 
 async function openHousehold(householdId, { updateHistory = true, replaceHistory = false } = {}) {
   const request = ++householdRequest;
+  if (state.householdScenario?.householdId && state.householdScenario.householdId !== householdId) {
+    state.householdScenario = null;
+    el("scenarioRibbon").hidden = true;
+  }
   closeWealthDrawer({ restoreFocus: false });
   state.currentHouseholdId = householdId;
   state.decisionSummary = null;
@@ -396,6 +402,7 @@ async function openHousehold(householdId, { updateHistory = true, replaceHistory
   state.activeDecisionScenario = null;
   state.activeDecisionPlan = null;
   closeDecisionStudio({ restoreFocus: false });
+  state.concentrationSearchIntent = null;
   resetWealthChart();
   renderHouseholdLoading(householdId);
   setWorkspaceView("wealth", { updateHistory, replaceHistory });
@@ -429,11 +436,11 @@ async function hydrateDecisionSummary(householdId, request) {
 function renderWealthWorkspace() {
   if (!HOUSEHOLD) return;
   renderAdvisorIdentity({ displayName: HOUSEHOLD.advisor, initials: HOUSEHOLD.advisorInitials, workspaceLabel: HOUSEHOLD.advisorWorkspace });
-  const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.id === "concentration" || insight.id.endsWith("-concentration"));
+  const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.kind === "concentration");
   const topHolding = HOUSEHOLD_HOLDINGS[0];
   const decisionByInsight = new Map((state.decisionSummary?.decisions || []).map((decision) => [decision.sourceInsightId, decision]));
   const openDecisionCount = state.decisionSummary?.openCount;
-  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-switcher" type="button" data-wealth-action="relationship" aria-label="Open household profile">›</button></div></div><div class="wealth-heading-meta"><div class="wealth-heading-status"><span>Illustrative household</span><strong>Updated ${escapeHtml(HOUSEHOLD.asOf)}</strong></div><div class="household-heading-actions"><button class="panel-action" type="button" data-wealth-action="meeting">Prepare meeting</button><button class="panel-action decision-count-button" type="button" data-wealth-action="decisions">Open decisions <b>${openDecisionCount ?? "—"}</b></button><button class="panel-action" type="button" data-wealth-action="timeline">Timeline</button></div></div>`);
+  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-profile-button" type="button" data-wealth-action="relationship">Relationship profile</button></div></div><div class="wealth-heading-meta"><div class="wealth-heading-status"><span>Illustrative household</span><strong>Updated ${escapeHtml(HOUSEHOLD.asOf)}</strong></div><div class="household-heading-actions"><button class="panel-action" type="button" data-wealth-action="meeting">Prepare meeting</button><button class="panel-action decision-count-button" type="button" data-wealth-action="decisions">Open decisions <b>${openDecisionCount ?? "—"}</b></button><button class="panel-action" type="button" data-wealth-action="timeline">Timeline</button></div></div>`);
   const largestPosition = topHolding ? `${escapeHtml(topHolding.symbol)} · ${topHolding.weight.toFixed(1)}%` : "—";
   updateHtml(el("wealthSummaryStrip"), `<div class="wealth-summary-primary"><span>Net worth</span><strong>${formatWealthCurrency(HOUSEHOLD.netWorth)}</strong><small><b>${formatSignedWealthCurrency(HOUSEHOLD.ytdChange)}</b> year to date</small></div><div><span>Portfolio</span><strong>${escapeHtml(HOUSEHOLD.riskProfile)}</strong><small>Household risk profile</small></div><div><span>Liquidity</span><strong>${formatWealthCurrency(HOUSEHOLD.investableCash)}</strong><small>${HOUSEHOLD.liquidityPct.toFixed(1)}% readily available</small></div><div><span>Largest position</span><strong class="${concentration ? "wealth-watch" : ""}">${largestPosition}</strong><small>${concentration ? escapeHtml(concentration.detail) : "Within monitored household exposure"}</small></div><div><span>Goals</span><strong>${HOUSEHOLD.goalsOnTrack} of ${HOUSEHOLD.goalsTotal}</strong><small>On track or funded</small></div>`);
   el("wealthPerformanceTitle").textContent = formatWealthCurrency(HOUSEHOLD.financialAssets);
@@ -450,18 +457,8 @@ function renderWealthWorkspace() {
   updateHtml(el("wealthGoals"), HOUSEHOLD_GOALS.map((goal) => `<button type="button" class="goal-row" data-wealth-goal="${escapeHtml(goal.id)}"><span class="goal-copy"><strong>${escapeHtml(goal.name)}</strong><small>${escapeHtml(goal.timing)}</small></span>${goalProgressMeter(goal)}<em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></button>`).join(""));
   updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => {
     const decision = decisionByInsight.get(insight.id);
-    return `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${decision ? ` · ${escapeHtml(getDecisionPlan(decision.id)?.status || decision.status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em data-insight-detail="${escapeHtml(insight.id)}">${escapeHtml(insight.detail)}</em></span><span class="attention-action">${decision ? "Decide" : escapeHtml(insight.action)} <b>›</b></span></button>`;
+    return `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${decision ? ` · ${escapeHtml(getDecisionPlan(decision.id)?.status || decision.status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em>${escapeHtml(insight.detail)}</em></span><span class="attention-action">${decision ? "Decide" : escapeHtml(insight.actionLabel)} <b>›</b></span></button>`;
   }).join(""));
-  renderHouseholdProgress();
-}
-
-function renderHouseholdProgress() {
-  const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.id === "concentration" || insight.id.endsWith("-concentration"));
-  if (!concentration) return;
-  const progress = document.querySelector(`[data-insight-detail="${CSS.escape(concentration.id)}"]`);
-  if (!progress) return;
-  const selected = state.compare.size;
-  progress.textContent = selected ? `${selected} diversification ${selected === 1 ? "alternative" : "alternatives"} selected` : concentration.detail;
 }
 
 function wealthPointsForRange(range) {
@@ -517,6 +514,7 @@ async function initializeWealthChart() {
 
 function investmentUrl() {
   const params = new URLSearchParams();
+  if (state.householdScenario?.householdId === state.currentHouseholdId) params.set("householdId", state.currentHouseholdId);
   if (state.q) params.set("q", state.q);
   if (state.category !== "All") params.set("category", state.category);
   if (state.flags.size) params.set("flags", [...state.flags].join(","));
@@ -550,7 +548,6 @@ function setWorkspaceView(view, { updateHistory = true, replaceHistory = false }
     if (!state.bookLoaded) loadBook();
     window.scrollTo({ top: 0, behavior: "smooth" });
   } else if (next === "wealth") {
-    renderHouseholdProgress();
     if (HOUSEHOLD) requestAnimationFrame(initializeWealthChart);
     window.scrollTo({ top: 0, behavior: "smooth" });
   } else {
@@ -578,17 +575,18 @@ function policyTrackSvg(review) {
 }
 
 function concentrationDrawer(review) {
+  state.concentrationSearchIntent = review.searchIntent;
   const accountLabel = `${review.accounts.length} ${review.accounts.length === 1 ? "account" : "accounts"}`;
   const basisPct = review.costBasis > 0 ? Math.round(review.unrealizedGain / review.costBasis * 100) : null;
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PORTFOLIO RISK · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close concentration review">×</button></header>
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PORTFOLIO RISK · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close concentration review">×</button></header>
     <div class="wealth-drawer-body">
       <section class="concentration-hero"><div class="concentration-name">${productMark({ ...review.holding, category: "Equities" })}<div><span>Single-position concentration</span><h2 id="wealthDrawerTitle">${escapeHtml(review.holding.name)}</h2><p>${escapeHtml(review.holding.symbol)} · Across ${escapeHtml(accountLabel)}</p></div></div><div class="concentration-status"><span>Above policy</span><strong>${review.holding.weight.toFixed(1)}%</strong><small>${review.targetWeight.toFixed(0)}% household target</small></div></section>
       <section class="concentration-metrics" aria-label="Concentration summary"><div><span>Market value</span><strong>${formatWealthCurrency(review.holding.value)}</strong><small>Largest household position</small></div><div><span>Unrealized gain</span><strong>${formatWealthCurrency(review.unrealizedGain)}</strong><small>${basisPct === null ? "Cost basis unavailable" : `${basisPct}% above cost basis`}</small></div><div><span>Risk contribution</span><strong>${review.riskContribution === null ? "—" : `${review.riskContribution}%`}</strong><small>Of modeled equity risk</small></div><div><span>Target release</span><strong>${formatWealthCurrency(review.targetRelease)}</strong><small>To reach ${review.targetWeight.toFixed(0)}% target</small></div></section>
       <section class="concentration-section"><div class="section-heading"><span>Exposure</span><h3>Position relative to policy</h3></div><div class="policy-track">${policyTrackSvg(review)}</div><div class="policy-scale"><span>0%</span><span>${review.targetWeight.toFixed(0)}% household target</span><span>${Math.max(30, Math.ceil(review.holding.weight / 5) * 5)}%</span></div></section>
-      <section class="concentration-section"><div class="section-heading"><span>Ownership</span><h3>Where the exposure sits</h3><p>Account location and unrealized gains shape implementation choices.</p></div><table class="concentration-table"><thead><tr><th>Account</th><th>Market value</th><th>Account weight</th><th>Unrealized gain</th></tr></thead><tbody>${review.accounts.map((account) => `<tr><th>${escapeHtml(account.name)}</th><td>${formatWealthCurrency(account.value)}</td><td>${account.weight.toFixed(1)}%</td><td>${formatWealthCurrency(account.gain)}</td></tr>`).join("")}</tbody></table></section>
+      <section class="concentration-section"><div class="section-heading"><span>Ownership</span><h3>Where the exposure sits</h3><p>Account location and unrealized gains shape implementation choices.</p></div><table class="concentration-table"><thead><tr><th>Account</th><th>Market value</th><th>Account weight</th><th>Unrealized gain</th></tr></thead><tbody>${review.accounts.map((account) => `<tr><th>${escapeHtml(account.name)}<small>${escapeHtml(account.registration)}</small></th><td>${formatWealthCurrency(account.value)}</td><td>${account.weight.toFixed(1)}%</td><td>${formatWealthCurrency(account.gain)}</td></tr>`).join("")}</tbody></table></section>
       <section class="concentration-section scenario-impact"><div class="section-heading"><span>Decision support</span><h3>Illustrative household impact</h3></div><table class="concentration-table"><thead><tr><th>Scenario</th><th>Position impact</th><th>Portfolio impact</th></tr></thead><tbody>${review.scenarios.map((scenario) => `<tr><th>${escapeHtml(scenario.name)}</th><td>${escapeHtml(scenario.holdingMove)}</td><td>${escapeHtml(scenario.portfolioMove)}</td></tr>`).join("")}</tbody></table></section>
       <section class="concentration-research"><div><span>UPS RESEARCH · ${escapeHtml(review.research.reviewed)}</span><strong>${escapeHtml(review.research.status)}</strong><p>${escapeHtml(review.research.summary)}</p></div><button type="button" class="secondary-button" data-open-modal="researchModal">View research context</button></section>
-      <section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Explore implementation paths</h3><p>Carry the objective—not hidden client data—into the investment shelf.</p></div><button type="button" class="primary-button" data-household-scenario="concentration">Explore diversification options →</button></section>
+      ${review.searchIntent ? `<section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Explore implementation paths</h3><p>Carry the objective—not hidden client data—into the investment shelf.</p></div><button type="button" class="primary-button" data-household-scenario="concentration">${escapeHtml(review.searchIntent.title)} →</button></section>` : ""}
       <p class="wealth-disclosure">Illustrative household and scenario data · Not for investment decisions.</p>
     </div>`;
 }
@@ -612,7 +610,7 @@ function operationalDrawer(id) {
       rows: detail?.rows || [["Household", HOUSEHOLD.name], ["Status", insight?.severity || "Current"], ["Detail", insight?.detail || "No additional detail"]],
     };
   }
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">${escapeHtml(item.eyebrow)}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary)}</p><div class="operational-rows">${item.rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div><p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p></div>`;
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">${escapeHtml(item.eyebrow)}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary)}</p><div class="operational-rows">${item.rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div><p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p></div>`;
 }
 
 function accountMix(account) {
@@ -622,12 +620,11 @@ function accountMix(account) {
 function accountsDrawer() {
   const heldAway = HOUSEHOLD_ACCOUNTS.filter((account) => account.custodyType === "held-away").reduce((sum, account) => sum + account.value, 0);
   const cash = HOUSEHOLD_ACCOUNTS.reduce((sum, account) => sum + account.cash, 0);
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">OWNERSHIP · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account overview">×</button></header>
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">OWNERSHIP · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account overview">×</button></header>
     <div class="wealth-drawer-body account-review">
-      <section class="account-review-hero"><div><span>HOUSEHOLD ACCOUNTS</span><h2 id="wealthDrawerTitle">${formatWealthCurrency(HOUSEHOLD.financialAssets)} across ${HOUSEHOLD.accountCount} accounts</h2><p>Custodied and connected assets reconciled into one household view.</p></div><strong>100%<small>account coverage</small></strong></section>
-      <section class="account-review-metrics"><div><span>Advisory assets</span><strong>${formatWealthCurrency(HOUSEHOLD.financialAssets - heldAway)}</strong><small>${HOUSEHOLD.custodiedCount} custodied relationships</small></div><div><span>Held away</span><strong>${formatWealthCurrency(heldAway)}</strong><small>${HOUSEHOLD.heldAwayCount} connected accounts</small></div><div><span>Available cash</span><strong>${formatWealthCurrency(cash)}</strong><small>Across all registrations</small></div><div><span>Last refresh</span><strong>Current</strong><small>${escapeHtml(HOUSEHOLD.asOf)}</small></div></section>
+      <section class="account-review-hero"><div><span>HOUSEHOLD ACCOUNTS</span><h2 id="wealthDrawerTitle">${formatWealthCurrency(HOUSEHOLD.financialAssets)} across ${HOUSEHOLD.accountCount} accounts</h2><p>Custodied and connected assets consolidated into one household view.</p></div></section>
+      <section class="account-review-metrics"><div><span>Custodied assets</span><strong>${formatWealthCurrency(HOUSEHOLD.financialAssets - heldAway)}</strong><small>${HOUSEHOLD.custodiedCount} custodied relationships</small></div><div><span>Held away</span><strong>${formatWealthCurrency(heldAway)}</strong><small>${HOUSEHOLD.heldAwayCount} connected accounts</small></div><div><span>Available cash</span><strong>${formatWealthCurrency(cash)}</strong><small>Across all registrations</small></div><div><span>As of</span><strong>${escapeHtml(HOUSEHOLD.asOf)}</strong><small>Household reporting timestamp</small></div></section>
       <section class="concentration-section"><div class="section-heading"><span>ACCOUNT MAP</span><h3>Ownership and purpose</h3><p>Select an account to review allocation, holdings and operational status.</p></div><table class="concentration-table account-map-table"><thead><tr><th>Account</th><th>Registration</th><th>Value</th><th>YTD</th></tr></thead><tbody>${HOUSEHOLD_ACCOUNTS.map((account) => `<tr><th><button type="button" class="drawer-table-link" data-wealth-account="${escapeHtml(account.id)}">${escapeHtml(account.name)} <span>›</span></button></th><td>${escapeHtml(account.registration)}</td><td>${formatWealthCurrency(account.value)}</td><td class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}%</td></tr>`).join("")}</tbody></table></section>
-      <section class="account-data-strip"><div><span>Custodied accounts</span><strong>${HOUSEHOLD.custodiedCount} current · reconciled</strong></div><div><span>External connections</span><strong>${HOUSEHOLD.heldAwayCount} connected · daily</strong></div><div><span>Coverage exception</span><strong>None</strong></div></section>
       <p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p>
     </div>`;
 }
@@ -637,13 +634,14 @@ function accountDrawer(account) {
   const holdings = account.holdings.length
     ? `<table class="concentration-table account-holdings-table"><thead><tr><th>Holding</th><th>Market value</th><th>Account weight</th></tr></thead><tbody>${account.holdings.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td>${holding.weight.toFixed(1)}%</td></tr>`).join("")}</tbody></table>`
     : `<div class="account-empty-holdings"><strong>Position-level feed summarized</strong><span>This connected account contributes to household allocation and planning without exposing underlying positions in the prototype.</span></div>`;
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">ACCOUNT · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-wealth-action="accounts">← All accounts</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account detail">×</button></header>
+  const holdingsLabel = account.holdingsTotal > account.holdings.length ? `Showing ${account.holdings.length} of ${account.holdingsTotal} positions` : `${account.holdingsTotal} ${account.holdingsTotal === 1 ? "position" : "positions"}`;
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">ACCOUNT · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-wealth-action="accounts">${backLabel("All accounts")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account detail">×</button></header>
     <div class="wealth-drawer-body account-review">
       <section class="account-detail-hero"><div><span>${escapeHtml(account.registration)}</span><h2 id="wealthDrawerTitle">${escapeHtml(account.name)}</h2><p>${escapeHtml(account.purpose)} · ${escapeHtml(account.program)}</p></div><div><span>Current value</span><strong>${formatWealthCurrency(account.value)}</strong><small class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}% YTD</small></div></section>
-      <section class="account-review-metrics"><div><span>Available cash</span><strong>${formatWealthCurrency(account.cash)}</strong><small>${(account.cash / account.value * 100).toFixed(1)}% of account</small></div><div><span>Tax treatment</span><strong>${escapeHtml(account.taxTreatment)}</strong><small>Registration-level view</small></div><div><span>Unrealized gain</span><strong>${account.unrealizedGain ? formatWealthCurrency(account.unrealizedGain) : "—"}</strong><small>${account.unrealizedGain ? "Illustrative tax lot basis" : "Not available"}</small></div><div><span>Data status</span><strong>Current</strong><small>${escapeHtml(account.lastReconciled)}</small></div></section>
+      <section class="account-review-metrics"><div><span>Available cash</span><strong>${formatWealthCurrency(account.cash)}</strong><small>${(account.cash / account.value * 100).toFixed(1)}% of account</small></div><div><span>Tax treatment</span><strong>${escapeHtml(account.taxTreatment)}</strong><small>Registration-level view</small></div><div><span>Unrealized gain</span><strong>${account.unrealizedGain ? formatWealthCurrency(account.unrealizedGain) : "—"}</strong><small>${account.unrealizedGain ? "Illustrative tax lot basis" : "Not available"}</small></div><div><span>Last reconciled</span><strong>${escapeHtml(account.lastReconciled || "Not provided")}</strong><small>${escapeHtml(account.sourceSystem || "Source not provided")}</small></div></section>
       <section class="concentration-section"><div class="section-heading"><span>ALLOCATION</span><h3>${escapeHtml(account.allocation)} portfolio</h3></div>${accountMix(account)}</section>
-      <section class="concentration-section"><div class="section-heading"><span>EXPOSURE</span><h3>Largest positions</h3><p>Position detail is shown when available from the connected source.</p></div>${holdings}</section>
-      <section class="account-data-strip"><div><span>Service model</span><strong>${escapeHtml(account.program)}</strong></div><div><span>Primary purpose</span><strong>${escapeHtml(account.purpose)}</strong></div><div><span>Data quality</span><strong>Validated</strong></div></section>
+      <section class="concentration-section"><div class="section-heading"><span>EXPOSURE</span><h3>Largest positions</h3><p>${escapeHtml(holdingsLabel)} · Position detail is shown when available from the connected source.</p></div>${holdings}</section>
+      <section class="account-data-strip"><div><span>Service model</span><strong>${escapeHtml(account.program)}</strong></div><div><span>Primary purpose</span><strong>${escapeHtml(account.purpose)}</strong></div><div><span>Custody</span><strong>${escapeHtml(account.custodyType === "held-away" ? "Held away" : "Custodied")}</strong></div></section>
       <p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p>
     </div>`;
 }
@@ -651,7 +649,7 @@ function accountDrawer(account) {
 function goalDrawer(goal) {
   if (!goal) return operationalDrawer("relationship");
   const gap = Math.max(0, goal.target - goal.funded);
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PLANNING · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close goal review">×</button></header>
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">PLANNING · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close goal review">×</button></header>
     <div class="wealth-drawer-body goal-review">
       <section class="goal-review-hero"><div><span>${escapeHtml(goal.timing)}</span><h2 id="wealthDrawerTitle">${escapeHtml(goal.name)}</h2><p>${escapeHtml(goal.action)}</p></div><em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></section>
       <section class="goal-funding"><div class="goal-funding-heading"><div><span>Funded</span><strong>${formatWealthCurrency(goal.funded)}</strong></div><div><span>Target</span><strong>${formatWealthCurrency(goal.target)}</strong></div></div><progress class="goal-funding-track goal-progress-${escapeHtml(goal.tone)}" max="100" value="${Math.max(0, Math.min(100, Number(goal.progress) || 0))}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress><div class="goal-funding-scale"><span>${goal.progress}% funded</span><span>${gap ? `${formatWealthCurrency(gap)} remaining` : "Target funded"}</span></div></section>
@@ -881,7 +879,7 @@ function buildActiveDecisionPlan() {
 
 function launchInvestmentContext(scenario) {
   closeWealthDrawer({ restoreFocus: false });
-  state.q = scenario.q || "";
+  state.q = scenario.q || scenario.query || "";
   state.category = scenario.category || "All";
   state.appliedCategory = state.category;
   state.flags = new Set(scenario.flags || []);
@@ -940,22 +938,14 @@ function openPrimaryConcentrationDecision() {
 
 function showScenarioRibbon({ source, title, tags, decisionId = null, implementationAmount = 0 }) {
   state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name, decisionId, implementationAmount };
-  el("scenarioBack").textContent = decisionId ? "← Decision" : `← ${HOUSEHOLD.name}`;
+  updateHtml(el("scenarioBack"), backLabel(decisionId ? "Decision" : HOUSEHOLD.name));
   el("scenarioSource").textContent = source;
   el("scenarioTitle").textContent = title;
   el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
   el("scenarioRibbon").hidden = false;
 }
 
-function applyHouseholdScenario(id) {
-  if (!HOUSEHOLD) return;
-  const supportedRisk = /conservative/i.test(HOUSEHOLD.riskProfile) ? "Conservative" : /growth/i.test(HOUSEHOLD.riskProfile) ? "Moderate" : "Moderate";
-  const scenarios = {
-    concentration: { source: "FROM CONCENTRATION REVIEW", title: "Explore diversification options", tags: [HOUSEHOLD.name, "Tax-aware implementation", "Reduce concentrated exposure"], category: "SMAs", q: "", flags: ["Tax-Aware", "Direct Indexing"], risks: [supportedRisk] },
-    cash: { source: "FROM LIQUIDITY REVIEW", title: "Explore cash alternatives", tags: [`${formatWealthCurrency(HOUSEHOLD.investableCash)} available`, HOUSEHOLD.riskProfile, "Daily liquidity"], category: "Fixed Income", q: "short duration cash management", flags: [], risks: ["Conservative"] },
-    muni: { source: "FROM ALLOCATION REVIEW", title: "Restore municipal allocation", tags: [HOUSEHOLD.location, "Tax aware", "Fee under 0.50%"], category: "Fixed Income", q: HOUSEHOLD.location === "New York" ? "New York municipal income under 50 bps" : "municipal income under 50 bps", flags: ["Tax-Aware"], risks: ["Conservative"] },
-  };
-  const scenario = scenarios[id];
+function applyHouseholdScenario(scenario) {
   if (!scenario) return;
   launchInvestmentContext(scenario);
 }
@@ -963,13 +953,11 @@ function applyHouseholdScenario(id) {
 function handleWealthInsight(id) {
   const decision = state.decisionSummary?.decisions?.find((item) => item.sourceInsightId === id);
   if (decision) { openDecisionStudio(decision.id); return; }
-  if (id === "concentration" || id.endsWith("-concentration")) { openWealthDrawer("concentration"); return; }
-  if (id === "cash" || id.endsWith("-cash")) { applyHouseholdScenario("cash"); return; }
-  if (id === "muni" || id.endsWith("-muni")) { applyHouseholdScenario("muni"); return; }
-  if (id.endsWith("-goal-review")) {
-    const goal = HOUSEHOLD_GOALS.find((candidate) => candidate.tone === "watch");
-    if (goal) { openWealthDrawer(`goal:${goal.id}`); return; }
-  }
+  const insight = HOUSEHOLD_INSIGHTS.find((candidate) => candidate.id === id);
+  if (!insight) return;
+  if (insight.action.type === "concentration") { openWealthDrawer("concentration"); return; }
+  if (insight.action.type === "investment-search") { applyHouseholdScenario(insight.action.searchIntent); return; }
+  if (insight.action.type === "goal" && insight.action.goalId) { openWealthDrawer(`goal:${insight.action.goalId}`); return; }
   openWealthDrawer(id);
 }
 
@@ -1530,7 +1518,6 @@ function renderCompareTray() {
   el("compareTrayCount").textContent = String(count);
   el("compareTray").hidden = count === 0;
   el("compareItems").innerHTML = [...state.compare.values()].map((item) => `<div class="compare-item"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(item.symbol)}</small><button data-remove-compare="${escapeHtml(item.id)}" aria-label="Remove ${escapeHtml(item.name)}">×</button></div>`).join("");
-  renderHouseholdProgress();
 }
 
 function toggleCompare(id, checked) {
@@ -1620,7 +1607,7 @@ function renderResearchProfile(item) {
   ];
   el("drawerContent").innerHTML = `<header class="profile-hero">
       <div class="profile-utility">
-        ${pageMode ? `<a class="profile-back" href="/investments">← Back to screener</a>` : `<button class="profile-back" data-close-drawer>← Back to results</button>`}
+        ${pageMode ? `<a class="profile-back" href="/investments">${backLabel("Back to screener")}</a>` : `<button class="profile-back" data-close-drawer>${backLabel("Back to results")}</button>`}
         <div class="profile-stepper"><button data-profile-neighbor="${escapeHtml(previous?.id || "")}" ${previous ? "" : "disabled"} aria-label="Previous result">←</button><span>${currentIndex >= 0 ? `${currentIndex + 1} of ${state.items.length} on this page` : "Investment profile"}</span><button data-profile-neighbor="${escapeHtml(next?.id || "")}" ${next ? "" : "disabled"} aria-label="Next result">→</button></div>
         ${pageMode ? "" : `<a class="open-new-tab" href="${escapeHtml(profileHref(item))}" target="_blank" rel="noopener">Open in new tab ↗</a>`}
       </div>
@@ -1990,7 +1977,7 @@ document.addEventListener("click", (event) => {
   if (wealthAction?.dataset.wealthAction === "meeting") openWealthDrawer("meeting");
   if (wealthAction?.dataset.wealthAction === "timeline") openWealthDrawer("timeline");
   const householdScenario = event.target.closest("[data-household-scenario]");
-  if (householdScenario) applyHouseholdScenario(householdScenario.dataset.householdScenario);
+  if (householdScenario?.dataset.householdScenario === "concentration") applyHouseholdScenario(state.concentrationSearchIntent);
   if (event.target.closest("[data-close-wealth-drawer]") || event.target === el("wealthDrawerBackdrop")) closeWealthDrawer();
   if (event.target.closest("[data-close-decision-studio]") || event.target === el("decisionStudioBackdrop")) closeDecisionStudio();
   if (event.target.closest("[data-decision-build-plan]")) buildActiveDecisionPlan();
@@ -2194,7 +2181,11 @@ el("clearCompare").addEventListener("click", () => { state.compare.clear(); rend
 el("saveScreenButton").addEventListener("click", () => { el("saveName").value = state.q ? state.q.slice(0, 60) : `${state.category} screen`; el("saveModal").showModal(); });
 el("saveForm").addEventListener("submit", (event) => { event.preventDefault(); saveCurrentScreen(el("saveName").value.trim()); el("saveModal").close(); });
 el("dismissInterpretation").addEventListener("click", () => { el("interpretation").hidden = true; });
-el("dismissScenario").addEventListener("click", () => { state.householdScenario = null; el("scenarioRibbon").hidden = true; });
+el("dismissScenario").addEventListener("click", () => {
+  state.householdScenario = null;
+  el("scenarioRibbon").hidden = true;
+  if (state.workspaceView === "investments" && !profileFromPath()) history.replaceState({ workspaceView: "investments" }, "", investmentUrl());
+});
 el("columnsButton").addEventListener("click", openColumnConfigurator);
 el("resetColumns").addEventListener("click", () => { columnDraft = [...CATEGORY_DEFAULT_COLUMNS[state.appliedCategory]]; renderColumnConfigurator(); });
 el("applyColumns").addEventListener("click", applyColumnDraft);

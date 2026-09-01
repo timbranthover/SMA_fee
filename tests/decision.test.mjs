@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ADVISOR_WORKSPACE_DATASET, DEFAULT_ADVISOR_ID } from "../lib/decision-source.js";
+import { ADVISOR_WORKSPACE_DATASET, DEFAULT_ADVISOR_ID, buildDecisionWorkspaceDataset } from "../lib/decision-source.js";
 import { createWealthRepository } from "../lib/wealth-repository.js";
 import { createWealthService } from "../lib/wealth-service.js";
 import { createDecisionService } from "../lib/decision-service.js";
@@ -22,6 +22,23 @@ test("decision domain is normalized, linked and advisor bounded", () => {
   }
   assert.equal(getAuthorizedDecisionProjection("advisor-other", "household-morrison", "summary"), null);
   assert.ok(getAuthorizedDecisionProjection(DEFAULT_ADVISOR_ID, "household-morrison", "summary"));
+});
+
+test("decision classification uses insight semantics rather than magic identifiers", () => {
+  const renamedInsights = ADVISOR_WORKSPACE_DATASET.insights.map((insight) => insight.householdId === "household-morrison"
+    ? { ...insight, id: `renamed-${insight.kind}` }
+    : insight);
+  const rebuilt = buildDecisionWorkspaceDataset({
+    ...ADVISOR_WORKSPACE_DATASET,
+    insights: renamedInsights,
+    decisions: [],
+    householdEvents: [],
+  });
+  const morrisonDecisions = rebuilt.decisions.filter((decision) => decision.householdId === "household-morrison");
+  assert.ok(morrisonDecisions.some((decision) => decision.kind === "concentration"));
+  assert.ok(morrisonDecisions.some((decision) => decision.kind === "liquidity"));
+  assert.ok(morrisonDecisions.some((decision) => decision.kind === "allocation"));
+  assert.ok(morrisonDecisions.some((decision) => decision.kind === "upcoming-liquidity"));
 });
 
 test("Morrison concentration decision produces explicit household-wide scenario consequences", () => {
