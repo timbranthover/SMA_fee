@@ -23,7 +23,9 @@ jobs:
       - run: npm ci
       - name: Apply guarded market-row upgrade
         if: github.event_name == 'pull_request' && github.head_ref == 'feat/market-row-sizing'
-        run: node scripts/apply-market-row-sizing.mjs
+        run: |
+          node scripts/apply-market-row-sizing.mjs
+          node scripts/fix-market-size-prefix.mjs
       - name: Inspect size sort output
         if: github.event_name == 'pull_request' && github.head_ref == 'feat/market-row-sizing'
         run: node scripts/debug-market-size.mjs
