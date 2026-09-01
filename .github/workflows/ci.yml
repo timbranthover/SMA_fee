@@ -24,6 +24,9 @@ jobs:
       - name: Apply guarded market-row upgrade
         if: github.event_name == 'pull_request' && github.head_ref == 'feat/market-row-sizing'
         run: node scripts/apply-market-row-sizing.mjs
+      - name: Inspect size sort output
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/market-row-sizing'
+        run: node scripts/debug-market-size.mjs
       - run: npm run build
       - name: Commit verified upgrade
         if: github.event_name == 'pull_request' && github.head_ref == 'feat/market-row-sizing'
