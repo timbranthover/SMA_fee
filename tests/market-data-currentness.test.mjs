@@ -73,17 +73,19 @@ test("visible quotes batch through one Yahoo spark request", async () => {
   assert.equal(calls.filter((url) => url.includes("/v8/finance/chart/")).length, 0);
 });
 
-test("1Y return ends at the current quote rather than the last completed weekly bar", async () => {
+test("1Y return uses the last weekly bar fully completed before the anniversary cutoff", async () => {
   const currentTime = Math.floor(Date.parse("2026-09-01T19:30:00Z") / 1000);
-  const timestamps = [
-    Math.floor(Date.parse("2021-08-30T13:30:00Z") / 1000),
-    Math.floor(Date.parse("2022-08-29T13:30:00Z") / 1000),
-    Math.floor(Date.parse("2023-08-28T13:30:00Z") / 1000),
-    Math.floor(Date.parse("2024-08-26T13:30:00Z") / 1000),
-    Math.floor(Date.parse("2025-08-25T13:30:00Z") / 1000),
-    Math.floor(Date.parse("2026-08-24T13:30:00Z") / 1000),
-  ];
-  const adjusted = [150, 160, 175, 190, 231.29, 315.47];
+  const start = Date.parse("2025-08-11T13:30:00Z");
+  const week = 7 * 24 * 60 * 60 * 1000;
+  const timestamps = [];
+  const adjusted = [];
+  for (let index = 0; index < 55; index += 1) {
+    timestamps.push(Math.floor((start + index * week) / 1000));
+    adjusted.push(220 + index * 1.8);
+  }
+  adjusted[2] = 231.29; // Aug. 25 timestamp, containing the Aug. 29 completed-week adjusted close.
+  adjusted[3] = 238.85; // Sep. 1 timestamp, a week that completes after the Sep. 1 anniversary cutoff.
+
   const fetchImpl = async (input) => {
     const url = String(input);
     if (url === "https://fc.yahoo.com") return response("", { status: 404, headers: { "set-cookie": "A3=current-return; Path=/; Secure" } });
@@ -99,11 +101,12 @@ test("1Y return ends at the current quote rather than the last completed weekly 
       symbol: "CURR1Y",
       timestamps,
       adjusted,
-      price: 315.47,
-      previousClose: 314,
+      price: adjusted.at(-1),
+      previousClose: adjusted.at(-2),
     }));
     throw new Error(`Unexpected URL ${url}`);
   };
+
   const metrics = await getLiveMetrics([{ id: "curr", category: "Equities", symbol: "CURR1Y" }], { fetchImpl });
   const expected = (325.71 / 231.29 - 1) * 100;
   assert.ok(Math.abs(metrics.get("curr").perf1 - expected) < 0.001);
