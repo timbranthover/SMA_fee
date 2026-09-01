@@ -451,9 +451,9 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .results-table { width: 100%; min-width: calc(470px + var(--result-columns, 4) * 102px); border-collapse: collapse; table-layout: fixed; }
 .results-table th { text-align: left; height: 38px; color: #777; background: #fafaf9; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .045em; border-bottom: 1px solid var(--line); }
 .results-table th:nth-child(1) { width: 41px; }
-.results-table th:nth-child(2) { width: 38%; min-width: 270px; }
-.results-table th.result-data-column { width: 98px; }
-.results-table th.col-primary { width: 236px; }
+.results-table th:nth-child(2) { width: auto; min-width: 270px; }
+.results-table th.result-data-column { width: 96px; }
+.results-table th.col-primary { width: 218px; }
 .results-table th:last-child { width: 42px; }
 .results-table th.sortable-column { padding: 0; }
 .sort-header-button,
@@ -464,6 +464,8 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .results-table th.sortable-column.active-sort > button { color: #111; }
 .results-table th.sortable-column.active-sort > button span { color: var(--red); }
 .results-table td { height: 69px; border-bottom: 1px solid var(--line-soft); font-size: 11px; padding: 8px 6px; vertical-align: middle; }
+.results-table td.result-data-column { padding-left: 4px; padding-right: 4px; }
+.results-table th.result-data-column.sortable-column > button { padding-left: 4px; padding-right: 4px; }
 .results-table tr { transition: background .12s; }
 .results-table tbody tr:hover { background: #fbfbf9; }
 .check-cell { text-align: center !important; padding-left: 13px !important; }
@@ -515,7 +517,7 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .metric-primary { font-weight: 700; }
 .metric-secondary { display: block; color: #888; font-size: 8px; margin-top: 3px; }
 .market-value-line { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-.market-primary-layout { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.market-primary-layout { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .market-primary-quote { flex: 0 0 94px; min-width: 0; }
 .market-price-time { margin-top: 4px; white-space: nowrap; }
 .market-primary-layout .sparkline-wrap { flex: 0 0 94px; }
