@@ -962,7 +962,10 @@ function launchDecisionImplementation() {
   state.compare.clear();
   state.proposalCandidates.clear();
   const existingProposal = getProposal(detail.decision.id);
-  for (const candidate of existingProposal?.candidates || []) state.proposalCandidates.set(candidate.id, candidate);
+  const restoredCandidates = existingProposal?.totalAmount === implementation.amount
+    ? existingProposal.candidates
+    : allocateProposalCandidates(existingProposal?.candidates || [], implementation.amount);
+  for (const candidate of restoredCandidates) state.proposalCandidates.set(candidate.id, candidate);
   renderCompareTray();
   closeDecisionStudio({ restoreFocus: false });
   launchInvestmentContext({
