@@ -164,8 +164,10 @@ function renderConcentrationCommand(ribbon, mandate, legacy, context) {
 
   const refreshLocal = () => {
     const nextTarget = clamp(Number(targetInput.value), targetMinimum, targetMaximum);
-    const nextEconomics = concentrationEconomics(context, nextTarget, parseAmount(amountInput.value) ?? Number(amountRange.value));
-    const nextAmount = Math.min(nextEconomics.release, Math.max(0, parseAmount(amountInput.value) ?? Number(amountRange.value) || 0));
+    const parsedAmount = parseAmount(amountInput.value);
+    const nextAmountInput = Number.isFinite(parsedAmount) ? parsedAmount : (Number(amountRange.value) || 0);
+    const nextEconomics = concentrationEconomics(context, nextTarget, nextAmountInput);
+    const nextAmount = Math.min(nextEconomics.release, Math.max(0, nextAmountInput));
     targetInput.value = nextTarget.toFixed(1);
     targetRange.value = String(nextTarget);
     amountRange.max = String(nextEconomics.release);
@@ -275,12 +277,12 @@ function installStyles() {
   const style = document.createElement("style");
   style.id = COMMAND_STYLE_ID;
   style.textContent = `
-    .scenario-ribbon.proposal-mode.command-header-mode { min-height: 184px; grid-template-columns: minmax(0,1fr) auto 30px; grid-template-rows: auto 1fr; align-items:center; gap:11px 10px; padding:13px clamp(24px,2.5vw,42px) 16px; border-bottom-color:#cfcfca; background:#f7f7f4; box-shadow:0 4px 15px rgba(0,0,0,.05); }
+    .scenario-ribbon.proposal-mode.command-header-mode { min-height:184px; grid-template-columns:minmax(0,1fr) auto 30px; grid-template-rows:auto 1fr; align-items:center; gap:11px 10px; padding:13px clamp(24px,2.5vw,42px) 16px; border-bottom-color:#cfcfca; background:#f7f7f4; box-shadow:0 4px 15px rgba(0,0,0,.05); }
     .scenario-ribbon.proposal-mode.command-header-mode .scenario-progress { grid-column:1; grid-row:1; }
     .scenario-ribbon.proposal-mode.command-header-mode .scenario-main { grid-column:1/-1; grid-row:2; display:grid; grid-template-columns:minmax(205px,.72fr) minmax(0,3fr); grid-template-rows:auto auto; align-items:center; column-gap:clamp(20px,2vw,34px); }
     .scenario-ribbon.proposal-mode.command-header-mode .scenario-main > span { grid-column:1; grid-row:1; align-self:end; color:#777; font-size:8px; font-weight:700; letter-spacing:.1em; }
     .scenario-ribbon.proposal-mode.command-header-mode .scenario-main > strong { grid-column:1; grid-row:2; align-self:start; max-width:255px; overflow:visible; white-space:normal; font-family:Georgia,serif; font-size:21px; font-weight:400; line-height:1.16; }
-    .scenario-ribbon.proposal-mode.command-header-mode .scenario-tags, .scenario-ribbon.proposal-mode.command-header-mode .scenario-capital { display:none !important; }
+    .scenario-ribbon.proposal-mode.command-header-mode .scenario-tags, .scenario-ribbon.proposal-mode.command-header-mode .scenario-capital { display:none!important; }
     .scenario-ribbon.proposal-mode.command-header-mode .scenario-mandate { grid-column:2; grid-row:1/span 2; min-width:0; display:block; margin:0; }
     .scenario-ribbon.proposal-mode.command-header-mode .scenario-back { grid-column:2; grid-row:1; min-height:32px; order:initial; border:1px solid #cfcfca; border-radius:2px; padding:6px 10px; background:#fff; font-size:8px; white-space:nowrap; }
     .scenario-ribbon.proposal-mode.command-header-mode .scenario-dismiss { grid-column:3; grid-row:1; width:30px; height:30px; order:initial; }
