@@ -1,5 +1,7 @@
-import { searchCatalog } from "../lib/catalog.js";
+import { getSearchIndex, searchCatalog } from "../lib/catalog.js";
+import { getLiveGlobalSortValues, isLiveGlobalSortField } from "../lib/market-data.js";
 import { parseRanges } from "../lib/range-config.js";
+import { parseSort } from "../lib/sort-config.js";
 
 function arrayParam(value) {
   if (!value) return [];
@@ -29,17 +31,41 @@ export function inputFromQuery(query = {}) {
   };
 }
 
+function externalMarketDataEnabled() {
+  return process.env.MARKET_DATA_DISABLED !== "1" && process.env.CI !== "true";
+}
+
+const liveSortUniverseCache = new Map();
+function liveSortUniverse(category) {
+  if (!liveSortUniverseCache.has(category)) {
+    liveSortUniverseCache.set(category, getSearchIndex(category).filter((item) => item?.symbol && !String(item.id).startsWith("syn-")));
+  }
+  return liveSortUniverseCache.get(category);
+}
+
 export default {
-  fetch(request) {
+  async fetch(request) {
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed" }, { status: 405, headers: { Allow: "GET" } });
     }
     try {
       const query = Object.fromEntries(new URL(request.url).searchParams.entries());
-      const result = searchCatalog(inputFromQuery(query));
-      return Response.json(result, {
+      const input = inputFromQuery(query);
+      const parsedSort = parseSort(input.sort);
+      let liveSortValues = null;
+      let liveSortUsed = false;
+      if (externalMarketDataEnabled() && parsedSort && isLiveGlobalSortField(input.category, parsedSort.field)) {
+        const universe = liveSortUniverse(input.category);
+        const values = await getLiveGlobalSortValues(universe, input.category, parsedSort.field);
+        if (values?.size >= 2) {
+          liveSortValues = values;
+          liveSortUsed = true;
+        }
+      }
+      const result = searchCatalog(input, { liveSortValues });
+      return Response.json({ ...result, sortData: liveSortUsed ? "Yahoo Finance quote index" : "catalog" }, {
         headers: {
-          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+          "Cache-Control": liveSortUsed ? "public, s-maxage=60, stale-while-revalidate=300" : "public, s-maxage=3600, stale-while-revalidate=86400",
           "Server-Timing": `search;dur=${result.tookMs}`,
         },
       });
