@@ -1605,6 +1605,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     state.previousCursor = data.previousCursor;
     state.facets = data.facets;
     state.appliedCategory = data.appliedCategory || state.category;
+    state.items = sortLoadedItems(state.items, state.sort, state.appliedCategory);
     state.ranges = normalizeRanges(data.appliedRanges || state.ranges, state.appliedCategory);
     if (state.pendingColumns && state.pendingColumns.category === state.appliedCategory) {
       setColumnsForCategory(state.appliedCategory, state.pendingColumns.columns, { persist: false });
