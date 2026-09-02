@@ -1505,30 +1505,6 @@ function buildSearchUrl() {
   return `/api/search?${params}`;
 }
 
-const liveSortPrewarmUrls = new Set();
-function prewarmPreferredLiveSort() {
-  if (!["Equities", "ETFs"].includes(state.appliedCategory) || state.sort === "perf1-desc") return;
-  const params = new URLSearchParams();
-  if (state.q) params.set("q", state.q);
-  params.set("category", state.appliedCategory);
-  if (state.flags.size) params.set("flags", [...state.flags].join(","));
-  if (state.risks.size) params.set("risks", [...state.risks].join(","));
-  if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
-  const ranges = serializeRanges(state.ranges);
-  if (ranges) params.set("ranges", ranges);
-  params.set("sort", "perf1-desc");
-  params.set("cursor", "0");
-  params.set("pageSize", "25");
-  const url = "/api/search?" + params.toString();
-  if (liveSortPrewarmUrls.has(url)) return;
-  liveSortPrewarmUrls.add(url);
-  const warm = () => fetch(url).catch(() => liveSortPrewarmUrls.delete(url));
-  window.setTimeout(() => {
-    if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(warm, { timeout: 1200 });
-    else warm();
-  }, 600);
-}
-
 async function loadMarketSnapshots(items) {
   state.snapshotController?.abort();
   const missingIds = items.map((item) => item.id).filter((id) => !state.snapshotCache.has(id));
@@ -1605,7 +1581,6 @@ async function runSearch({ preserveCursor = false } = {}) {
     state.previousCursor = data.previousCursor;
     state.facets = data.facets;
     state.appliedCategory = data.appliedCategory || state.category;
-    state.items = sortLoadedItems(state.items, state.sort, state.appliedCategory);
     state.ranges = normalizeRanges(data.appliedRanges || state.ranges, state.appliedCategory);
     if (state.pendingColumns && state.pendingColumns.category === state.appliedCategory) {
       setColumnsForCategory(state.appliedCategory, state.pendingColumns.columns, { persist: false });
@@ -1625,7 +1600,6 @@ async function runSearch({ preserveCursor = false } = {}) {
     updateHeader();
     syncUrl();
     window.requestAnimationFrame(() => loadMarketSnapshots(state.items));
-    prewarmPreferredLiveSort();
     if (loadingShownAt) {
       await new Promise((resolve) => window.requestAnimationFrame(resolve));
       const remaining = 140 - (performance.now() - loadingShownAt);
