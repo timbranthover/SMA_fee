@@ -454,7 +454,7 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .results-table th:nth-child(2) { width: auto; min-width: 270px; }
 .results-table th.result-data-column { width: 96px; }
 .results-table th.col-primary { width: 218px; }
-.results-table th:last-child { width: 42px; }
+.results-table th.action-cell { width: 42px; }
 .results-table th.sortable-column { padding: 0; }
 .sort-header-button,
 .results-table th.sortable-column > button { width: 100%; height: 38px; display: flex; align-items: center; gap: 5px; padding: 0 6px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
@@ -1142,33 +1142,35 @@ body[data-workspace="proposal"] > footer, body[data-workspace="proposal"] .compa
 .decision-proposal-card em { margin-top: 3px; color: #77817c; font-size: 7px; font-style: normal; }
 .decision-proposal-card b { flex: none; color: #285d47; font-size: 7px; }
 
-.scenario-ribbon.proposal-mode { min-height: 128px; grid-template-columns: 230px minmax(520px, 1fr) 150px auto 24px; gap: 18px; padding: 12px 34px; border-bottom-color: #cfcfca; background: #f7f7f4; box-shadow: 0 4px 15px rgba(0,0,0,.05); }
-.scenario-progress { display: flex; align-items: center; gap: 7px; }
-.scenario-progress span { display: flex; align-items: center; gap: 6px; color: #999; font-size: 7px; font-weight: 700; white-space: nowrap; }
-.scenario-progress span i { width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid #cfcfca; border-radius: 50%; background: #fff; font-style: normal; }
+.scenario-ribbon.proposal-mode { min-height: 154px; grid-template-columns: minmax(252px, .85fr) minmax(470px, 2.1fr) minmax(118px, .5fr) auto 30px; gap: clamp(14px, 1.35vw, 24px); padding: 17px clamp(24px, 2.5vw, 42px); border-bottom-color: #cfcfca; background: #f7f7f4; box-shadow: 0 4px 15px rgba(0,0,0,.05); }
+.scenario-progress { display: flex; align-items: center; gap: 8px; }
+.scenario-progress span { display: flex; align-items: center; gap: 7px; color: #999; font-size: 8.5px; font-weight: 700; white-space: nowrap; }
+.scenario-progress span i { width: 22px; height: 22px; display: grid; flex: 0 0 22px; place-items: center; border: 1px solid #cfcfca; border-radius: 50%; background: #fff; font-size: 8px; font-style: normal; }
 .scenario-progress span.complete { color: #4c685b; }
 .scenario-progress span.complete i { border-color: #89a496; background: #edf5f1; }
 .scenario-progress span.active { color: #171717; }
 .scenario-progress span.active i { border-color: #171717; background: #171717; color: #fff; }
-.scenario-progress b { width: 16px; height: 1px; background: #d2d2ce; }
-.scenario-main { min-width: 0; display: grid; gap: 4px; }
-.scenario-main > span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .1em; }
-.scenario-main > strong { overflow: hidden; font-family: Georgia, serif; font-size: 17px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-progress b { width: 20px; height: 1px; flex: 0 1 20px; background: #d2d2ce; }
+.scenario-main { min-width: 0; display: grid; align-content: center; gap: 6px; }
+.scenario-ribbon.proposal-mode .scenario-main > span { color: #777; font-size: 8px; font-weight: 700; letter-spacing: .1em; }
+.scenario-ribbon.proposal-mode .scenario-main > strong { overflow: hidden; font-family: Georgia, serif; font-size: 21px; font-weight: 400; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
 .scenario-main .scenario-tags { justify-content: flex-start; }
-.scenario-mandate { display: flex; align-items: end; gap: 16px; margin-top: 5px; }
+.scenario-main .scenario-tags { flex-wrap: wrap; gap: 6px; }
+.scenario-ribbon.proposal-mode .scenario-main .scenario-tags span { padding: 5px 8px; font-size: 8px; }
+.scenario-mandate { display: flex; align-items: end; gap: 18px; margin-top: 7px; }
 .scenario-mandate:empty { display: none; }
-.scenario-mandate label, .scenario-amount-choice { display: grid; gap: 5px; }
-.scenario-mandate label > span, .scenario-amount-choice > span { color: #676763 !important; font-size: 7px !important; font-weight: 700; letter-spacing: .08em !important; text-transform: uppercase; }
-.scenario-mandate select { height: 31px; min-width: 112px; padding: 0 28px 0 10px; border: 1px solid #bdbdb8; border-radius: 2px; background: #fff; color: #222; font-size: 10px; font-weight: 700; }
-.scenario-amount-choice > div { display: flex; gap: 5px; }
-.scenario-amount-choice button { min-height: 31px; padding: 0 10px; border: 1px solid #c8c8c3; border-radius: 2px; background: #fff; color: #454542; font-size: 8px; font-weight: 700; white-space: nowrap; }
+.scenario-mandate label, .scenario-amount-choice { display: grid; gap: 6px; }
+.scenario-mandate label > span, .scenario-amount-choice > span { color: #676763 !important; font-size: 8px !important; font-weight: 700; letter-spacing: .08em !important; text-transform: uppercase; }
+.scenario-mandate select { height: 38px; min-width: 134px; padding: 0 30px 0 12px; border: 1px solid #bdbdb8; border-radius: 2px; background: #fff; color: #222; font-size: 11px; font-weight: 700; }
+.scenario-amount-choice > div { display: flex; gap: 6px; }
+.scenario-amount-choice button { min-height: 38px; padding: 0 13px; border: 1px solid #c8c8c3; border-radius: 2px; background: #fff; color: #454542; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .scenario-amount-choice button[aria-pressed="true"] { border-color: #171717; background: #171717; color: #fff; }
-.scenario-capital { display: grid; justify-items: end; gap: 2px; padding-left: 18px; border-left: 1px solid #d3d3cf; }
-.scenario-capital span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.scenario-capital strong { font-family: Georgia, serif; font-size: 22px; font-weight: 400; }
-.scenario-capital small { color: #888; font-size: 7px; }
-.scenario-ribbon.proposal-mode .scenario-back { order: 4; border: 1px solid #cfcfca; border-radius: 2px; padding: 8px 10px; background: #fff; white-space: nowrap; }
-.scenario-ribbon.proposal-mode .scenario-dismiss { order: 5; }
+.scenario-capital { display: grid; align-content: center; justify-items: end; gap: 3px; padding-left: 18px; border-left: 1px solid #d3d3cf; }
+.scenario-capital span { color: #777; font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.scenario-capital strong { font-family: Georgia, serif; font-size: 26px; font-weight: 400; }
+.scenario-capital small { color: #888; font-size: 8px; }
+.scenario-ribbon.proposal-mode .scenario-back { min-height: 38px; order: 4; border: 1px solid #cfcfca; border-radius: 2px; padding: 8px 12px; background: #fff; font-size: 9px; white-space: nowrap; }
+.scenario-ribbon.proposal-mode .scenario-dismiss { width: 30px; height: 30px; order: 5; }
 
 .proposal-select-button { width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid #aaa; border-radius: 50%; background: #fff; color: #222; font-size: 14px; line-height: 1; }
 .proposal-select-button:hover { border-color: #222; background: #f5f5f2; }
@@ -1342,7 +1344,11 @@ body[data-workspace="proposal"] > footer, body[data-workspace="proposal"] .compa
 .proposal-ready-meta { color: #999; font-size: 7px; }
 
 @media (max-width: 1320px) {
-  .scenario-ribbon.proposal-mode { grid-template-columns: 205px minmax(450px,1fr) 125px auto 24px; gap: 12px; padding-left: 24px; padding-right: 24px; }
+  .scenario-ribbon.proposal-mode { grid-template-columns: 238px minmax(438px,1fr) 110px auto 30px; gap: 12px; padding-left: 24px; padding-right: 24px; }
+  .scenario-progress { gap: 6px; }
+  .scenario-progress span { gap: 5px; font-size: 8px; }
+  .scenario-progress b { width: 12px; flex-basis: 12px; }
+  .scenario-ribbon.proposal-mode .scenario-main > strong { font-size: 20px; }
   .proposal-tray { width: calc(100vw - 48px); grid-template-columns: 170px minmax(260px,1fr) 115px 190px; }
   .proposal-builder-layout { grid-template-columns: minmax(650px,1fr) 320px; padding-left: 24px; padding-right: 24px; }
 }

@@ -260,6 +260,8 @@ test("price column owns the full intraday sparkline while trend stays out of the
   assert.match(css, /\.results-table th\.col-primary \{ width: 218px; \}/);
   assert.match(css, /\.results-table th:nth-child\(2\) \{ width: auto; min-width: 270px; \}/);
   assert.match(css, /\.results-table th\.result-data-column \{ width: 96px; \}/);
+  assert.match(css, /\.results-table th\.action-cell \{ width: 42px; \}/);
+  assert.doesNotMatch(css, /\.results-table th:last-child \{ width: 42px; \}/);
   assert.match(css, /\.results-table td\.result-data-column \{ padding-left: 4px; padding-right: 4px; \}/);
   assert.match(css, /\.market-primary-layout \{[^}]*gap: 8px;/);
   assert.equal(css.includes("market-live-sparkline"), false);
