@@ -1,5 +1,5 @@
 import { getInvestmentDetail } from "../lib/catalog.js";
-import { applyQuoteToDetail, getLiveQuote } from "../lib/market-data.js";
+import { enrichDetailWithMarketData } from "../lib/detail-market-data.js";
 
 function externalMarketDataEnabled() {
   return process.env.MARKET_DATA_DISABLED !== "1" && process.env.CI !== "true";
@@ -14,8 +14,8 @@ export default {
     if (!/^[a-z0-9-]{1,100}$/i.test(id)) return Response.json({ error: "Invalid investment identifier" }, { status: 400 });
     const detail = getInvestmentDetail(id);
     if (!detail) return Response.json({ error: "Investment not found" }, { status: 404 });
-    const liveDetail = externalMarketDataEnabled() && ["Equities", "ETFs"].includes(detail.category)
-      ? applyQuoteToDetail(detail, await getLiveQuote(detail.symbol))
+    const liveDetail = externalMarketDataEnabled()
+      ? await enrichDetailWithMarketData(detail)
       : detail;
     return Response.json(liveDetail, {
       headers: { "Cache-Control": "public, s-maxage=45, stale-while-revalidate=180" },
