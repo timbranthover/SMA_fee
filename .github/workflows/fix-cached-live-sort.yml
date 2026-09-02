@@ -1,0 +1,33 @@
+name: Fix cached live sort
+
+on:
+  push:
+    branches:
+      - fix/live-global-sorting-20260902
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node scripts/fix-cached-live-sort.mjs
+      - run: npm run build
+      - name: Commit validated fix
+        run: |
+          rm scripts/fix-cached-live-sort.mjs .github/workflows/fix-cached-live-sort.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Keep cached live rows sorted"
+          git push origin HEAD:fix/live-global-sorting-20260902
