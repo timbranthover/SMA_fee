@@ -30,62 +30,37 @@ await patch("api/search.js", [
   ]
 ]);
 
+const prewarmLines = [
+  'const liveSortPrewarmUrls = new Set();',
+  'function prewarmPreferredLiveSort() {',
+  '  if (!["Equities", "ETFs"].includes(state.appliedCategory) || state.sort === "perf1-desc") return;',
+  '  const params = new URLSearchParams();',
+  '  if (state.q) params.set("q", state.q);',
+  '  params.set("category", state.appliedCategory);',
+  '  if (state.flags.size) params.set("flags", [...state.flags].join(","));',
+  '  if (state.risks.size) params.set("risks", [...state.risks].join(","));',
+  '  if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));',
+  '  const ranges = serializeRanges(state.ranges);',
+  '  if (ranges) params.set("ranges", ranges);',
+  '  params.set("sort", "perf1-desc");',
+  '  params.set("cursor", "0");',
+  '  params.set("pageSize", "25");',
+  '  const url = "/api/search?" + params.toString();',
+  '  if (liveSortPrewarmUrls.has(url)) return;',
+  '  liveSortPrewarmUrls.add(url);',
+  '  const warm = () => fetch(url).catch(() => liveSortPrewarmUrls.delete(url));',
+  '  window.setTimeout(() => {',
+  '    if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(warm, { timeout: 1200 });',
+  '    else warm();',
+  '  }, 600);',
+  '}',
+  ''
+].join("\n");
+
 await patch("app.js", [
   [
-`function buildSearchUrl() {
-  const params = new URLSearchParams();
-  if (state.q) params.set("q", state.q);
-  params.set("category", state.category);
-  if (state.flags.size) params.set("flags", [...state.flags].join(","));
-  if (state.risks.size) params.set("risks", [...state.risks].join(","));
-  if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
-  const ranges = serializeRanges(state.ranges);
-  if (ranges) params.set("ranges", ranges);
-  params.set("sort", state.sort);
-  params.set("cursor", String(state.cursor));
-  params.set("pageSize", "25");
-  return `/api/search?${params}`;
-}
-`,
-`function buildSearchUrl() {
-  const params = new URLSearchParams();
-  if (state.q) params.set("q", state.q);
-  params.set("category", state.category);
-  if (state.flags.size) params.set("flags", [...state.flags].join(","));
-  if (state.risks.size) params.set("risks", [...state.risks].join(","));
-  if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
-  const ranges = serializeRanges(state.ranges);
-  if (ranges) params.set("ranges", ranges);
-  params.set("sort", state.sort);
-  params.set("cursor", String(state.cursor));
-  params.set("pageSize", "25");
-  return `/api/search?${params}`;
-}
-
-const liveSortPrewarmUrls = new Set();
-function prewarmPreferredLiveSort() {
-  if (!["Equities", "ETFs"].includes(state.appliedCategory) || state.sort === "perf1-desc") return;
-  const params = new URLSearchParams();
-  if (state.q) params.set("q", state.q);
-  params.set("category", state.appliedCategory);
-  if (state.flags.size) params.set("flags", [...state.flags].join(","));
-  if (state.risks.size) params.set("risks", [...state.risks].join(","));
-  if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
-  const ranges = serializeRanges(state.ranges);
-  if (ranges) params.set("ranges", ranges);
-  params.set("sort", "perf1-desc");
-  params.set("cursor", "0");
-  params.set("pageSize", "25");
-  const url = `/api/search?${params}`;
-  if (liveSortPrewarmUrls.has(url)) return;
-  liveSortPrewarmUrls.add(url);
-  const warm = () => fetch(url).catch(() => liveSortPrewarmUrls.delete(url));
-  window.setTimeout(() => {
-    if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(warm, { timeout: 1200 });
-    else warm();
-  }, 600);
-}
-`
+    '  return `/api/search?${params}`;\n}\n\nasync function loadMarketSnapshots(items) {',
+    '  return `/api/search?${params}`;\n}\n\n' + prewarmLines + '\nasync function loadMarketSnapshots(items) {'
   ],
   [
     "    window.requestAnimationFrame(() => loadMarketSnapshots(state.items));",
