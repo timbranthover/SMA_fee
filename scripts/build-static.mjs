@@ -2,7 +2,7 @@ import { cp, mkdir, rm } from "node:fs/promises";
 
 const outputDirectory = new URL("../public/", import.meta.url);
 const projectRoot = new URL("../", import.meta.url);
-const staticFiles = ["index.html", "app.js", "styles.css", "robots.txt"];
+const staticFiles = ["index.html", "app.js", "styles.css", "robots.txt", "command-header.mjs"];
 
 await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
@@ -28,6 +28,10 @@ await cp(
 await Promise.all([
   cp(
     new URL("node_modules/nouislider/dist/nouislider.min.mjs", projectRoot),
+    new URL("vendor/nouislider-core.mjs", outputDirectory),
+  ),
+  cp(
+    new URL("nouislider-wrapper.mjs", projectRoot),
     new URL("vendor/nouislider.mjs", outputDirectory),
   ),
   cp(
