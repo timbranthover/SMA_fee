@@ -1,4 +1,4 @@
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 
 async function patch(path, replacements) {
   let source = await readFile(path, "utf8");
@@ -51,7 +51,7 @@ async function getGlobalQuoteIndex(items, category, options = {}) {
   if (!eligible.length) return new Map();
   const fetchImpl = options.fetchImpl;
   const cacheable = !fetchImpl || fetchImpl === globalThis.fetch;
-  const cacheKey = `${category}:${eligible.length}:${eligible[0]?.id || ""}:${eligible.at(-1)?.id || ""}`;
+  const cacheKey = [category, eligible.length, eligible[0]?.id || "", eligible.at(-1)?.id || ""].join(":");
   const cachedEntry = cacheable ? globalQuoteIndexCache.get(cacheKey) : null;
   if (cachedEntry && now() - cachedEntry.at < GLOBAL_SORT_TTL_MS) return cachedEntry.value;
   if (cacheable && globalQuoteIndexPending.has(cacheKey)) return globalQuoteIndexPending.get(cacheKey);
@@ -166,7 +166,7 @@ export default {
       return Response.json(result, {
         headers: {
           "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-          "Server-Timing": \`search;dur=${result.tookMs}\`,
+          "Server-Timing": \`search;dur=\${result.tookMs}\`,
         },
       });`,
 `      const query = Object.fromEntries(new URL(request.url).searchParams.entries());
@@ -186,7 +186,7 @@ export default {
       return Response.json({ ...result, sortData: liveSortUsed ? "Yahoo Finance quote index" : "catalog" }, {
         headers: {
           "Cache-Control": liveSortUsed ? "public, s-maxage=60, stale-while-revalidate=300" : "public, s-maxage=3600, stale-while-revalidate=86400",
-          "Server-Timing": \`search;dur=${result.tookMs}\`,
+          "Server-Timing": \`search;dur=\${result.tookMs}\`,
         },
       });`
   ]
@@ -223,7 +223,7 @@ test("global Yahoo sort index maps cheap quote fields without history calls", as
       { symbol: "AAA", regularMarketPrice: 100, marketCap: 1000, forwardPE: 10, dividendYield: 1.2, fiftyTwoWeekChangePercent: 44 },
       { symbol: "BBB", regularMarketPrice: 200, marketCap: 2000, forwardPE: 20, dividendYield: 0.5, fiftyTwoWeekChangePercent: 12 },
     ] } });
-    throw new Error(`Unexpected URL ${url}`);
+    throw new Error("Unexpected URL " + url);
   };
   const items = [
     { id: "a", category: "Equities", symbol: "AAA" },
