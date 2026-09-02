@@ -38,7 +38,7 @@ function externalMarketDataEnabled() {
 const liveSortUniverseCache = new Map();
 function liveSortUniverse(category) {
   if (!liveSortUniverseCache.has(category)) {
-    liveSortUniverseCache.set(category, getSearchIndex(category).filter((item) => item?.symbol && !String(item.id).startsWith("syn-")));
+    liveSortUniverseCache.set(category, getSearchIndex(category).filter((item) => item?.symbol && !String(item.id).startsWith("syn-") && (category !== "Equities" || item.assetClass !== "OTC Equity")));
   }
   return liveSortUniverseCache.get(category);
 }
