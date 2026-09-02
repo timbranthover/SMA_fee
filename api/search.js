@@ -54,9 +54,12 @@ export default {
       const parsedSort = parseSort(input.sort);
       let liveSortValues = null;
       let liveSortUsed = false;
+      let liveSortMs = 0;
       if (externalMarketDataEnabled() && parsedSort && isLiveGlobalSortField(input.category, parsedSort.field)) {
         const universe = liveSortUniverse(input.category);
+        const liveSortStarted = performance.now();
         const values = await getLiveGlobalSortValues(universe, input.category, parsedSort.field);
+        liveSortMs = Math.max(1, Math.round(performance.now() - liveSortStarted));
         if (values?.size >= 2) {
           liveSortValues = values;
           liveSortUsed = true;
@@ -66,7 +69,7 @@ export default {
       return Response.json({ ...result, sortData: liveSortUsed ? "Yahoo Finance quote index" : "catalog" }, {
         headers: {
           "Cache-Control": liveSortUsed ? "public, s-maxage=60, stale-while-revalidate=300" : "public, s-maxage=3600, stale-while-revalidate=86400",
-          "Server-Timing": `search;dur=${result.tookMs}`,
+          "Server-Timing": liveSortUsed ? `search;dur=${result.tookMs}, market-sort;dur=${liveSortMs}` : `search;dur=${result.tookMs}`,
         },
       });
     } catch (error) {
