@@ -1,7 +1,8 @@
-const COMMAND_STYLE_ID = "proposal-command-header-styles";
+const STYLE_LINK_ID = "proposal-command-bar-stylesheet";
 const contextCache = new Map();
 let renderGeneration = 0;
 let enhancementScheduled = false;
+let observer = null;
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const compactMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 });
@@ -28,12 +29,26 @@ function parseAmount(value) {
   const numeric = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(numeric) ? numeric : null;
 }
-function progress(value, minimum, maximum) {
-  if (!Number.isFinite(value) || !Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return 0;
-  return Math.max(0, Math.min(100, ((value - minimum) / (maximum - minimum)) * 100));
-}
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+}
+
+function ensureStylesheet() {
+  const existing = document.getElementById(STYLE_LINK_ID);
+  if (existing) return existing.dataset.ready === "true" ? Promise.resolve(true) : new Promise((resolve) => {
+    existing.addEventListener("load", () => resolve(true), { once: true });
+    existing.addEventListener("error", () => resolve(false), { once: true });
+  });
+
+  return new Promise((resolve) => {
+    const link = document.createElement("link");
+    link.id = STYLE_LINK_ID;
+    link.rel = "stylesheet";
+    link.href = "/command-header.css";
+    link.addEventListener("load", () => { link.dataset.ready = "true"; resolve(true); }, { once: true });
+    link.addEventListener("error", () => resolve(false), { once: true });
+    document.head.appendChild(link);
+  });
 }
 
 function householdNameFromRibbon(ribbon) {
@@ -44,36 +59,40 @@ function householdNameFromRibbon(ribbon) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
   if (!response.ok) throw new Error(`Context request failed (${response.status})`);
   return response.json();
 }
 
-async function loadHouseholdContext(householdName) {
+async function resolveHouseholdId(ribbon) {
+  const fromUrl = new URLSearchParams(location.search).get("householdId");
+  if (fromUrl) return fromUrl;
+  const householdName = householdNameFromRibbon(ribbon);
   if (!householdName) return null;
-  if (contextCache.has(householdName)) return contextCache.get(householdName);
-  const request = (async () => {
-    const book = await fetchJson(`/api/wealth?view=book&q=${encodeURIComponent(householdName)}&focus=all&sort=name-asc&pageSize=200`);
-    const households = book?.data?.items || [];
-    const household = households.find((item) => item.name === householdName) || households[0];
-    if (!household?.id) return null;
-    const [overviewResponse, concentrationResponse] = await Promise.all([
-      fetchJson(`/api/wealth?view=overview&householdId=${encodeURIComponent(household.id)}`),
-      fetchJson(`/api/wealth?view=concentration&householdId=${encodeURIComponent(household.id)}`).catch(() => null),
-    ]);
-    return {
-      householdId: household.id,
-      household: overviewResponse?.data?.household || household,
-      overview: overviewResponse?.data || null,
-      concentration: concentrationResponse?.data || null,
-    };
-  })().catch((error) => {
+  const book = await fetchJson(`/api/wealth?view=book&q=${encodeURIComponent(householdName)}&focus=all&sort=name-asc&pageSize=25`);
+  const households = book?.data?.items || [];
+  return (households.find((item) => item.name === householdName) || households[0])?.id || null;
+}
+
+async function loadHouseholdContext(ribbon) {
+  const householdId = await resolveHouseholdId(ribbon);
+  if (!householdId) return null;
+  if (contextCache.has(householdId)) return contextCache.get(householdId);
+  const pending = Promise.all([
+    fetchJson(`/api/wealth?view=overview&householdId=${encodeURIComponent(householdId)}`),
+    fetchJson(`/api/wealth?view=concentration&householdId=${encodeURIComponent(householdId)}`).catch(() => null),
+  ]).then(([overviewResponse, concentrationResponse]) => ({
+    householdId,
+    household: overviewResponse?.data?.household || null,
+    overview: overviewResponse?.data || null,
+    concentration: concentrationResponse?.data || null,
+  })).catch((error) => {
     console.warn("Proposal command context unavailable", error);
-    contextCache.delete(householdName);
+    contextCache.delete(householdId);
     return null;
   });
-  contextCache.set(householdName, request);
-  return request;
+  contextCache.set(householdId, pending);
+  return pending;
 }
 
 function captureLegacyState(mandate) {
@@ -102,11 +121,6 @@ function dispatchAmount(ribbon, amount, amountKey) {
   bridge.remove();
 }
 
-function setRangeProgress(range) {
-  if (!range) return;
-  range.style.setProperty("--command-progress", `${progress(Number(range.value), Number(range.min), Number(range.max))}%`);
-}
-
 function concentrationEconomics(context, targetWeight, reinvestAmount) {
   const review = context?.concentration;
   const household = context?.household;
@@ -120,27 +134,51 @@ function concentrationEconomics(context, targetWeight, reinvestAmount) {
   return { release, reinvest, remaining, existingCash, modeledCash: roundMoney(existingCash + remaining) };
 }
 
-function ensureDock(tray) {
-  let dock = tray.querySelector(".proposal-command-dock");
-  if (dock) return dock;
-  dock = document.createElement("div");
-  dock.className = "proposal-command-dock";
-  dock.setAttribute("aria-label", "Proposal decision controls");
+function ensureControls(tray) {
+  let controls = tray.querySelector(".proposal-decision-controls");
+  if (controls) return controls;
+  controls = document.createElement("section");
+  controls.className = "proposal-decision-controls";
+  controls.setAttribute("aria-label", "Proposal decision parameters");
   const allocation = tray.querySelector(".proposal-tray-allocation");
-  tray.insertBefore(dock, allocation || null);
-  return dock;
+  tray.insertBefore(controls, allocation || null);
+  return controls;
 }
 
 function compactSelectedInvestments(tray) {
   const items = tray.querySelector("#proposalTrayItems");
   if (!items) return;
   const candidates = [...items.querySelectorAll(".proposal-tray-item")];
-  const overflow = candidates.length > 2 ? `+${candidates.length - 2} more` : "";
-  if (items.dataset.overflow !== overflow) items.dataset.overflow = overflow;
+  items.dataset.overflow = candidates.length > 2 ? `+${candidates.length - 2}` : "";
   items.classList.toggle("has-selected-investments", candidates.length > 0);
 }
 
-function renderConcentrationDock(ribbon, dock, mandate, legacy, context) {
+function updateConcentrationReadout(controls, context, target, amount) {
+  const economics = concentrationEconomics(context, target, amount);
+  const release = economics.release;
+  const reinvest = Math.min(release, Math.max(0, roundMoney(amount)));
+  const remaining = Math.max(0, release - reinvest);
+
+  const targetSummary = controls.querySelector("[data-command-target-summary]");
+  const amountInput = controls.querySelector("[data-command-amount-input]");
+  const amountRange = controls.querySelector("[data-command-amount-range]");
+  const available = controls.querySelector("[data-command-available]");
+  const retained = controls.querySelector("[data-command-retained]");
+  const modeled = controls.querySelector("[data-command-modeled-cash]");
+
+  if (targetSummary) targetSummary.textContent = formatPercent(target);
+  if (amountInput) amountInput.value = number.format(reinvest);
+  if (amountRange) {
+    amountRange.max = String(release);
+    amountRange.value = String(reinvest);
+  }
+  if (available) available.textContent = `${formatMoney(release)} proceeds`;
+  if (retained) retained.textContent = formatMoney(remaining);
+  if (modeled) modeled.textContent = formatMoney(economics.existingCash + remaining);
+  return { ...economics, reinvest, remaining };
+}
+
+function renderConcentrationControls(ribbon, controls, mandate, legacy, context) {
   const review = context?.concentration;
   if (!review?.holding || !legacy.hasTarget) return false;
 
@@ -149,235 +187,184 @@ function renderConcentrationDock(ribbon, dock, mandate, legacy, context) {
   const targetMinimum = 1;
   const targetMaximum = Math.max(targetMinimum, currentWeight);
   const target = clamp(Number.isFinite(legacy.target) ? legacy.target : policyTarget, targetMinimum, targetMaximum);
-  const economics = concentrationEconomics(context, target, Number.isFinite(legacy.amount) ? legacy.amount : 0);
-  const amount = Math.min(economics.release, Number.isFinite(legacy.amount) ? legacy.amount : 0);
+  const initialEconomics = concentrationEconomics(context, target, Number.isFinite(legacy.amount) ? legacy.amount : 0);
+  const amount = Math.min(initialEconomics.release, Math.max(0, Number.isFinite(legacy.amount) ? legacy.amount : 0));
   const symbol = review.holding.symbol || "Position";
-  const signature = ["concentration", symbol, currentWeight, policyTarget, target, amount, economics.release, economics.existingCash].join("|");
-  if (dock.dataset.signature === signature) return true;
-  dock.dataset.signature = signature;
+  const signature = [symbol, currentWeight, policyTarget, target, amount, initialEconomics.release, initialEconomics.existingCash].join("|");
+  if (controls.dataset.signature === signature) return true;
+  controls.dataset.signature = signature;
 
-  dock.innerHTML = `<div class="proposal-command-strip">
-    <section class="proposal-command-section proposal-command-context">
-      <span>${escapeHtml(symbol)} concentration</span>
-      <strong><b>${formatPercent(currentWeight)}</b><i aria-hidden="true">→</i><b data-dock-target-summary>${formatPercent(target)}</b></strong>
-      <small>${formatMoney(review.holding.value)} today · target ${formatPercent(policyTarget)}</small>
-    </section>
-    <section class="proposal-command-section proposal-command-target">
-      <span>Target %</span>
-      <label class="proposal-command-input percent"><input type="number" data-dock-target-input min="${targetMinimum}" max="${targetMaximum}" step="0.5" value="${target.toFixed(1)}" aria-label="Target ${escapeHtml(symbol)} position weight"><b>%</b></label>
-      <input class="proposal-command-range" type="range" data-dock-target-range min="${targetMinimum}" max="${targetMaximum}" step="0.5" value="${target}" style="--command-progress:${progress(target, targetMinimum, targetMaximum)}%" aria-label="Target ${escapeHtml(symbol)} position slider">
-    </section>
-    <section class="proposal-command-section proposal-command-amount">
+  controls.innerHTML = `<div class="proposal-decision-grid">
+    <div class="proposal-decision-summary">
+      <span>Position change</span>
+      <div><strong>${escapeHtml(symbol)}</strong><b>${formatPercent(currentWeight)}</b><i aria-hidden="true">→</i><em data-command-target-summary>${formatPercent(target)}</em></div>
+      <small>${formatMoney(review.holding.value)} current · policy ${formatPercent(policyTarget)}</small>
+    </div>
+    <label class="proposal-decision-field proposal-decision-target">
+      <span>Target weight</span>
+      <div class="proposal-decision-input"><input type="number" data-command-target-input min="${targetMinimum}" max="${targetMaximum}" step="0.5" value="${target.toFixed(1)}" aria-label="Target ${escapeHtml(symbol)} position weight"><b>%</b></div>
+      <input class="proposal-decision-range" type="range" data-command-target-range min="${targetMinimum}" max="${targetMaximum}" step="0.5" value="${target}" aria-label="Target ${escapeHtml(symbol)} position weight">
+    </label>
+    <label class="proposal-decision-field proposal-decision-amount">
       <span>Amount to reinvest</span>
-      <label class="proposal-command-input money"><b>$</b><input type="text" inputmode="numeric" autocomplete="off" data-dock-amount-input value="${number.format(amount)}" aria-label="Amount to reinvest"></label>
-      <input class="proposal-command-range" type="range" data-dock-amount-range min="0" max="${economics.release}" step="5000" value="${amount}" style="--command-progress:${progress(amount, 0, economics.release)}%" aria-label="Amount to reinvest slider">
-      <small data-dock-available>${formatMoney(economics.release)} available</small>
-    </section>
-    <section class="proposal-command-section proposal-command-cash">
-      <strong><b data-dock-remainder>${formatMoney(Math.max(0, economics.release - amount))}</b> remains in cash</strong>
-      <span>Existing household cash</span>
-      <small><b>${formatMoney(economics.existingCash)}</b> → <b data-dock-modeled-cash>${formatMoney(economics.existingCash + Math.max(0, economics.release - amount))}</b> modeled</small>
-    </section>
+      <div class="proposal-decision-input money"><b>$</b><input type="text" inputmode="numeric" autocomplete="off" data-command-amount-input value="${number.format(amount)}" aria-label="Amount to reinvest"></div>
+      <div class="proposal-decision-range-row"><input class="proposal-decision-range" type="range" data-command-amount-range min="0" max="${initialEconomics.release}" step="5000" value="${amount}" aria-label="Amount to reinvest"><small data-command-available>${formatMoney(initialEconomics.release)} proceeds</small></div>
+    </label>
+    <div class="proposal-decision-cash">
+      <span>Cash retained</span>
+      <strong data-command-retained>${formatMoney(initialEconomics.remaining)}</strong>
+      <small>${formatMoney(initialEconomics.existingCash)} → <b data-command-modeled-cash>${formatMoney(initialEconomics.modeledCash)}</b></small>
+    </div>
   </div>`;
 
-  const targetInput = dock.querySelector("[data-dock-target-input]");
-  const targetRange = dock.querySelector("[data-dock-target-range]");
-  const amountInput = dock.querySelector("[data-dock-amount-input]");
-  const amountRange = dock.querySelector("[data-dock-amount-range]");
+  const targetInput = controls.querySelector("[data-command-target-input]");
+  const targetRange = controls.querySelector("[data-command-target-range]");
+  const amountInput = controls.querySelector("[data-command-amount-input]");
+  const amountRange = controls.querySelector("[data-command-amount-range]");
   const legacyTarget = legacy.targetElement || mandate.querySelector("select[data-scenario-target]");
 
+  const localTarget = () => clamp(roundHalf(targetInput.value), targetMinimum, targetMaximum);
+  const localAmount = () => {
+    const parsed = parseAmount(amountInput.value);
+    return Number.isFinite(parsed) ? parsed : Number(amountRange.value) || 0;
+  };
   const refreshLocal = () => {
-    const nextTarget = clamp(roundHalf(targetInput.value), targetMinimum, targetMaximum);
-    const parsedAmount = parseAmount(amountInput.value);
-    const nextAmountInput = Number.isFinite(parsedAmount) ? parsedAmount : (Number(amountRange.value) || 0);
-    const nextEconomics = concentrationEconomics(context, nextTarget, nextAmountInput);
-    const nextAmount = Math.min(nextEconomics.release, Math.max(0, nextAmountInput));
+    const nextTarget = localTarget();
     targetInput.value = nextTarget.toFixed(1);
     targetRange.value = String(nextTarget);
-    amountRange.max = String(nextEconomics.release);
-    amountRange.value = String(roundMoney(nextAmount));
-    amountInput.value = number.format(roundMoney(nextAmount));
-    dock.querySelector("[data-dock-target-summary]").textContent = formatPercent(nextTarget);
-    dock.querySelector("[data-dock-available]").textContent = `${formatMoney(nextEconomics.release)} available`;
-    dock.querySelector("[data-dock-remainder]").textContent = formatMoney(Math.max(0, nextEconomics.release - nextAmount));
-    dock.querySelector("[data-dock-modeled-cash]").textContent = formatMoney(nextEconomics.existingCash + Math.max(0, nextEconomics.release - nextAmount));
-    setRangeProgress(targetRange);
-    setRangeProgress(amountRange);
+    updateConcentrationReadout(controls, context, nextTarget, localAmount());
   };
-
   const commitTarget = () => {
-    const nextTarget = clamp(roundHalf(targetInput.value), targetMinimum, targetMaximum);
-    targetInput.value = nextTarget.toFixed(1);
     refreshLocal();
     if (!legacyTarget) return;
-    legacyTarget.value = String(nextTarget);
+    legacyTarget.value = String(localTarget());
     legacyTarget.dispatchEvent(new Event("change", { bubbles: true }));
   };
+  const commitAmount = () => {
+    const nextTarget = localTarget();
+    const next = updateConcentrationReadout(controls, context, nextTarget, localAmount());
+    dispatchAmount(ribbon, next.reinvest, legacy.amountKey);
+  };
 
-  targetRange.addEventListener("input", () => { targetInput.value = Number(targetRange.value).toFixed(1); refreshLocal(); });
+  targetRange.addEventListener("input", () => {
+    targetInput.value = Number(targetRange.value).toFixed(1);
+    refreshLocal();
+  });
   targetRange.addEventListener("change", commitTarget);
   targetInput.addEventListener("input", refreshLocal);
   targetInput.addEventListener("change", commitTarget);
   targetInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); targetInput.blur(); } });
 
-  amountRange.addEventListener("input", () => { amountInput.value = number.format(Number(amountRange.value)); refreshLocal(); });
-  amountRange.addEventListener("change", () => dispatchAmount(ribbon, Number(amountRange.value), legacy.amountKey));
-  amountInput.addEventListener("input", refreshLocal);
-  amountInput.addEventListener("change", () => { refreshLocal(); dispatchAmount(ribbon, parseAmount(amountInput.value) || 0, legacy.amountKey); });
+  amountRange.addEventListener("input", () => {
+    amountInput.value = number.format(Number(amountRange.value));
+    updateConcentrationReadout(controls, context, localTarget(), Number(amountRange.value));
+  });
+  amountRange.addEventListener("change", commitAmount);
+  amountInput.addEventListener("input", () => {
+    const nextTarget = localTarget();
+    const parsed = parseAmount(amountInput.value);
+    if (!Number.isFinite(parsed)) return;
+    const economics = concentrationEconomics(context, nextTarget, parsed);
+    const nextAmount = Math.min(economics.release, Math.max(0, roundMoney(parsed)));
+    amountRange.max = String(economics.release);
+    amountRange.value = String(nextAmount);
+    const available = controls.querySelector("[data-command-available]");
+    const retained = controls.querySelector("[data-command-retained]");
+    const modeled = controls.querySelector("[data-command-modeled-cash]");
+    if (available) available.textContent = `${formatMoney(economics.release)} proceeds`;
+    if (retained) retained.textContent = formatMoney(Math.max(0, economics.release - nextAmount));
+    if (modeled) modeled.textContent = formatMoney(economics.existingCash + Math.max(0, economics.release - nextAmount));
+  });
+  amountInput.addEventListener("change", commitAmount);
   amountInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); amountInput.blur(); } });
   return true;
 }
 
-function renderGenericDock(ribbon, dock, legacy) {
+function renderGenericControls(ribbon, controls, legacy) {
   if (!legacy.hasAmount) return false;
   const maximum = Math.max(legacy.amountMaximum, legacy.amount || 0);
   const amount = clamp(legacy.amount || 0, 0, maximum);
   const signature = ["generic", maximum, amount, legacy.amountKey].join("|");
-  if (dock.dataset.signature === signature) return true;
-  dock.dataset.signature = signature;
-  dock.innerHTML = `<div class="proposal-command-strip generic">
-    <section class="proposal-command-section proposal-command-context"><span>Investment mandate</span><strong><b>${formatMoney(maximum)}</b></strong><small>Capital available from the household decision</small></section>
-    <section class="proposal-command-section proposal-command-amount"><span>Amount to invest</span><label class="proposal-command-input money"><b>$</b><input type="text" inputmode="numeric" autocomplete="off" data-dock-amount-input value="${number.format(amount)}" aria-label="Amount to invest"></label><input class="proposal-command-range" type="range" data-dock-amount-range min="0" max="${maximum}" step="5000" value="${amount}" style="--command-progress:${progress(amount, 0, maximum)}%" aria-label="Amount to invest slider"><small>${formatMoney(maximum)} available</small></section>
+  if (controls.dataset.signature === signature) return true;
+  controls.dataset.signature = signature;
+  controls.innerHTML = `<div class="proposal-decision-grid generic">
+    <div class="proposal-decision-summary"><span>Investment mandate</span><div><strong>${formatMoney(maximum)}</strong></div><small>Capital available from the household decision</small></div>
+    <label class="proposal-decision-field proposal-decision-amount"><span>Amount to invest</span><div class="proposal-decision-input money"><b>$</b><input type="text" inputmode="numeric" autocomplete="off" data-command-amount-input value="${number.format(amount)}" aria-label="Amount to invest"></div><div class="proposal-decision-range-row"><input class="proposal-decision-range" type="range" data-command-amount-range min="0" max="${maximum}" step="5000" value="${amount}" aria-label="Amount to invest"><small>${formatMoney(maximum)} available</small></div></label>
   </div>`;
-  const input = dock.querySelector("[data-dock-amount-input]");
-  const range = dock.querySelector("[data-dock-amount-range]");
+  const input = controls.querySelector("[data-command-amount-input]");
+  const range = controls.querySelector("[data-command-amount-range]");
   const sync = () => {
     const value = clamp(parseAmount(input.value) ?? Number(range.value), 0, maximum);
     range.value = String(roundMoney(value));
     input.value = number.format(roundMoney(value));
-    setRangeProgress(range);
+    return roundMoney(value);
   };
-  range.addEventListener("input", () => { input.value = number.format(Number(range.value)); setRangeProgress(range); });
+  range.addEventListener("input", () => { input.value = number.format(Number(range.value)); });
   range.addEventListener("change", () => dispatchAmount(ribbon, Number(range.value), legacy.amountKey));
-  input.addEventListener("change", () => { sync(); dispatchAmount(ribbon, parseAmount(input.value) || 0, legacy.amountKey); });
+  input.addEventListener("change", () => dispatchAmount(ribbon, sync(), legacy.amountKey));
   input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); input.blur(); } });
   return true;
 }
 
-function clearDockState() {
+function clearEnhancement() {
   renderGeneration += 1;
   const ribbon = document.querySelector("#scenarioRibbon");
   const tray = document.querySelector("#proposalTray");
-  ribbon?.classList.remove("command-docked-mode");
-  tray?.classList.remove("proposal-command-docked");
-  tray?.querySelector(".proposal-command-dock")?.remove();
+  ribbon?.classList.remove("proposal-command-mode");
+  tray?.classList.remove("proposal-command-mode");
+  tray?.querySelector(".proposal-decision-controls")?.remove();
   const items = tray?.querySelector("#proposalTrayItems");
   if (items) {
     items.classList.remove("has-selected-investments");
-    if (items.dataset.overflow) items.dataset.overflow = "";
+    items.dataset.overflow = "";
   }
 }
 
-async function enhanceProposalDock() {
+async function enhanceProposalTray() {
   const ribbon = document.querySelector("#scenarioRibbon.proposal-mode:not([hidden])");
   const tray = document.querySelector("#proposalTray:not([hidden])");
   const mandate = ribbon?.querySelector("#scenarioMandate");
-  if (!ribbon || !tray || !mandate) { clearDockState(); return; }
+  if (!ribbon || !tray || !mandate) { clearEnhancement(); return; }
 
   const legacy = captureLegacyState(mandate);
-  if (!legacy.hasTarget && !legacy.hasAmount) { clearDockState(); return; }
+  if (!legacy.hasTarget && !legacy.hasAmount) { clearEnhancement(); return; }
 
-  ribbon.classList.add("command-docked-mode");
-  tray.classList.add("proposal-command-docked");
-  compactSelectedInvestments(tray);
-  const dock = ensureDock(tray);
+  const stylesReady = await ensureStylesheet();
+  if (!stylesReady) { clearEnhancement(); return; }
+
   const generation = ++renderGeneration;
-  const householdName = householdNameFromRibbon(ribbon);
-  const context = legacy.hasTarget ? await loadHouseholdContext(householdName) : null;
-  if (generation !== renderGeneration || !ribbon.isConnected || !tray.isConnected || ribbon.hidden || tray.hidden || !ribbon.classList.contains("proposal-mode")) return;
+  ribbon.classList.add("proposal-command-mode");
+  tray.classList.add("proposal-command-mode");
+  compactSelectedInvestments(tray);
+  const controls = ensureControls(tray);
+  if (!controls.dataset.signature) controls.innerHTML = `<div class="proposal-decision-loading"><span></span><small>Loading decision parameters</small></div>`;
 
-  if (context?.concentration && renderConcentrationDock(ribbon, dock, mandate, legacy, context)) { compactSelectedInvestments(tray); return; }
-  renderGenericDock(ribbon, dock, legacy);
+  const context = legacy.hasTarget ? await loadHouseholdContext(ribbon) : null;
+  if (generation !== renderGeneration || !ribbon.isConnected || !tray.isConnected || ribbon.hidden || tray.hidden) return;
+
+  if (context?.concentration && renderConcentrationControls(ribbon, controls, mandate, legacy, context)) {
+    compactSelectedInvestments(tray);
+    return;
+  }
+  renderGenericControls(ribbon, controls, legacy);
   compactSelectedInvestments(tray);
 }
 
 function scheduleEnhancement() {
   if (enhancementScheduled) return;
   enhancementScheduled = true;
-  requestAnimationFrame(() => { enhancementScheduled = false; enhanceProposalDock(); });
+  requestAnimationFrame(() => {
+    enhancementScheduled = false;
+    enhanceProposalTray();
+  });
 }
 
-function installStyles() {
-  if (document.getElementById(COMMAND_STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = COMMAND_STYLE_ID;
-  style.textContent = `
-    .scenario-ribbon.proposal-mode.command-docked-mode { min-height:92px!important; grid-template-columns:minmax(228px,.72fr) minmax(360px,1fr) auto 30px!important; align-items:center; gap:clamp(12px,1.4vw,22px)!important; padding:11px clamp(24px,2.5vw,42px)!important; border-bottom-color:#d4d4cf; background:#f7f7f4; box-shadow:0 3px 12px rgba(0,0,0,.045); }
-    .scenario-ribbon.proposal-mode.command-docked-mode .scenario-progress { grid-column:1; grid-row:1; }
-    .scenario-ribbon.proposal-mode.command-docked-mode .scenario-main { grid-column:2; grid-row:1; gap:4px; }
-    .scenario-ribbon.proposal-mode.command-docked-mode .scenario-main>span { color:#767672; font-size:7.5px; letter-spacing:.1em; }
-    .scenario-ribbon.proposal-mode.command-docked-mode .scenario-main>strong { max-width:none; font-size:20px; line-height:1.1; }
-    .scenario-ribbon.proposal-mode.command-docked-mode .scenario-tags,.scenario-ribbon.proposal-mode.command-docked-mode .scenario-mandate,.scenario-ribbon.proposal-mode.command-docked-mode .scenario-capital { display:none!important; }
-    .scenario-ribbon.proposal-mode.command-docked-mode .scenario-back { grid-column:3; grid-row:1; min-height:32px; order:initial; padding:6px 10px; white-space:nowrap; }
-    .scenario-ribbon.proposal-mode.command-docked-mode .scenario-dismiss { grid-column:4; grid-row:1; order:initial; }
-
-    .proposal-tray.proposal-command-docked { width:min(1320px,calc(100vw - 48px)); height:84px!important; min-height:84px!important; max-height:84px; grid-template-columns:145px 170px minmax(500px,1fr) 88px 154px; align-items:center; gap:8px; padding:8px 10px 8px 14px; overflow:visible; }
-    .proposal-tray.proposal-command-docked .proposal-tray-context { min-width:0; gap:3px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-context>span { font-size:6.5px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-context strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
-    .proposal-tray.proposal-command-docked .proposal-tray-context small { overflow:hidden; color:#9d9d99; font-size:6.5px; text-overflow:ellipsis; white-space:nowrap; }
-    .proposal-tray.proposal-command-docked .proposal-tray-items { position:relative; height:64px; min-width:0; display:grid; align-content:center; gap:4px; overflow:hidden; }
-    .proposal-tray.proposal-command-docked .proposal-tray-item { width:100%; min-width:0; max-width:none; height:27px; grid-template-columns:21px minmax(0,1fr) 14px; gap:5px; padding:2px 4px; border-color:#3b3b38; background:#222221; }
-    .proposal-tray.proposal-command-docked .proposal-tray-item:nth-child(n+3) { display:none; }
-    .proposal-tray.proposal-command-docked .proposal-tray-item .product-monogram { width:20px; height:20px; font-size:6px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-item .product-logo { max-width:15px; max-height:15px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-item strong { font-size:7px; line-height:1.1; }
-    .proposal-tray.proposal-command-docked .proposal-tray-item small { display:none; }
-    .proposal-tray.proposal-command-docked .proposal-tray-item button { padding:0; font-size:12px; line-height:1; }
-    .proposal-tray.proposal-command-docked .proposal-tray-items[data-overflow]:not([data-overflow=""]) .proposal-tray-item:nth-child(2) { padding-right:42px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-items[data-overflow]:not([data-overflow=""])::after { content:attr(data-overflow); position:absolute; right:3px; bottom:5px; padding:2px 4px; border:1px solid #474744; border-radius:2px; background:#171717; color:#b9b9b5; font-size:6px; font-weight:700; white-space:nowrap; }
-    .proposal-tray.proposal-command-docked .proposal-tray-empty { height:52px; gap:7px; font-size:7px; line-height:1.25; }
-    .proposal-tray.proposal-command-docked .proposal-tray-empty i { width:25px; height:25px; flex:none; }
-
-    .proposal-command-dock { min-width:0; height:64px; border:1px solid #d2d2cc; border-radius:3px; background:#f6f6f3; color:#171717; overflow:hidden; box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
-    .proposal-command-strip { height:100%; display:grid; grid-template-columns:minmax(112px,1fr) minmax(90px,.78fr) minmax(125px,1.05fr) minmax(135px,1.08fr); align-items:stretch; }
-    .proposal-command-strip.generic { grid-template-columns:minmax(160px,.8fr) minmax(220px,1.2fr); }
-    .proposal-command-section { min-width:0; display:grid; align-content:center; gap:3px; padding:6px 9px; border-left:1px solid #deded9; }
-    .proposal-command-section:first-child { border-left:0; }
-    .proposal-command-section>span { overflow:hidden; color:#6f6f6b; font-size:6.5px; font-weight:700; letter-spacing:.065em; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
-    .proposal-command-context strong { display:flex; align-items:center; gap:5px; font-family:Georgia,serif; font-size:12px; font-weight:400; line-height:1; white-space:nowrap; }
-    .proposal-command-context strong b { font-weight:400; }
-    .proposal-command-context strong b:last-child { color:#355f4e; }
-    .proposal-command-context strong i { color:#999994; font-size:9px; font-style:normal; }
-    .proposal-command-section>small { overflow:hidden; color:#777773; font-size:6.2px; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
-    .proposal-command-input { width:100%; height:23px; display:flex; align-items:center; gap:2px; border:1px solid #c3c3bd; border-radius:2px; background:#fff; padding:0 5px; color:#202020; font-variant-numeric:tabular-nums; }
-    .proposal-command-input:focus-within { border-color:#777; box-shadow:0 0 0 2px rgba(0,0,0,.04); }
-    .proposal-command-input input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:#171717; font-size:8px; font-weight:700; text-align:right; }
-    .proposal-command-input b { font-size:7px; }
-    .proposal-command-input input[type=number]::-webkit-inner-spin-button,.proposal-command-input input[type=number]::-webkit-outer-spin-button { margin:0; -webkit-appearance:none; }
-    .proposal-command-range { --command-progress:0%; width:100%; height:10px; margin:0; appearance:none; -webkit-appearance:none; background:transparent; cursor:pointer; }
-    .proposal-command-range::-webkit-slider-runnable-track { height:2px; border-radius:2px; background:linear-gradient(to right,#2f6fe4 0 var(--command-progress),#d1d1cc var(--command-progress) 100%); }
-    .proposal-command-range::-webkit-slider-thumb { width:10px; height:10px; margin-top:-4px; border:1px solid #2f6fe4; border-radius:50%; background:#2f6fe4; box-shadow:0 1px 2px rgba(0,0,0,.16); -webkit-appearance:none; }
-    .proposal-command-range::-moz-range-track { height:2px; border:0; border-radius:2px; background:#d1d1cc; }
-    .proposal-command-range::-moz-range-progress { height:2px; border-radius:2px; background:#2f6fe4; }
-    .proposal-command-range::-moz-range-thumb { width:10px; height:10px; border:1px solid #2f6fe4; border-radius:50%; background:#2f6fe4; }
-    .proposal-command-cash { gap:4px; }
-    .proposal-command-cash>strong { overflow:hidden; font-family:Georgia,serif; font-size:10px; font-weight:400; line-height:1.05; text-overflow:ellipsis; white-space:nowrap; }
-    .proposal-command-cash>strong b { font-weight:400; }
-    .proposal-command-cash>span { font-size:6px; letter-spacing:.04em; }
-    .proposal-command-cash small b { color:#252525; font-weight:700; }
-    .proposal-tray.proposal-command-docked .proposal-tray-allocation { min-width:0; justify-items:end; gap:2px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-allocation span { font-size:6px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-allocation strong { font-size:14px; }
-    .proposal-tray.proposal-command-docked .proposal-tray-allocation small { max-width:88px; overflow:hidden; font-size:6px; text-align:right; text-overflow:ellipsis; white-space:nowrap; }
-    .proposal-tray.proposal-command-docked .proposal-continue { width:100%; height:44px; min-height:44px; padding:0 9px; font-size:8px; white-space:nowrap; }
-
-    @media (max-width:1320px) {
-      .scenario-ribbon.proposal-mode.command-docked-mode { grid-template-columns:215px minmax(330px,1fr) auto 28px!important; gap:12px!important; padding-left:24px!important; padding-right:24px!important; }
-      .scenario-ribbon.proposal-mode.command-docked-mode .scenario-progress { gap:6px; }
-      .scenario-ribbon.proposal-mode.command-docked-mode .scenario-progress span { gap:5px; font-size:7.5px; }
-      .scenario-ribbon.proposal-mode.command-docked-mode .scenario-progress b { width:12px; flex-basis:12px; }
-      .scenario-ribbon.proposal-mode.command-docked-mode .scenario-main>strong { font-size:18px; }
-      .proposal-tray.proposal-command-docked { width:calc(100vw - 48px); grid-template-columns:135px 150px minmax(470px,1fr) 82px 145px; gap:6px; padding-left:12px; padding-right:8px; }
-      .proposal-command-section { padding-left:7px; padding-right:7px; }
-      .proposal-command-context strong { font-size:11px; }
-      .proposal-command-cash>strong { font-size:9px; }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-installStyles();
-const observer = new MutationObserver(scheduleEnhancement);
-observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "class", "aria-pressed"] });
-scheduleEnhancement();
+ensureStylesheet().then(() => scheduleEnhancement());
+observer = new MutationObserver((mutations) => {
+  const relevant = mutations.some((mutation) => {
+    const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentElement;
+    return !target?.closest?.(".proposal-decision-controls");
+  });
+  if (relevant) scheduleEnhancement();
+});
+observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "aria-pressed"] });
