@@ -1,3 +1,4 @@
+import { renderProposalControls } from "/command-header.mjs";
 import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, STATUSES } from "/lib/shared-config.js";
 import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
@@ -5,6 +6,7 @@ import { defaultSort, headerSort, isSortAllowed, sortLoadedItems, sortOptions, S
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
 import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
 import { getDecisionPlan, getHouseholdPlanSummary, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, saveDecisionPlan, setDecisionCandidates, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
+import { calculateProposalImpact } from "/lib/proposal-impact.js";
 import { allocateProposalCandidates, createProposalDraft, getProposal, markProposalReady, reallocateProposalCandidate, saveProposal } from "/lib/proposal-data.js";
 
 const number = new Intl.NumberFormat("en-US");
@@ -25,6 +27,7 @@ const state = {
   activeDecisionPlan: null,
   proposal: null,
   proposalCandidates: new Map(),
+  mandatePending: false,
   decisionController: null,
   decisionScenarioController: null,
   bookController: null,
@@ -825,6 +828,7 @@ function closeDecisionStudio({ restoreFocus = true } = {}) {
   state.decisionController = null;
   state.decisionScenarioController?.abort();
   state.decisionScenarioController = null;
+  state.mandatePending = false;
   window.clearTimeout(decisionModelTimer);
   if (el("decisionStudio")) {
     el("decisionStudio").hidden = true;
@@ -984,6 +988,7 @@ function launchDecisionImplementation() {
     sourceLabel: detail.decision.kind === "concentration" ? `${String(detail.facts.find((fact) => fact.label === "Position")?.value || "Position").split(" · ")[0]} reduction` : implementation.objective,
     sourceValue: detail.evidence.title,
     impact: proposalImpactFromScenario(detail, scenario),
+    impactModel: scenario.proposalModel,
   });
 }
 
@@ -1053,26 +1058,33 @@ async function refreshEmbeddedMandate(updates) {
   state.decisionScenarioController?.abort();
   const controller = new AbortController();
   state.decisionScenarioController = controller;
+  const householdId = state.currentHouseholdId;
+  state.mandatePending = true;
+  renderProposalTray();
   try {
-    const scenario = await modelDecisionScenario(detail.decision.id, state.currentHouseholdId, { ...(state.activeDecisionScenario?.inputs || {}), ...updates }, { signal: controller.signal });
-    if (controller !== state.decisionScenarioController) return;
+    const scenario = await modelDecisionScenario(detail.decision.id, householdId, { ...(state.activeDecisionScenario?.inputs || {}), ...updates }, { signal: controller.signal });
+    if (controller !== state.decisionScenarioController || state.currentHouseholdId !== householdId || state.householdScenario?.decisionId !== detail.decision.id) return;
     state.activeDecisionScenario = scenario;
     state.householdScenario.implementationAmount = scenario.implementation.amount;
     state.householdScenario.impact = proposalImpactFromScenario(detail, scenario);
+    state.householdScenario.impactModel = scenario.proposalModel;
     state.householdScenario.tags = [formatWealthCurrency(scenario.implementation.amount), ...scenario.implementation.tags.slice(1)];
     rebalanceProposalCandidates();
     showScenarioRibbon(state.householdScenario);
     renderResults();
   } catch (error) {
     if (error.name !== "AbortError") showToast("Unable to update the investment mandate");
+  } finally {
+    if (controller === state.decisionScenarioController) { state.mandatePending = false; renderProposalTray(); }
   }
 }
 
-function showScenarioRibbon({ source, title, tags, decisionId = null, implementationAmount = 0, proposalMode = false, decisionTitle = "", objective = "", sourceLabel = "", sourceValue = "", impact = {} }) {
-  state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name, decisionId, implementationAmount, proposalMode, decisionTitle, objective, sourceLabel, sourceValue, impact };
+function showScenarioRibbon({ source, title, tags, decisionId = null, implementationAmount = 0, proposalMode = false, decisionTitle = "", objective = "", sourceLabel = "", sourceValue = "", impact = {}, impactModel = null }) {
+  state.householdScenario = { source, title, tags, householdId: state.currentHouseholdId, householdName: HOUSEHOLD.name, decisionId, implementationAmount, proposalMode, decisionTitle, objective, sourceLabel, sourceValue, impact, impactModel };
   updateHtml(el("scenarioBack"), backLabel(HOUSEHOLD.name));
   el("scenarioSource").textContent = source;
   el("scenarioTitle").textContent = title;
+  el("scenarioObjective").textContent = objective;
   el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
   el("scenarioProgress").innerHTML = proposalMode ? `<span class="complete"><i>1</i>Define change</span><b></b><span class="active"><i>2</i>Select investments</span><b></b><span><i>3</i>Build proposal</span>` : "";
   el("scenarioCapital").hidden = !proposalMode;
@@ -1081,6 +1093,7 @@ function showScenarioRibbon({ source, title, tags, decisionId = null, implementa
     el("scenarioCapitalSource").textContent = sourceLabel ? `From ${sourceLabel}` : "From proposed change";
   }
   el("scenarioRibbon").classList.toggle("proposal-mode", proposalMode);
+  el("scenarioRibbon").classList.toggle("proposal-command-mode", proposalMode);
   el("scenarioRibbon").hidden = false;
   document.body.classList.toggle("proposal-mode-active", proposalMode);
   renderScenarioMandate();
@@ -1428,7 +1441,7 @@ function renderResults() {
     const proposed = state.proposalCandidates.has(item.id);
     return `<tr data-row-id="${escapeHtml(item.id)}" class="${proposed ? "proposal-selected-row" : ""}">
       <td class="check-cell">${proposalMode ? `<button type="button" class="proposal-select-button ${proposed ? "selected" : ""}" data-proposal-id="${escapeHtml(item.id)}" aria-pressed="${proposed}" aria-label="${proposed ? "Remove" : "Add"} ${escapeHtml(item.name)} ${proposed ? "from" : "to"} proposal"><span>${proposed ? "✓" : "+"}</span></button>` : `<input class="row-check" type="checkbox" data-compare-id="${escapeHtml(item.id)}" aria-label="Compare ${escapeHtml(item.name)}" ${checked ? "checked" : ""}/>`}</td>
-      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${researchStatus(item.researchStatus)}${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
+      <td><div class="investment-cell">${productMark(item)}<div class="investment-meta"><a href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</a><div class="investment-sub">${escapeHtml(item.type)} · ${escapeHtml(item.manager)}${item.category === "SMAs" ? `<span class="sma-role">${escapeHtml(item.objective)} · ${escapeHtml(item.benchmark || "Benchmark pending")}</span>` : ""}${item.matchReason ? `<span class="match-reason">${escapeHtml(item.matchReason)}</span>` : ""}<span class="badges">${researchStatus(item.researchStatus)}${visibleFlags(item.flags).map(badge).join("")}</span></div></div></div></td>
       ${columns.map((column) => `<td class="result-data-column col-${escapeHtml(column)} ${column === "primary" ? "market-primary" : ""}">${renderResultColumn(item, column)}</td>`).join("")}
       ${proposalMode ? "" : `<td class="action-cell"><a class="row-menu" href="${escapeHtml(profileHref(item))}" data-detail-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.name)}">›</a></td>`}
     </tr>`;
@@ -1676,7 +1689,7 @@ function proposalModeActive() {
 }
 
 function proposalTargetAmount() {
-  return Math.max(0, Math.round(Number(state.householdScenario?.implementationAmount) || Number(state.proposal?.totalAmount) || 0));
+  return Math.max(0, Math.round(Number(state.householdScenario?.implementationAmount ?? state.proposal?.totalAmount ?? 0)));
 }
 
 function proposalCandidate(id) {
@@ -1694,6 +1707,8 @@ function rebalanceProposalCandidates() {
 function renderProposalTray() {
   const active = proposalModeActive() && state.workspaceView === "investments";
   const tray = el("proposalTray");
+  const preview = el("proposalImpactPreview");
+  preview.hidden = !active;
   if (!active) { tray.hidden = true; return; }
   const candidates = [...state.proposalCandidates.values()];
   const target = proposalTargetAmount();
@@ -1702,6 +1717,8 @@ function renderProposalTray() {
   const requiredMinimum = candidates.reduce((sum, candidate) => sum + (Number(candidate.minimum) || 0), 0);
   const minimumsMet = candidates.every((candidate) => (Number(candidate.amount) || 0) >= (Number(candidate.minimum) || 0));
   tray.hidden = false;
+  tray.classList.add("proposal-command-mode");
+  renderProposalControls({ container: el("proposalDecisionControls"), scenario: state.activeDecisionScenario, detail: state.activeDecisionDetail, pending: state.mandatePending, onChange: refreshEmbeddedMandate });
   el("proposalTrayTitle").textContent = candidates.length ? `${candidates.length} ${candidates.length === 1 ? "solution" : "solutions"} selected` : "Select investments";
   el("proposalTraySubtitle").textContent = `${formatWealthCurrency(target)} available to allocate`;
   el("proposalTrayItems").innerHTML = candidates.length
@@ -1712,7 +1729,10 @@ function renderProposalTray() {
     ? `${formatWealthCurrency(requiredMinimum - target)} above available capital in minimums`
     : !minimumsMet ? "Adjust allocation to meet investment minimums" : `${formatWealthCurrency(remaining)} remaining`;
   el("proposalTrayRemaining").classList.toggle("warning", !minimumsMet);
-  el("proposalContinue").disabled = !candidates.length || remaining !== 0 || !minimumsMet;
+  const outcome = calculateProposalImpact(state.householdScenario?.impactModel, candidates);
+  const metrics = [outcome.impact.concentration, outcome.impact.usEquity, outcome.impact.cash].filter(Boolean);
+  preview.innerHTML = candidates.length ? `<span class="impact-preview-label">SELECTION IMPACT · BEFORE TAX</span>${metrics.map((item) => `<span>${escapeHtml(item.label)}<strong>${proposalImpactValue(item.before, item.format)} → ${proposalImpactValue(item.after, item.format)}</strong></span>`).join("")}` : `<span>Choose investments to preview their effect on household allocation and cash.</span>`;
+  el("proposalContinue").disabled = state.mandatePending || target <= 0 || !candidates.length || remaining !== 0 || !minimumsMet;
 }
 
 function toggleProposalCandidate(id, selected) {
@@ -1734,13 +1754,13 @@ function proposalAllocated(proposal = state.proposal) {
 
 function proposalImpactValue(value, format) {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "Not modeled";
+  if (value === null || value === undefined || !Number.isFinite(numeric)) return "Needs exposure data";
   return format === "percent" ? `${numeric.toFixed(1)}%` : formatWealthCurrency(numeric);
 }
 
 function defaultProposalRationale(context) {
   if (!context) return "Implement the agreed household change using investments selected for the client's objectives and portfolio context.";
-  return `${context.sourceValue || context.decisionTitle} creates ${formatWealthCurrency(context.implementationAmount)} to reposition. The proposed solutions are intended to support the household objective: ${String(context.objective || "implement the agreed change").replace(/\.$/, "").toLowerCase()}. Implementation criteria remain explicit.`;
+  return `Reinvest ${formatWealthCurrency(context.implementationAmount)} from ${String(context.sourceLabel || "the proposed change")} to ${String(context.objective || "support the household objectives").replace(/\.$/, "").replace(/^./, (letter) => letter.toLowerCase())}. Review the selected strategies, total costs and tax implications with the client before implementation.`;
 }
 
 function buildProposalFromSelection() {
@@ -1759,6 +1779,7 @@ function buildProposalFromSelection() {
     sourceValue: context.sourceValue,
     totalAmount: context.implementationAmount,
     impact: context.impact,
+    impactModel: context.impactModel,
     candidates: [...state.proposalCandidates.values()],
     rationale: existing?.rationale || defaultProposalRationale(context),
     status: existing?.status || "Draft",
@@ -1791,6 +1812,7 @@ function openProposalBuilder(decisionId = state.householdScenario?.decisionId) {
       sourceLabel: proposal.sourceLabel,
       sourceValue: proposal.sourceValue,
       impact: proposal.impact,
+      impactModel: proposal.impactModel,
     };
   }
   document.body.classList.add("proposal-mode-active");
@@ -1800,6 +1822,36 @@ function openProposalBuilder(decisionId = state.householdScenario?.decisionId) {
   const href = proposalUrl(proposal.decisionId);
   setWorkspaceView("proposal", { updateHistory: false });
   if (`${location.pathname}${location.search}` !== href) history.pushState({ workspaceView: "proposal", householdId: proposal.householdId, decisionId: proposal.decisionId }, "", href);
+}
+
+async function returnToProposalSelection() {
+  const context = state.householdScenario;
+  if (!context?.proposalMode) return;
+  setWorkspaceView("investments");
+  showScenarioRibbon(context);
+  if (state.activeDecisionScenario?.decisionId === context.decisionId || !context.impactModel?.scenarioInputs) return;
+  const controller = new AbortController();
+  state.decisionScenarioController?.abort();
+  state.decisionScenarioController = controller;
+  state.mandatePending = true;
+  renderProposalTray();
+  try {
+    const [detail, scenario] = await Promise.all([
+      loadDecisionDetail(context.decisionId, context.householdId, { signal: controller.signal }),
+      modelDecisionScenario(context.decisionId, context.householdId, context.impactModel.scenarioInputs, { signal: controller.signal }),
+    ]);
+    if (controller !== state.decisionScenarioController || state.householdScenario?.decisionId !== context.decisionId || state.currentHouseholdId !== context.householdId) return;
+    state.activeDecisionDetail = detail;
+    state.activeDecisionScenario = scenario;
+    state.householdScenario.implementationAmount = scenario.implementation.amount;
+    state.householdScenario.impactModel = scenario.proposalModel;
+    rebalanceProposalCandidates();
+    renderResults();
+  } catch (error) {
+    if (error.name !== "AbortError") showToast("Unable to restore decision controls. Reopen the household decision to try again.");
+  } finally {
+    if (controller === state.decisionScenarioController) { state.mandatePending = false; renderProposalTray(); }
+  }
 }
 
 function proposalImpactMarkup(proposal) {
@@ -1813,10 +1865,10 @@ function proposalSolutionMarkup(proposal) {
 }
 
 function proposalAllocationMarkup(proposal) {
-  const keys = ["concentration", "usEquity", "cashWeight"];
+  const keys = ["concentration", "usEquity", "allocation", "cashWeight"];
   const entries = keys.map((key) => proposal.impact?.[key]).filter((item) => item?.format === "percent");
   if (!entries.length) return "";
-  return `<section class="proposal-document-section proposal-allocation-table"><span class="proposal-section-label">MODELED ALLOCATION</span><h3>Current and proposed household positioning</h3><table><thead><tr><th>Exposure</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead><tbody>${entries.map((item) => `<tr><th>${escapeHtml(item.label)}</th><td>${proposalImpactValue(item.before, "percent")}</td><td>${proposalImpactValue(item.after, "percent")}</td><td class="${Number(item.after) - Number(item.before) < 0 ? "negative" : "positive"}">${Number(item.after) - Number(item.before) >= 0 ? "+" : ""}${(Number(item.after) - Number(item.before)).toFixed(1)} pts</td></tr>`).join("")}</tbody></table><small>Modeled at the household level. Unchanged asset classes are omitted for clarity.</small></section>`;
+  return `<section class="proposal-document-section proposal-allocation-table"><span class="proposal-section-label">MODELED ALLOCATION</span><h3>Current and proposed household positioning</h3><table><thead><tr><th>Exposure</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead><tbody>${entries.map((item) => `<tr><th>${escapeHtml(item.label)}</th><td>${proposalImpactValue(item.before, "percent")}</td><td>${proposalImpactValue(item.after, "percent")}</td><td class="${Number(item.after) - Number(item.before) < 0 ? "negative" : "positive"}">${item.after === null ? "Pending data" : `${Number(item.after) - Number(item.before) >= 0 ? "+" : ""}${(Number(item.after) - Number(item.before)).toFixed(1)} pts`}</td></tr>`).join("")}</tbody></table><small>Modeled at the household level. Unchanged asset classes are omitted for clarity.</small></section>`;
 }
 
 function renderProposalBuilder() {
@@ -1829,6 +1881,7 @@ function renderProposalBuilder() {
   const remaining = proposal.totalAmount - allocated;
   const minimumsMet = proposal.candidates.every((candidate) => candidate.amount >= candidate.minimum);
   const allocationValid = proposal.candidates.length > 0 && remaining === 0 && minimumsMet;
+  const feesComplete = proposal.candidates.every((candidate) => candidate.fee !== null);
   const weightedFee = proposal.candidates.reduce((sum, candidate) => sum + (Number(candidate.fee) || 0) * candidate.amount, 0) / Math.max(1, allocated);
   const annualProductCost = allocated * weightedFee / 100;
   const today = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
@@ -1841,12 +1894,12 @@ function renderProposalBuilder() {
       <main class="proposal-document" id="proposalDocument">
         <header class="proposal-document-brand"><div><span class="brand-mark" aria-hidden="true">UPS</span><i></i><strong>WEALTH MANAGEMENT</strong></div><span>${escapeHtml(proposal.status.toUpperCase())}</span></header>
         <section class="proposal-document-title"><span>INVESTMENT PROPOSAL · ${escapeHtml(today.toUpperCase())}</span><h2>Household investment proposal</h2><p>Prepared for <strong>${escapeHtml(proposal.members.join(" & ") || proposal.householdName)}</strong></p></section>
-        <section class="proposal-executive-summary"><div><span>HOUSEHOLD</span><strong>${escapeHtml(proposal.householdName)}</strong><small>${escapeHtml(proposal.decisionTitle)}</small></div><div><span>PROPOSED INVESTMENT</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small></div><div><span>SOLUTIONS</span><strong>${proposal.candidates.length}</strong><small>${weightedFee ? `${weightedFee.toFixed(2)}% weighted fee` : "Selected investment mix"}</small></div></section>
+        <section class="proposal-executive-summary"><div><span>HOUSEHOLD</span><strong>${escapeHtml(proposal.householdName)}</strong><small>${escapeHtml(proposal.decisionTitle)}</small></div><div><span>PROPOSED INVESTMENT</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small></div><div><span>SOLUTIONS</span><strong>${proposal.candidates.length}</strong><small>${feesComplete ? `${weightedFee.toFixed(2)}% weighted product fee` : "Product fees incomplete"}</small></div></section>
         <section class="proposal-document-section"><span class="proposal-section-label">WHY THIS CHANGE</span><h3>A portfolio decision grounded in the household</h3><p>${escapeHtml(proposal.rationale)}</p><div class="proposal-source-note"><span>Source of funds</span><strong>${escapeHtml(proposal.sourceLabel)}</strong><small>${escapeHtml(proposal.sourceValue)}</small></div></section>
-        ${proposal.sections.householdImpact ? `<section class="proposal-document-section"><span class="proposal-section-label">HOUSEHOLD IMPACT</span><h3>What changes in the modeled portfolio</h3>${proposalImpactMarkup(proposal)}</section>` : ""}
+        ${proposal.sections.householdImpact ? `<section class="proposal-document-section"><span class="proposal-section-label">HOUSEHOLD IMPACT</span><h3>What changes in the modeled portfolio</h3>${proposalImpactMarkup(proposal)}<div class="proposal-model-notes">${proposal.notes.map((note) => `<p>${escapeHtml(note)}</p>`).join("")}</div></section>` : ""}
         ${proposal.sections.householdImpact ? proposalAllocationMarkup(proposal) : ""}
         ${proposal.sections.proposedSolutions ? `<section class="proposal-document-section"><span class="proposal-section-label">PROPOSED SOLUTIONS</span><h3>How the capital would be allocated</h3>${proposalSolutionMarkup(proposal)}</section>` : ""}
-        ${proposal.sections.costsAndConsiderations ? `<section class="proposal-document-section proposal-considerations"><span class="proposal-section-label">COSTS & CONSIDERATIONS</span><div><p><strong>Estimated product cost</strong><span>${weightedFee ? `${weightedFee.toFixed(2)}% weighted annual product fee, approximately ${formatWealthCurrency(annualProductCost)} per year on the proposed amount. Advisory, custody and transaction charges are additional where applicable.` : "Review product-level fees and applicable advisory charges before implementation."}</span></p><p><strong>Taxes</strong><span>Realized gains and tax consequences require review. No tax liability is estimated in this proposal.</span></p><p><strong>Implementation</strong><span>Final eligibility, restrictions, account funding and operational readiness must be confirmed before execution.</span></p></div></section>` : ""}
+        ${proposal.sections.costsAndConsiderations ? `<section class="proposal-document-section proposal-considerations"><span class="proposal-section-label">COSTS & CONSIDERATIONS</span><div><p><strong>Estimated product cost</strong><span>${feesComplete ? `${weightedFee.toFixed(2)}% weighted annual product fee, approximately ${currency.format(annualProductCost)} per year on the proposed amount. Advisory, custody and transaction charges are additional where applicable.` : "Review product-level fees and applicable advisory charges before implementation."}</span></p><p><strong>Taxes</strong><span>${proposal.impactModel?.estimatedRealizedGain != null ? `Estimated realized gain: ${currency.format(proposal.impactModel.estimatedRealizedGain)}, using proportional position-level cost basis. ` : ""}Cash and allocation figures are before taxes. Tax-lot selection and any cash needed for taxes require review; no tax liability is estimated.</span></p><p><strong>Implementation</strong><span>Final eligibility, restrictions, account funding and operational readiness must be confirmed before execution.</span></p></div></section>` : ""}
         ${proposal.sections.nextSteps ? `<section class="proposal-document-section proposal-next-steps"><span class="proposal-section-label">NEXT STEPS</span><h3>Review together before anything is implemented</h3><ol><li><i>1</i><span><strong>Discuss the proposed change</strong><small>Confirm the household objective and the amount to reposition.</small></span></li><li><i>2</i><span><strong>Review the selected solutions</strong><small>Consider strategy, fees, risks, liquidity and tax implications.</small></span></li><li><i>3</i><span><strong>Approve implementation</strong><small>No transaction occurs until the required client and firm approvals are complete.</small></span></li></ol></section>` : ""}
         <section class="proposal-disclosures"><strong>Important information</strong><p>This document is an illustrative discussion aid and is not a trade confirmation, offer or solicitation. It does not by itself authorize a transaction. Proposed investments remain subject to suitability, best-interest, product eligibility, concentration, liquidity, tax, account and firm-approval review. Values and market data are as of the date shown and may change. Past performance does not guarantee future results. Fees reduce returns; consult current product materials, Form CRS, applicable Form ADV disclosures and offering documents before implementation. Tax information is general and is not tax advice. Client consent and all required supervisory approvals must be documented before any transaction.</p></section>
         <footer class="proposal-document-footer"><span>Illustrative client proposal · Prepared for discussion</span><span>${escapeHtml(proposal.id)}</span></footer>
@@ -2355,8 +2408,8 @@ document.addEventListener("click", (event) => {
   if (proposalSelection) toggleProposalCandidate(proposalSelection.dataset.proposalId, !state.proposalCandidates.has(proposalSelection.dataset.proposalId));
   const removeProposal = event.target.closest("[data-remove-proposal]");
   if (removeProposal) toggleProposalCandidate(removeProposal.dataset.removeProposal, false);
-  if (event.target.closest("[data-proposal-back-results]")) { setWorkspaceView("investments"); renderProposalTray(); }
-  if (event.target.closest("[data-open-decision-from-proposal]")) { setWorkspaceView("investments"); renderProposalTray(); }
+  if (event.target.closest("[data-proposal-back-results]")) returnToProposalSelection();
+  if (event.target.closest("[data-open-decision-from-proposal]")) returnToProposalSelection();
   const amountChoice = event.target.closest("[data-scenario-amount]");
   if (amountChoice) refreshEmbeddedMandate({ [amountChoice.dataset.scenarioAmountKey || "redeployAmount"]: Number(amountChoice.dataset.scenarioAmount) });
   if (event.target.closest("[data-proposal-generate]")) generateClientProposal();
