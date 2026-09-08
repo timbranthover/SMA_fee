@@ -1,226 +1,98 @@
-/* Compact proposal command bar. Loaded as a real stylesheet so it remains CSP-safe. */
-body.proposal-mode-active .investment-view { padding-bottom: 126px; }
-
+/* The household mandate and basket share the application's scenario state. */
+body.proposal-mode-active .investment-view { padding-bottom: 230px; }
 .scenario-ribbon.proposal-mode.proposal-command-mode {
-  min-height: 82px;
-  grid-template-columns: 230px minmax(330px, 1fr) auto 30px;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) auto 36px;
+  grid-template-areas: "identity back dismiss" "progress progress progress";
   align-items: center;
-  gap: 18px;
-  padding: 11px clamp(24px, 2.5vw, 42px);
-  border-bottom-color: #d4d4cf;
+  gap: 12px 20px;
+  padding: 18px 34px 14px;
   background: #f7f7f4;
-  box-shadow: 0 3px 10px rgba(0,0,0,.035);
+  border-bottom: 1px solid #d4d4cf;
 }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress { grid-column: 1; grid-row: 1; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-main { grid-column: 2; grid-row: 1; gap: 3px; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-main > span { color: #858581; font-size: 7px; letter-spacing: .11em; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-main > strong { max-width: none; font-size: 19px; line-height: 1.08; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-main { grid-area: identity; min-width: 0; gap: 5px; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-main > span { font-size: 12px; color: #686864; letter-spacing: .05em; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-main > strong { max-width: none; font-size: 24px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
+.scenario-objective { margin: 0; font-size: 13px; line-height: 1.45; color: #555; }
+.scenario-objective:empty { display: none; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress { grid-area: progress; gap: 12px; flex-wrap: wrap; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress span { font-size: 12px; gap: 7px; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress span i { width: 24px; height: 24px; flex-basis: 24px; font-size: 12px; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress b { width: 24px; flex-basis: 24px; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-back { grid-area: back; order: initial; min-height: 38px; padding: 9px 12px; background: #fff; font-size: 12px; }
+.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-dismiss { grid-area: dismiss; order: initial; width: 36px; height: 36px; }
 .scenario-ribbon.proposal-mode.proposal-command-mode .scenario-tags,
 .scenario-ribbon.proposal-mode.proposal-command-mode .scenario-mandate,
 .scenario-ribbon.proposal-mode.proposal-command-mode .scenario-capital { display: none !important; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-back {
-  grid-column: 3;
-  grid-row: 1;
-  min-height: 32px;
-  order: initial;
-  padding: 6px 10px;
-  background: #fff;
-  white-space: nowrap;
-}
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-dismiss { grid-column: 4; grid-row: 1; order: initial; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress { gap: 6px; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress span { gap: 5px; font-size: 7.5px; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress span i { width: 19px; height: 19px; flex-basis: 19px; }
-.scenario-ribbon.proposal-mode.proposal-command-mode .scenario-progress b { width: 13px; flex-basis: 13px; }
-
+.proposal-impact-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 28px; padding: 12px 34px; border-bottom: 1px solid #d8ded9; background: #f0f5f2; color: #475a4f; font-size: 12px; line-height: 1.4; }
+.proposal-impact-preview > span { display: grid; gap: 3px; }
+.proposal-impact-preview strong { color: #1c3327; font-size: 14px; font-variant-numeric: tabular-nums; }
+.proposal-impact-preview .impact-preview-label { max-width: 135px; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+body.proposal-mode-active .investment-view > .page-heading { padding-top: 14px; padding-bottom: 14px; }
+body.proposal-mode-active .investment-view > .page-heading .eyebrow,
+body.proposal-mode-active .investment-view > .page-heading p,
+body.proposal-mode-active .quick-screens { display: none; }
+body.proposal-mode-active .investment-view > .page-heading h1 { font-size: 24px; margin: 0; }
 .proposal-tray.proposal-command-mode {
-  width: min(1420px, calc(100vw - 44px));
-  min-height: 96px;
-  height: 96px;
-  grid-template-columns: 150px minmax(170px, .72fr) minmax(540px, 1.85fr) 88px 158px;
-  align-items: center;
-  gap: 11px;
-  padding: 10px 11px 10px 15px;
-  border-color: #2d2d2b;
+  width: min(1420px, calc(100vw - 32px));
+  height: auto;
+  min-height: 0;
+  grid-template-columns: 170px minmax(0, 1fr) 145px 200px;
+  grid-template-areas: "context items allocation continue" "controls controls controls controls";
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border: 1px solid #42423e;
+  background: #191919;
   border-radius: 5px;
-  background: #151515;
-  box-shadow: 0 16px 44px rgba(0,0,0,.32);
-  overflow: hidden;
+  box-shadow: 0 12px 36px #0004;
 }
-.proposal-tray.proposal-command-mode .proposal-tray-context { min-width: 0; gap: 3px; }
-.proposal-tray.proposal-command-mode .proposal-tray-context > span { color: #c9a8ad; font-size: 6.5px; }
-.proposal-tray.proposal-command-mode .proposal-tray-context strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.proposal-tray.proposal-command-mode .proposal-tray-context small { overflow: hidden; color: #8f8f8b; font-size: 6.5px; text-overflow: ellipsis; white-space: nowrap; }
-
-.proposal-tray.proposal-command-mode .proposal-tray-items {
-  position: relative;
-  min-width: 0;
-  height: 72px;
-  display: grid;
-  grid-template-columns: 1fr;
-  align-content: center;
-  gap: 4px;
-  overflow: hidden;
+.proposal-tray.proposal-command-mode .proposal-tray-context { grid-area: context; gap: 4px; min-width: 0; }
+.proposal-tray.proposal-command-mode .proposal-tray-context > span { color: #d2b6bc; font-size: 11px; }
+.proposal-tray.proposal-command-mode .proposal-tray-context strong { font-size: 18px; }
+.proposal-tray.proposal-command-mode .proposal-tray-context small { font-size: 12px; color: #c2c2bb; }
+.proposal-tray.proposal-command-mode .proposal-tray-items { grid-area: items; display: flex; gap: 8px; min-width: 0; max-height: 76px; overflow: auto; padding-bottom: 4px; scrollbar-width: thin; scrollbar-color: #777 #292929; }
+.proposal-tray.proposal-command-mode .proposal-tray-item { min-width: min(280px, 100%); max-width: 340px; width: 100%; flex: 0 0 auto; height: 64px; grid-template-columns: 30px minmax(0,1fr) 30px; gap: 8px; padding: 7px; }
+.proposal-tray.proposal-command-mode .proposal-tray-item strong { font-size: 12px; }
+.proposal-tray.proposal-command-mode .proposal-tray-item small { font-size: 12px; color: #c2c2bb; }
+.proposal-tray.proposal-command-mode .proposal-tray-item button { width: 30px; height: 34px; color: #ddd; font-size: 20px; }
+.proposal-tray.proposal-command-mode .proposal-tray-empty { font-size: 13px; line-height: 1.4; color: #c2c2bb; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation { grid-area: allocation; gap: 3px; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation span,
+.proposal-tray.proposal-command-mode .proposal-tray-allocation small { font-size: 12px; color: #c2c2bb; white-space: normal; line-height: 1.3; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation strong { font-size: 22px; }
+.proposal-tray.proposal-command-mode .proposal-continue { grid-area: continue; height: 46px; min-height: 46px; width: 100%; padding: 0 14px; font-size: 13px; }
+.proposal-decision-controls { grid-area: controls; border-top: 1px solid #454541; padding-top: 10px; }
+.proposal-decision-grid { display: grid; grid-template-columns: minmax(180px,1fr) minmax(140px,.8fr) minmax(200px,1.2fr) minmax(220px,1fr); gap: 20px; align-items: start; }
+.proposal-decision-grid.generic { grid-template-columns: 1fr 1fr 1fr; }
+.proposal-decision-summary, .proposal-decision-field, .proposal-decision-cash { display: grid; gap: 5px; min-width: 0; margin: 0; }
+.proposal-decision-summary > span, .proposal-decision-field > span, .proposal-decision-cash > span { color: #c2c2bb; font-size: 12px; line-height: 1.3; }
+.proposal-decision-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; }
+.proposal-decision-summary strong, .proposal-decision-cash strong { color: #fff; font-size: 20px; font-weight: 400; font-family: Georgia, serif; }
+.proposal-decision-summary b, .proposal-decision-summary em { color: #d0e6d8; font-size: 14px; font-style: normal; }
+.proposal-decision-summary i { font-size: 14px; color: #bbb; font-style: normal; }
+.proposal-decision-summary small, .proposal-decision-cash small { color: #c2c2bb; font-size: 12px; line-height: 1.3; }
+.proposal-decision-input { height: 34px; display: flex; gap: 7px; align-items: center; border: 1px solid #707069; border-radius: 3px; background: #282826; color: #ddd; padding: 0 9px; }
+.proposal-decision-input:focus-within { outline: 2px solid #b9d8c5; outline-offset: 2px; }
+.proposal-decision-input input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #fff; font-size: 15px; font-variant-numeric: tabular-nums; }
+.proposal-decision-input b { font-size: 13px; }
+.proposal-decision-range { width: 100%; height: 20px; margin: 0; accent-color: #c8e0d2; cursor: pointer; }
+.proposal-decision-controls input:disabled { opacity: .55; cursor: progress; }
+.proposal-tray.proposal-command-mode :focus-visible { outline: 2px solid #c8e0d2; outline-offset: 2px; }
+.sma-role { display: block; padding-top: 4px; color: #555; font-size: 12px; line-height: 1.4; }
+.proposal-model-notes { margin-top: 16px; padding: 12px 14px; border-left: 3px solid #738678; background: #f2f5f2; }
+.proposal-model-notes p { margin: 0 0 6px; font-size: 12px; line-height: 1.5; color: #4a554d; }
+.proposal-model-notes p:last-child { margin-bottom: 0; }
+@media (max-width: 1240px) {
+  .proposal-tray.proposal-command-mode { grid-template-columns: 155px minmax(0, 1fr) 125px 185px; gap: 10px 12px; }
+  .proposal-decision-grid { grid-template-columns: 1fr .8fr 1.2fr 1fr; gap: 14px; }
+  .proposal-decision-summary strong, .proposal-decision-cash strong { font-size: 18px; }
 }
-.proposal-tray.proposal-command-mode .proposal-tray-item {
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  height: 31px;
-  grid-template-columns: 24px minmax(0,1fr) 16px;
-  gap: 6px;
-  padding: 3px 5px;
-  border-color: #373735;
-  background: #20201f;
+@media (max-width: 1000px) {
+  .proposal-tray.proposal-command-mode { grid-template-columns: 1fr 1fr; grid-template-areas: "context items" "controls controls" "allocation continue"; max-height: calc(100vh - 100px); overflow: auto; }
+  .proposal-decision-grid, .proposal-decision-grid.generic { grid-template-columns: 1fr 1fr; }
+  body.proposal-mode-active .investment-view { padding-bottom: 380px; }
 }
-.proposal-tray.proposal-command-mode .proposal-tray-item:nth-child(n+3) { display: none; }
-.proposal-tray.proposal-command-mode .proposal-tray-item .product-monogram { width: 22px; height: 22px; font-size: 6px; }
-.proposal-tray.proposal-command-mode .proposal-tray-item .product-logo { max-width: 16px; max-height: 16px; }
-.proposal-tray.proposal-command-mode .proposal-tray-item strong { font-size: 7.5px; line-height: 1.1; }
-.proposal-tray.proposal-command-mode .proposal-tray-item small { margin-top: 2px; font-size: 6.3px; }
-.proposal-tray.proposal-command-mode .proposal-tray-item button { padding: 0; font-size: 12px; line-height: 1; }
-.proposal-tray.proposal-command-mode .proposal-tray-items[data-overflow]:not([data-overflow=""])::after {
-  content: attr(data-overflow);
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  min-width: 22px;
-  padding: 2px 4px;
-  border: 1px solid #454542;
-  border-radius: 10px;
-  background: #151515;
-  color: #b9b9b5;
-  font-size: 6px;
-  font-weight: 700;
-  text-align: center;
-}
-.proposal-tray.proposal-command-mode .proposal-tray-empty { height: 58px; gap: 8px; font-size: 7px; line-height: 1.35; }
-.proposal-tray.proposal-command-mode .proposal-tray-empty i { width: 27px; height: 27px; flex: none; }
-
-.proposal-decision-controls {
-  min-width: 0;
-  height: 74px;
-  border-left: 1px solid #31312f;
-  border-right: 1px solid #31312f;
-  background: #191918;
-  color: #f5f5f2;
-}
-.proposal-decision-grid {
-  height: 100%;
-  display: grid;
-  grid-template-columns: 126px 116px minmax(178px,1fr) 118px;
-  align-items: stretch;
-}
-.proposal-decision-grid.generic { grid-template-columns: 150px minmax(240px,1fr); }
-.proposal-decision-summary,
-.proposal-decision-field,
-.proposal-decision-cash {
-  min-width: 0;
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  margin: 0;
-  padding: 7px 10px;
-  border-left: 1px solid #30302e;
-}
-.proposal-decision-summary { border-left: 0; }
-.proposal-decision-summary > span,
-.proposal-decision-field > span,
-.proposal-decision-cash > span {
-  overflow: hidden;
-  color: #8f8f8b;
-  font-size: 6.2px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.proposal-decision-summary > div { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-.proposal-decision-summary strong { color: #fff; font-family: Georgia, serif; font-size: 13px; font-weight: 400; }
-.proposal-decision-summary b { color: #c8c8c4; font-size: 8px; font-weight: 600; }
-.proposal-decision-summary i { color: #696965; font-size: 8px; font-style: normal; }
-.proposal-decision-summary em { color: #9bc2ae; font-size: 9px; font-style: normal; font-weight: 700; }
-.proposal-decision-summary small,
-.proposal-decision-field small,
-.proposal-decision-cash small { overflow: hidden; color: #747470; font-size: 6.2px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-
-.proposal-decision-input {
-  width: 100%;
-  height: 25px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  border: 1px solid #454542;
-  border-radius: 2px;
-  background: #232321;
-  padding: 0 6px;
-  color: #d8d8d4;
-  font-variant-numeric: tabular-nums;
-}
-.proposal-decision-input:focus-within { border-color: #8a8a84; background: #272725; }
-.proposal-decision-input input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #fff;
-  font-size: 8.5px;
-  font-weight: 700;
-  text-align: right;
-}
-.proposal-decision-input b { font-size: 7px; }
-.proposal-decision-input.money input { text-align: left; }
-.proposal-decision-input input[type=number]::-webkit-inner-spin-button,
-.proposal-decision-input input[type=number]::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
-
-.proposal-decision-range-row { min-width: 0; display: grid; grid-template-columns: minmax(70px,1fr) auto; align-items: center; gap: 7px; }
-.proposal-decision-range {
-  width: 100%;
-  height: 11px;
-  margin: 0;
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent;
-  accent-color: #d8d8d4;
-  cursor: pointer;
-}
-.proposal-decision-range::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: #555551; }
-.proposal-decision-range::-webkit-slider-thumb { width: 10px; height: 10px; margin-top: -4px; border: 1px solid #e6e6e1; border-radius: 50%; background: #f2f2ee; -webkit-appearance: none; }
-.proposal-decision-range::-moz-range-track { height: 2px; border: 0; border-radius: 2px; background: #555551; }
-.proposal-decision-range::-moz-range-progress { height: 2px; border-radius: 2px; background: #d9d9d5; }
-.proposal-decision-range::-moz-range-thumb { width: 10px; height: 10px; border: 1px solid #e6e6e1; border-radius: 50%; background: #f2f2ee; }
-
-.proposal-decision-cash strong { overflow: hidden; color: #fff; font-family: Georgia, serif; font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.proposal-decision-cash small b { color: #b9d0c3; font-weight: 700; }
-
-.proposal-decision-loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; color: #777773; }
-.proposal-decision-loading span { width: 10px; height: 10px; border: 1px solid #555; border-top-color: #aaa; border-radius: 50%; animation: proposal-command-spin .7s linear infinite; }
-.proposal-decision-loading small { font-size: 6.5px; }
-@keyframes proposal-command-spin { to { transform: rotate(360deg); } }
-
-.proposal-tray.proposal-command-mode .proposal-tray-allocation { min-width: 0; justify-items: end; gap: 2px; }
-.proposal-tray.proposal-command-mode .proposal-tray-allocation span { font-size: 6px; }
-.proposal-tray.proposal-command-mode .proposal-tray-allocation strong { font-size: 15px; }
-.proposal-tray.proposal-command-mode .proposal-tray-allocation small { max-width: 84px; overflow: hidden; font-size: 6px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.proposal-tray.proposal-command-mode .proposal-continue { width: 100%; height: 48px; min-height: 48px; padding: 0 10px; font-size: 8px; white-space: nowrap; }
-
-@media (max-width: 1320px) {
-  .scenario-ribbon.proposal-mode.proposal-command-mode { grid-template-columns: 208px minmax(300px,1fr) auto 28px; gap: 12px; padding-left: 24px; padding-right: 24px; }
-  .scenario-ribbon.proposal-mode.proposal-command-mode .scenario-main > strong { font-size: 18px; }
-  .proposal-tray.proposal-command-mode {
-    width: calc(100vw - 32px);
-    grid-template-columns: 138px minmax(145px,.62fr) minmax(470px,1.72fr) 82px 140px;
-    gap: 8px;
-    padding-left: 12px;
-    padding-right: 8px;
-  }
-  .proposal-decision-grid { grid-template-columns: 112px 102px minmax(152px,1fr) 106px; }
-  .proposal-decision-summary,
-  .proposal-decision-field,
-  .proposal-decision-cash { padding-left: 7px; padding-right: 7px; }
-  .proposal-decision-summary strong,
-  .proposal-decision-cash strong { font-size: 11px; }
-  .proposal-decision-input input { font-size: 8px; }
+@media print {
+  .proposal-impact-preview { display: none; }
+  .proposal-model-notes { break-inside: avoid; }
 }

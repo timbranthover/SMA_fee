@@ -8,6 +8,7 @@
     <title>Advisor Workspace</title>
     <link rel="stylesheet" href="/vendor/nouislider.css" />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/command-header.css" />
     <link rel="modulepreload" href="/app.js" />
     <link rel="modulepreload" href="/lib/shared-config.js" />
     <link rel="modulepreload" href="/lib/brand-logos.js" />
@@ -155,11 +156,12 @@
       <section class="investment-view" id="investmentView" hidden>
       <div class="scenario-ribbon" id="scenarioRibbon" hidden>
         <div class="scenario-progress" id="scenarioProgress" aria-label="Proposal progress"></div>
-        <div class="scenario-main"><span id="scenarioSource">FROM CONCENTRATION REVIEW</span><strong id="scenarioTitle">Explore tax-aware diversification</strong><div class="scenario-tags" id="scenarioTags"><span>Taxable assets</span><span>Daily liquidity</span><span>Reduce single-stock exposure</span></div><div class="scenario-mandate" id="scenarioMandate"></div></div>
+        <div class="scenario-main"><span id="scenarioSource">FROM CONCENTRATION REVIEW</span><strong id="scenarioTitle">Explore tax-aware diversification</strong><div class="scenario-tags" id="scenarioTags"><span>Taxable assets</span><span>Daily liquidity</span><span>Reduce single-stock exposure</span></div><p class="scenario-objective" id="scenarioObjective"></p><div class="scenario-mandate" id="scenarioMandate"></div></div>
         <div class="scenario-capital" id="scenarioCapital" hidden><span>Capital to allocate</span><strong id="scenarioCapitalAmount">$0</strong><small id="scenarioCapitalSource">From proposed change</small></div>
         <button type="button" class="scenario-back" id="scenarioBack"><span class="back-arrow" aria-hidden="true">←</span><span>Review household</span></button>
         <button type="button" class="scenario-dismiss" id="dismissScenario" aria-label="Dismiss household context">×</button>
       </div>
+      <div class="proposal-impact-preview" id="proposalImpactPreview" role="status" aria-live="polite" hidden></div>
       <section class="page-heading">
         <div>
           <div class="eyebrow">WEALTH MANAGEMENT · UNITED STATES</div>
@@ -282,7 +284,8 @@
 
     <div class="proposal-tray" id="proposalTray" hidden>
       <div class="proposal-tray-context"><span>PROPOSAL BASKET</span><strong id="proposalTrayTitle">Select investments</strong><small id="proposalTraySubtitle">$0 available to allocate</small></div>
-      <div class="proposal-tray-items" id="proposalTrayItems"></div>
+      <div class="proposal-tray-items" id="proposalTrayItems" tabindex="0" role="group" aria-label="Selected investments"></div>
+      <section class="proposal-decision-controls" id="proposalDecisionControls" aria-label="Proposal decision parameters"></section>
       <div class="proposal-tray-allocation"><span>Allocated</span><strong id="proposalTrayAllocated">$0</strong><small id="proposalTrayRemaining">$0 remaining</small></div>
       <button type="button" class="primary-button proposal-continue" id="proposalContinue" disabled>Continue to proposal <span aria-hidden="true">→</span></button>
     </div>
