@@ -35,11 +35,12 @@ body.proposal-mode-active .quick-screens { display: none; }
 body.proposal-mode-active .investment-view > .page-heading h1 { font-size: 24px; margin: 0; }
 .proposal-tray.proposal-command-mode {
   width: min(1420px, calc(100vw - 32px));
-  height: auto;
+  height: 176px;
   min-height: 0;
-  grid-template-columns: 170px minmax(0, 1fr) 145px 200px;
-  grid-template-areas: "context items allocation continue" "controls controls controls controls";
-  gap: 10px 16px;
+  grid-template-columns: 155px minmax(0, 1fr) 165px 200px;
+  grid-template-rows: 74px 64px;
+  grid-template-areas: "controls controls controls controls" "context items allocation continue";
+  gap: 12px 16px;
   padding: 12px 16px;
   border: 1px solid #42423e;
   background: #191919;
@@ -47,50 +48,58 @@ body.proposal-mode-active .investment-view > .page-heading h1 { font-size: 24px;
   box-shadow: 0 12px 36px #0004;
 }
 .proposal-tray.proposal-command-mode .proposal-tray-context { grid-area: context; gap: 4px; min-width: 0; }
-.proposal-tray.proposal-command-mode .proposal-tray-context > span { color: #d2b6bc; font-size: 11px; }
-.proposal-tray.proposal-command-mode .proposal-tray-context strong { font-size: 18px; }
-.proposal-tray.proposal-command-mode .proposal-tray-context small { font-size: 12px; color: #c2c2bb; }
-.proposal-tray.proposal-command-mode .proposal-tray-items { grid-area: items; display: flex; gap: 8px; min-width: 0; max-height: 76px; overflow: auto; padding-bottom: 4px; scrollbar-width: thin; scrollbar-color: #777 #292929; }
-.proposal-tray.proposal-command-mode .proposal-tray-item { min-width: min(280px, 100%); max-width: 340px; width: 100%; flex: 0 0 auto; height: 64px; grid-template-columns: 30px minmax(0,1fr) 30px; gap: 8px; padding: 7px; }
+.proposal-tray.proposal-command-mode .proposal-tray-context > span { color: #c2aaaF; font-size: 10px; letter-spacing: .07em; }
+.proposal-tray.proposal-command-mode .proposal-tray-context strong { font-size: 16px; white-space: nowrap; }
+.proposal-tray.proposal-command-mode .proposal-tray-context small { font-size: 12px; color: #c2c2bb; white-space: nowrap; }
+/* Reserve the card and scrollbar space even when there are no selections. */
+.proposal-tray.proposal-command-mode .proposal-tray-items { grid-area: items; display: flex; align-items: flex-start; gap: 8px; min-width: 0; height: 64px; max-height: 64px; overflow-x: auto; overflow-y: hidden; padding: 0 0 3px; scrollbar-width: thin; scrollbar-color: #777 #292929; }
+.proposal-tray.proposal-command-mode .proposal-tray-item { min-width: min(280px, 100%); max-width: 340px; width: 100%; flex: 0 0 auto; height: 54px; grid-template-columns: 30px minmax(0,1fr) 30px; gap: 8px; padding: 7px; }
 .proposal-tray.proposal-command-mode .proposal-tray-item strong { font-size: 12px; }
 .proposal-tray.proposal-command-mode .proposal-tray-item small { font-size: 12px; color: #c2c2bb; }
 .proposal-tray.proposal-command-mode .proposal-tray-item button { width: 30px; height: 34px; color: #ddd; font-size: 20px; }
-.proposal-tray.proposal-command-mode .proposal-tray-empty { font-size: 13px; line-height: 1.4; color: #c2c2bb; }
-.proposal-tray.proposal-command-mode .proposal-tray-allocation { grid-area: allocation; gap: 3px; }
+.proposal-tray.proposal-command-mode .proposal-tray-empty { height: 54px; font-size: 12px; line-height: 1.4; color: #c2c2bb; }
+.proposal-tray.proposal-command-mode .proposal-tray-empty i { flex-shrink: 0; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation { grid-area: allocation; gap: 3px; min-width: 0; }
 .proposal-tray.proposal-command-mode .proposal-tray-allocation span,
-.proposal-tray.proposal-command-mode .proposal-tray-allocation small { font-size: 12px; color: #c2c2bb; white-space: normal; line-height: 1.3; }
-.proposal-tray.proposal-command-mode .proposal-tray-allocation strong { font-size: 22px; }
-.proposal-tray.proposal-command-mode .proposal-continue { grid-area: continue; height: 46px; min-height: 46px; width: 100%; padding: 0 14px; font-size: 13px; }
-.proposal-decision-controls { grid-area: controls; border-top: 1px solid #454541; padding-top: 10px; }
-.proposal-decision-grid { display: grid; grid-template-columns: minmax(180px,1fr) minmax(140px,.8fr) minmax(200px,1.2fr) minmax(220px,1fr); gap: 20px; align-items: start; }
-.proposal-decision-grid.generic { grid-template-columns: 1fr 1fr 1fr; }
-.proposal-decision-summary, .proposal-decision-field, .proposal-decision-cash { display: grid; gap: 5px; min-width: 0; margin: 0; }
-.proposal-decision-summary > span, .proposal-decision-field > span, .proposal-decision-cash > span { color: #c2c2bb; font-size: 12px; line-height: 1.3; }
-.proposal-decision-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; }
-.proposal-decision-summary strong, .proposal-decision-cash strong { color: #fff; font-size: 20px; font-weight: 400; font-family: Georgia, serif; }
-.proposal-decision-summary b, .proposal-decision-summary em { color: #d0e6d8; font-size: 14px; font-style: normal; }
-.proposal-decision-summary i { font-size: 14px; color: #bbb; font-style: normal; }
-.proposal-decision-summary small, .proposal-decision-cash small { color: #c2c2bb; font-size: 12px; line-height: 1.3; }
-.proposal-decision-input { height: 34px; display: flex; gap: 7px; align-items: center; border: 1px solid #707069; border-radius: 3px; background: #282826; color: #ddd; padding: 0 9px; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation small { font-size: 12px; color: #c2c2bb; line-height: 1.3; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation strong { font-size: 20px; white-space: nowrap; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation strong span { font: 12px Arial, sans-serif; letter-spacing: 0; text-transform: none; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation small { max-height: 32px; overflow: auto; text-align: right; }
+.proposal-tray.proposal-command-mode .proposal-continue { grid-area: continue; height: 44px; min-height: 44px; width: 100%; padding: 0 14px; font-size: 13px; }
+.proposal-decision-controls { grid-area: controls; align-self: stretch; min-width: 0; border-bottom: 1px solid #454541; padding-bottom: 4px; }
+.proposal-decision-grid { display: grid; grid-template-columns: 1.1fr 1fr 1.35fr .95fr; gap: 28px; align-items: start; }
+.proposal-decision-grid.generic { grid-template-columns: 1fr 1.35fr .95fr; }
+.proposal-decision-summary, .proposal-decision-field, .proposal-decision-cash { display: grid; grid-template-rows: 15px 30px 20px; gap: 2px; min-width: 0; margin: 0; }
+.proposal-decision-summary > span, .proposal-decision-field > span, .proposal-decision-cash > span { color: #c2c2bb; font-size: 12px; line-height: 15px; white-space: nowrap; }
+.proposal-decision-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.proposal-decision-field > span small { font-size: 11px; color: #a8a8a2; font-weight: 400; }
+.proposal-decision-summary strong, .proposal-decision-cash strong { color: #fff; font-size: 24px; line-height: 30px; font-weight: 400; font-family: Georgia, serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.proposal-decision-cash strong { color: #d1d1ca; }
+.proposal-decision-summary small, .proposal-decision-cash small { color: #a8a8a2; font-size: 11px; line-height: 20px; white-space: nowrap; }
+.proposal-decision-input { height: 30px; display: flex; gap: 7px; align-items: center; border: 1px solid #707069; border-radius: 3px; background: #282826; color: #ddd; padding: 0 9px; }
 .proposal-decision-input:focus-within { outline: 2px solid #b9d8c5; outline-offset: 2px; }
 .proposal-decision-input input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #fff; font-size: 15px; font-variant-numeric: tabular-nums; }
 .proposal-decision-input b { font-size: 13px; }
 .proposal-decision-range { width: 100%; height: 20px; margin: 0; accent-color: #c8e0d2; cursor: pointer; }
-.proposal-decision-controls input:disabled { opacity: .55; cursor: progress; }
+.proposal-decision-controls input:disabled { opacity: .45; cursor: not-allowed; }
 .proposal-tray.proposal-command-mode :focus-visible { outline: 2px solid #c8e0d2; outline-offset: 2px; }
+.proposal-impact-preview small { font-size: 11px; color: #657268; }
 .sma-role { display: block; padding-top: 4px; color: #555; font-size: 12px; line-height: 1.4; }
 .proposal-model-notes { margin-top: 16px; padding: 12px 14px; border-left: 3px solid #738678; background: #f2f5f2; }
 .proposal-model-notes p { margin: 0 0 6px; font-size: 12px; line-height: 1.5; color: #4a554d; }
 .proposal-model-notes p:last-child { margin-bottom: 0; }
 @media (max-width: 1240px) {
-  .proposal-tray.proposal-command-mode { grid-template-columns: 155px minmax(0, 1fr) 125px 185px; gap: 10px 12px; }
-  .proposal-decision-grid { grid-template-columns: 1fr .8fr 1.2fr 1fr; gap: 14px; }
-  .proposal-decision-summary strong, .proposal-decision-cash strong { font-size: 18px; }
+  .proposal-tray.proposal-command-mode { grid-template-columns: 150px minmax(0, 1fr) 145px 185px; column-gap: 12px; }
+  .proposal-decision-grid { gap: 20px; }
+  .proposal-decision-summary strong, .proposal-decision-cash strong { font-size: 22px; }
 }
 @media (max-width: 1000px) {
-  .proposal-tray.proposal-command-mode { grid-template-columns: 1fr 1fr; grid-template-areas: "context items" "controls controls" "allocation continue"; max-height: calc(100vh - 100px); overflow: auto; }
-  .proposal-decision-grid, .proposal-decision-grid.generic { grid-template-columns: 1fr 1fr; }
-  body.proposal-mode-active .investment-view { padding-bottom: 380px; }
+  /* Keep the desktop basket height; scroll controls horizontally on narrow screens. */
+  .proposal-tray.proposal-command-mode { grid-template-columns: 130px minmax(0, 1fr) 125px 160px; column-gap: 10px; }
+  .proposal-decision-controls { overflow-x: auto; overflow-y: hidden; }
+  .proposal-decision-grid { min-width: 800px; }
+  .proposal-tray.proposal-command-mode .proposal-tray-context strong { font-size: 14px; }
+  .proposal-tray.proposal-command-mode .proposal-continue { font-size: 12px; padding: 0 8px; }
 }
 @media print {
   .proposal-impact-preview { display: none; }

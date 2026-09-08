@@ -1720,18 +1720,22 @@ function renderProposalTray() {
   tray.classList.add("proposal-command-mode");
   renderProposalControls({ container: el("proposalDecisionControls"), scenario: state.activeDecisionScenario, detail: state.activeDecisionDetail, pending: state.mandatePending, onChange: refreshEmbeddedMandate });
   el("proposalTrayTitle").textContent = candidates.length ? `${candidates.length} ${candidates.length === 1 ? "solution" : "solutions"} selected` : "Select investments";
-  el("proposalTraySubtitle").textContent = `${formatWealthCurrency(target)} available to allocate`;
+  const noSale = state.householdScenario?.impactModel?.kind === "concentration" && !(state.activeDecisionScenario?.economics.release ?? (state.householdScenario.impactModel.sourceValueBefore - state.householdScenario.impactModel.sourceValueAfterSale));
+  el("proposalTraySubtitle").textContent = noSale ? "No sale planned" : `${formatWealthCurrency(target)} investment budget`;
   el("proposalTrayItems").innerHTML = candidates.length
     ? candidates.map((candidate) => `<div class="proposal-tray-item">${productMark(candidate)}<span><strong>${escapeHtml(candidate.name)}</strong><small>${formatWealthCurrency(candidate.amount)} · ${escapeHtml(candidate.manager || candidate.category)}</small></span><button type="button" data-remove-proposal="${escapeHtml(candidate.id)}" aria-label="Remove ${escapeHtml(candidate.name)} from proposal">×</button></div>`).join("")
-    : `<div class="proposal-tray-empty"><i>＋</i><span>Add one or more investments to build the client proposal.</span></div>`;
-  el("proposalTrayAllocated").textContent = formatWealthCurrency(allocated);
+    : `<div class="proposal-tray-empty"><i>＋</i><span>${noSale ? "Lower the target weight to fund this proposal." : "Choose investments to allocate your budget."}</span></div>`;
+  el("proposalTrayAllocated").innerHTML = `${formatWealthCurrency(allocated)} <span>of ${formatWealthCurrency(target)}</span>`;
   el("proposalTrayRemaining").textContent = requiredMinimum > target
     ? `${formatWealthCurrency(requiredMinimum - target)} above available capital in minimums`
-    : !minimumsMet ? "Adjust allocation to meet investment minimums" : `${formatWealthCurrency(remaining)} remaining`;
+    : noSale ? "Lower target to fund" : !minimumsMet ? "Minimums not met" : `${formatWealthCurrency(remaining)} remaining`;
   el("proposalTrayRemaining").classList.toggle("warning", !minimumsMet);
   const outcome = calculateProposalImpact(state.householdScenario?.impactModel, candidates);
   const metrics = [outcome.impact.concentration, outcome.impact.usEquity, outcome.impact.cash].filter(Boolean);
-  preview.innerHTML = candidates.length ? `<span class="impact-preview-label">SELECTION IMPACT · BEFORE TAX</span>${metrics.map((item) => `<span>${escapeHtml(item.label)}<strong>${proposalImpactValue(item.before, item.format)} → ${proposalImpactValue(item.after, item.format)}</strong></span>`).join("")}` : `<span>Choose investments to preview their effect on household allocation and cash.</span>`;
+  const cashBefore = state.householdScenario?.impactModel?.cashBefore;
+  const cashAfter = state.activeDecisionScenario?.after.cash ?? outcome.impact.cash?.after;
+  const cashDetail = Number.isFinite(cashBefore) && Number.isFinite(cashAfter) ? `Existing cash ${currency.format(cashBefore)}; change from this proposal ${currency.format(cashAfter - cashBefore)}. Before taxes. Any unallocated investment budget remains in cash until invested.` : "Before taxes";
+  preview.innerHTML = `<span class="impact-preview-label">${candidates.length ? "SELECTION IMPACT" : "PROPOSAL IMPACT"} · BEFORE TAX</span>${metrics.filter((item) => item !== outcome.impact.cash && candidates.length).map((item) => `<span>${escapeHtml(item.label)}<strong>${proposalImpactValue(item.before, item.format)} → ${proposalImpactValue(item.after, item.format)}</strong></span>`).join("")}${Number.isFinite(cashAfter) ? `<span title="${escapeHtml(cashDetail)}"><span>Household cash after proposal <small>· includes existing cash</small></span><strong>${formatWealthCurrency(cashBefore)} → ${formatWealthCurrency(cashAfter)}</strong></span>` : ""}`;
   el("proposalContinue").disabled = state.mandatePending || target <= 0 || !candidates.length || remaining !== 0 || !minimumsMet;
 }
 
