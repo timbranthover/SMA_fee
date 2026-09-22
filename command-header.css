@@ -47,64 +47,72 @@ body.proposal-mode-active .investment-view > .page-heading h1 { font-size: 24px;
   grid-template-areas: "controls controls controls controls" "context items allocation continue";
   gap: 8px 14px;
   padding: 8px 14px;
-  border: 1px solid #ffffff29;
-  background: #303234;
+  border: 1px solid #ffffff0f;
+  background: #252523;
   color: #f5f5f3;
   border-radius: 12px;
-  box-shadow: 0 16px 38px -8px #00000066, 0 4px 10px #00000026, inset 0 1px 0 #ffffff1f;
+  box-shadow: 0 22px 46px -10px #00000080, 0 8px 18px -4px #00000040, inset 0 1px 0 #ffffff0a;
   font-variant-numeric: tabular-nums;
   color-scheme: dark;
 }
 .proposal-tray.proposal-command-mode .proposal-tray-context { grid-area: context; gap: 3px; min-width: 0; }
-.proposal-tray.proposal-command-mode .proposal-tray-context > span { color: #b9bdbe; font-size: 10px; letter-spacing: .04em; }
+.proposal-tray.proposal-command-mode .proposal-tray-context > span { color: #aaa9a4; font-size: 10px; letter-spacing: .04em; }
 .proposal-tray.proposal-command-mode .proposal-tray-context strong { font: 600 13px Arial, sans-serif; white-space: nowrap; }
-.proposal-tray.proposal-command-mode .proposal-tray-context small { font-size: 11px; color: #c5c8c8; white-space: nowrap; }
+.proposal-tray.proposal-command-mode .proposal-tray-context small { font-size: 11px; color: #c5c4be; white-space: nowrap; }
 /* Identical height for empty, single and overflowing selections, including the scrollbar. */
-.proposal-tray.proposal-command-mode .proposal-tray-items { grid-area: items; display: flex; align-items: flex-start; gap: 6px; min-width: 0; height: 50px; max-height: 50px; overflow-x: auto; overflow-y: hidden; padding: 0; scrollbar-width: thin; scrollbar-color: #858a8c transparent; }
-.proposal-tray.proposal-command-mode .proposal-tray-item { min-width: min(260px, 100%); max-width: 290px; width: 100%; flex: 0 0 auto; height: 42px; grid-template-columns: 24px minmax(0,1fr) 24px; gap: 7px; padding: 4px 6px; border: 1px solid #ffffff14; border-radius: 4px; background: #ffffff08; }
-.proposal-tray.proposal-command-mode .proposal-tray-item .product-monogram { width: 24px; height: 24px; }
+.proposal-tray.proposal-command-mode .proposal-tray-items { grid-area: items; display: flex; align-items: flex-start; gap: 6px; min-width: 0; height: 50px; max-height: 50px; overflow-x: auto; overflow-y: hidden; padding: 0; scrollbar-width: thin; scrollbar-color: #686863 transparent; }
+.proposal-tray.proposal-command-mode .proposal-tray-item { min-width: min(260px, 100%); max-width: 290px; width: 100%; flex: 0 0 auto; height: 42px; grid-template-columns: 24px minmax(0,1fr) 24px; gap: 7px; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; }
+.proposal-tray.proposal-command-mode .proposal-tray-item .product-monogram { width: 24px; height: 24px; background: #ffffff0a; color: #d2d1cb; }
 .proposal-tray.proposal-command-mode .proposal-tray-item strong { font-size: 11px; }
-.proposal-tray.proposal-command-mode .proposal-tray-item small { margin-top: 3px; font-size: 11px; color: #c5c8c8; }
-.proposal-tray.proposal-command-mode .proposal-tray-item button { width: 24px; height: 30px; color: #c5c8c8; font-size: 18px; border-radius: 3px; }
+.proposal-tray.proposal-command-mode .proposal-tray-item small { margin-top: 3px; font-size: 11px; color: #c5c4be; }
+.proposal-tray.proposal-command-mode .proposal-tray-item button { width: 24px; height: 30px; color: #c5c4be; font-size: 18px; border-radius: 3px; }
 .proposal-tray.proposal-command-mode .proposal-tray-item button:hover { background: #ffffff1a; color: #fff; }
-.proposal-tray.proposal-command-mode .proposal-tray-empty { height: 42px; font-size: 12px; line-height: 1.4; color: #b9bdbe; }
-.proposal-tray.proposal-command-mode .proposal-tray-empty i { flex-shrink: 0; width: 24px; height: 24px; border-color: #ffffff38; }
+.proposal-tray.proposal-command-mode .proposal-tray-empty { height: 42px; font-size: 12px; line-height: 1.4; color: #aaa9a4; }
+.proposal-tray.proposal-command-mode .proposal-tray-empty i { flex-shrink: 0; width: 24px; height: 24px; border-color: transparent; }
 .proposal-tray.proposal-command-mode .proposal-tray-allocation { grid-area: allocation; gap: 2px; min-width: 0; }
 .proposal-tray.proposal-command-mode .proposal-tray-allocation span,
-.proposal-tray.proposal-command-mode .proposal-tray-allocation small { font-size: 11px; color: #c5c8c8; line-height: 1.3; letter-spacing: 0; text-transform: none; }
+.proposal-tray.proposal-command-mode .proposal-tray-allocation small { font-size: 11px; color: #c5c4be; line-height: 1.3; letter-spacing: 0; text-transform: none; }
 .proposal-tray.proposal-command-mode .proposal-tray-allocation strong { font: 600 16px Arial, sans-serif; white-space: nowrap; }
 .proposal-tray.proposal-command-mode .proposal-tray-allocation strong span { font: 11px Arial, sans-serif; }
 .proposal-tray.proposal-command-mode .proposal-tray-allocation small { max-height: 28px; overflow: auto; text-align: right; }
 .proposal-tray.proposal-command-mode .proposal-tray-allocation small.warning { color: #ffc2a8; }
 .proposal-tray.proposal-command-mode .proposal-continue { grid-area: continue; height: 38px; min-height: 38px; width: 100%; padding: 0 12px; font-size: 12px; border-radius: 4px; }
-.proposal-tray.proposal-command-mode .proposal-continue:disabled { background: #ffffff14; border-color: #ffffff0a; color: #b9bdbe; }
-.proposal-decision-controls { grid-area: controls; align-self: stretch; min-width: 0; border-bottom: 1px solid #ffffff14; padding-bottom: 3px; }
+.proposal-tray.proposal-command-mode .proposal-continue:disabled { background: #ffffff14; border-color: #ffffff0a; color: #aaa9a4; }
+.proposal-decision-controls { grid-area: controls; align-self: stretch; min-width: 0; border-bottom: 1px solid transparent; padding-bottom: 3px; }
 .proposal-decision-grid { display: grid; grid-template-columns: 1.1fr .95fr 1.4fr .85fr; gap: 24px; align-items: start; }
 .proposal-decision-grid.generic { grid-template-columns: 1fr 1.35fr .95fr; }
 .proposal-decision-summary, .proposal-decision-field, .proposal-decision-cash { display: grid; grid-template-rows: 14px 26px 18px; gap: 2px; min-width: 0; margin: 0; }
-.proposal-decision-summary > span, .proposal-decision-field > span, .proposal-decision-cash > span { color: #c5c8c8; font-size: 11px; line-height: 14px; white-space: nowrap; }
+.proposal-decision-summary > span, .proposal-decision-field > span, .proposal-decision-cash > span { color: #c5c4be; font-size: 11px; line-height: 14px; white-space: nowrap; }
 .proposal-decision-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
-.proposal-decision-field > span small { font-size: 10px; color: #b9bdbe; font-weight: 400; }
+.proposal-decision-field > span small { font-size: 10px; color: #aaa9a4; font-weight: 400; }
 .proposal-decision-summary strong, .proposal-decision-cash strong { color: #f5f5f3; font: 500 20px/26px Arial, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.proposal-decision-cash strong { color: #c5c8c8; }
-.proposal-decision-summary small, .proposal-decision-cash small { color: #b9bdbe; font-size: 11px; line-height: 18px; white-space: nowrap; }
-.proposal-decision-input { height: 26px; display: flex; gap: 6px; align-items: center; border: 1px solid #ffffff33; border-radius: 4px; background: #0000001a; color: #c5c8c8; padding: 0 8px; }
-.proposal-decision-input:focus-within { outline: 2px solid #b1d5c3; outline-offset: 1px; }
+.proposal-decision-cash strong { color: #c5c4be; }
+.proposal-decision-summary small, .proposal-decision-cash small { color: #aaa9a4; font-size: 11px; line-height: 18px; white-space: nowrap; }
+.proposal-decision-input { height: 26px; display: flex; gap: 6px; align-items: center; border: 1px solid transparent; border-radius: 4px; background: #ffffff07; color: #c5c4be; padding: 0 8px; }
+.proposal-decision-input:focus-within { outline: 2px solid #deddd7; outline-offset: 1px; }
 .proposal-decision-input input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #f5f5f3; font-size: 14px; font-variant-numeric: tabular-nums; }
 .proposal-decision-input b { font-size: 12px; font-weight: 400; }
-.proposal-decision-range { width: 100%; height: 18px; margin: 0; accent-color: #b1d5c3; cursor: pointer; }
+.proposal-decision-range { width: 100%; height: 18px; margin: 0; accent-color: #deddd7; cursor: pointer; }
+/* Simple unoutlined tracks remove the native capsule borders and mint accent. */
+.proposal-decision-range { appearance: none; -webkit-appearance: none; background: transparent; }
+.proposal-decision-range::-webkit-slider-runnable-track { height: 2px; border: 0; border-radius: 1px; background: #777770; }
+.proposal-decision-range::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 10px; height: 10px; margin-top: -4px; border: 0; border-radius: 50%; background: #deddd7; }
+.proposal-decision-range::-moz-range-track { height: 2px; border: 0; border-radius: 1px; background: #777770; }
+.proposal-decision-range::-moz-range-thumb { width: 10px; height: 10px; border: 0; border-radius: 50%; background: #deddd7; }
+.proposal-decision-input:hover { background: #ffffff0d; }
+.proposal-tray.proposal-command-mode .proposal-tray-item:hover { background: #ffffff05; }
 .proposal-decision-controls input:disabled { opacity: .45; cursor: not-allowed; }
-.proposal-tray.proposal-command-mode :focus-visible { outline: 2px solid #b1d5c3; outline-offset: 2px; }
+.proposal-tray.proposal-command-mode :focus-visible { outline: 2px solid #deddd7; outline-offset: 2px; }
 /* A single tinted glass plane; controls stay quiet and readable within it. */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .proposal-tray.proposal-command-mode {
-    background: linear-gradient(145deg, #ffffff08, #ffffff00 60%), #292c2eeb;
-    -webkit-backdrop-filter: blur(24px) saturate(120%);
-    backdrop-filter: blur(24px) saturate(120%);
+    background: linear-gradient(180deg, #ffffff03, #ffffff00), #252523f5;
+    -webkit-backdrop-filter: blur(24px) saturate(0%);
+    backdrop-filter: blur(24px) saturate(0%);
   }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .proposal-tray.proposal-command-mode { background: #303234; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .proposal-tray.proposal-command-mode { background: #252523; -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (forced-colors: active) {
   .proposal-tray.proposal-command-mode { background: Canvas; color: CanvasText; border-color: CanvasText; -webkit-backdrop-filter: none; backdrop-filter: none; }
