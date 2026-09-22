@@ -2278,8 +2278,8 @@ function renderCompareModal() {
   const rows = [
     ["Vehicle", (item) => item.type], ["Manager / issuer", (item) => item.manager], ["Asset class", (item) => item.assetClass],
     ["Objective", (item) => item.objective], ["Minimum", (item) => formatMinimum(item.minimum)],
-    ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk], ["Illustrative 1-year total return", (item) => formatReturn(item.perf1)],
-    ["Illustrative 3-year annualized return", (item) => formatReturn(item.perf3)], ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
+    ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk],
+    ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
   ];
   renderCompareLegend(items);
   el("compareBenchmark").checked = compareBenchmarkVisible;

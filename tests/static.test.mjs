@@ -118,8 +118,9 @@ test("comparison chart stays lazy, local and additive to the decision table", as
   assert.match(app, /Rebased|normalizeComparisonPoints/);
   assert.match(css, /\.compare-chart-stage \{ height: 315px/);
   assert.match(app, /class="compare-legend-item series-color-\$\{index\}"/);
-  assert.match(app, /Illustrative 1-year total return[^\n]+formatReturn\(item\.perf1\)/);
-  assert.match(app, /Illustrative 3-year annualized return[^\n]+formatReturn\(item\.perf3\)/);
+  const compareRows = app.match(/function renderCompareModal\(\) \{[\s\S]+?\n  renderCompareLegend/)?.[0] || "";
+  assert.doesNotMatch(compareRows, /marketSnapshot\?\.live\?\.(?:perf1|perf3)/);
+  assert.doesNotMatch(compareRows, /1-year return|3-year return/);
   assert.match(css, /series-color-0 \{ --series-color: #b51f35; \}/);
   assert.match(css, /series-color-1 \{ --series-color: #246a58; \}/);
   assert.match(css, /benchmark-sp500[^\n]+border-top: 2px dashed var\(--series-color\)/);
