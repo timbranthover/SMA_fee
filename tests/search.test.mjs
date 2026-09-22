@@ -23,6 +23,20 @@ test("category facets are calculated from the indexed records", () => {
   assert.equal(result.facets.categories["Fixed Income"], 93571);
 });
 
+test("unsupported fee language does not break a fixed-income natural-language search", () => {
+  const result = searchCatalog({
+    q: "New York municipal income under 50 bps",
+    category: "Fixed Income",
+    flags: ["Tax-Aware"],
+    risks: ["Conservative"],
+    sort: "relevance",
+  });
+  assert.equal(result.appliedCategory, "Fixed Income");
+  assert.deepEqual(result.appliedRanges, {});
+  assert.ok(result.total > 0);
+  assert.equal(result.interpreted.some((label) => label.startsWith("Fee ≤")), false);
+});
+
 test("the equity shelf uses a broad real issuer reference without repeated placeholder rows", () => {
   assert.ok(EQUITY_UNIVERSE.length >= 8000);
   assert.equal(EQUITY_REFERENCE_AS_OF, "2026-08-31");

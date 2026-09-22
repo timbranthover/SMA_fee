@@ -95,6 +95,8 @@ test("proposal selection builds a durable client-ready workflow", async () => {
   assert.match(app, /Meet every investment minimum first/);
   assert.match(css, /\.proposal-builder-layout/);
   assert.match(css, /\.proposal-tray[^}]+transform: translateX\(-50%\)/);
+  assert.match(css, /body:not\(\[data-workspace="investments"\]\) \.proposal-tray/);
+  assert.match(app, /document\.body\.dataset\.workspace = next;\s+renderProposalTray\(\);/);
   assert.match(css, /@media print/);
   assert.match(build, /"proposal-data\.js"/);
   assert.match(localServer, /proposal/);

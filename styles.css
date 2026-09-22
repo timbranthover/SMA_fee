@@ -1120,7 +1120,9 @@ body.decision-studio-open { overflow: hidden; }
 /* Proposal-led investment selection */
 body.proposal-mode-active .investment-view { padding-bottom: 112px; }
 body[data-workspace="proposal"] { background: #ebeae6; }
-body[data-workspace="proposal"] > footer, body[data-workspace="proposal"] .compare-tray, body[data-workspace="proposal"] .proposal-tray { display: none !important; }
+body[data-workspace="proposal"] > footer, body[data-workspace="proposal"] .compare-tray,
+body:not([data-workspace="investments"]) .proposal-tray,
+body:not([data-workspace="investments"]) .proposal-impact-preview { display: none !important; }
 
 .scenario-ribbon:not(.proposal-mode) { grid-template-columns: minmax(0, 1fr) auto 25px; }
 .scenario-ribbon:not(.proposal-mode) .scenario-progress,

@@ -564,6 +564,7 @@ function setWorkspaceView(view, { updateHistory = true, replaceHistory = false }
   el("investmentView").hidden = next !== "investments";
   el("proposalView").hidden = next !== "proposal";
   document.body.dataset.workspace = next;
+  renderProposalTray();
   document.querySelectorAll("[data-workspace-view]").forEach((button) => {
     const target = button.dataset.workspaceView;
     button.classList.toggle("active", target === "book" ? ["book", "wealth", "proposal"].includes(next) : target === next);
@@ -583,7 +584,6 @@ function setWorkspaceView(view, { updateHistory = true, replaceHistory = false }
   } else if (next === "investments") {
     ensureInvestmentWorkspaceLoaded();
     renderCompareTray();
-    renderProposalTray();
     window.scrollTo({ top: 0, behavior: "smooth" });
   } else {
     closeDrawer({ fromHistory: true });
@@ -1659,10 +1659,14 @@ function applyQuickScreen(name) {
   state.q = "";
   state.flags.clear(); state.risks.clear(); state.statuses.clear();
   state.ranges = {};
-  if (name === "muni") { state.q = "New York municipal income under 50 bps"; state.category = "Fixed Income"; state.flags.add("Tax-Aware"); state.risks.add("Conservative"); }
+  if (name === "muni") { state.q = "New York municipal income"; state.category = "Fixed Income"; state.flags.add("Tax-Aware"); state.risks.add("Conservative"); }
   if (name === "core") { state.q = "core equity building blocks aligned with the CIO house view"; state.category = "ETFs"; state.flags.add("CIO House View"); state.risks.add("Moderate"); }
   if (name === "sustainable") { state.q = "sustainable investment solutions"; state.category = "All"; state.flags.add("Sustainable"); }
   if (name === "tax") { state.q = "tax-aware SMAs with direct indexing"; state.category = "SMAs"; state.flags.add("Tax-Aware"); state.flags.add("Direct Indexing"); state.risks.add("Moderate"); }
+  state.appliedCategory = state.category;
+  state.sort = defaultSort(Boolean(state.q));
+  state.sortExplicit = false;
+  state.pendingColumns = null;
   el("searchInput").value = state.q;
   runSearch();
 }
