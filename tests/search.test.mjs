@@ -417,3 +417,14 @@ test("size sorting is global and semantically correct for equities and ETFs", ()
   assert.ok(equities.items.every((item, index, rows) => index === 0 || numberFromSize(rows[index - 1].aum) >= numberFromSize(item.aum)));
   assert.ok(etfs.items.every((item, index, rows) => index === 0 || numberFromSize(rows[index - 1].aum) >= numberFromSize(item.aum)));
 });
+
+test("synthetic fixed-income records keep instrument metadata coherent", () => {
+  const records = getSearchIndex("Fixed Income").filter((item) => item.id.startsWith("syn-fixed-income-"));
+  const cds = records.filter((item) => item.type === "Certificate of deposit");
+  assert.ok(cds.length > 0);
+  assert.ok(cds.every((item) => item.manager === "US Depository Institution"));
+  assert.ok(cds.every((item) => item.assetClass === "Cash & Equivalents"));
+  assert.ok(cds.every((item) => item.objective === "Capital preservation / income"));
+  const municipalBonds = records.filter((item) => item.type === "Municipal bond");
+  assert.ok(municipalBonds.every((item) => item.objective === "Tax-exempt income"));
+});

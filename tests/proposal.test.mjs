@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allocateProposalCandidates, createProposalDraft, getProposal, markProposalReady, reallocateProposalCandidate, saveProposal } from "../lib/proposal-data.js";
+import { allocateProposalCandidates, createProposalDraft, getProposal, getProposalReadiness, markProposalReady, proposalCandidateFeeDisclosure, proposalCandidateRole, reallocateProposalCandidate, saveProposal } from "../lib/proposal-data.js";
 
 const storage = new Map();
 globalThis.localStorage = {
@@ -19,11 +19,12 @@ const context = {
   objective: "Move the household toward its concentration policy.",
   sourceLabel: "Concentrated position",
   sourceValue: "Apple at 31.4% of financial assets",
+  rationale: "Allocate the proceeds across the selected investments to reduce single-stock concentration.",
   totalAmount: 1_000_000,
   candidates: [
-    { id: "solution-a", name: "Solution A", symbol: "AAA", category: "Equities", manager: "Manager A", fee: 0.25 },
-    { id: "solution-b", name: "Solution B", symbol: "BBB", category: "ETFs", manager: "Manager B", fee: 0.12 },
-    { id: "solution-c", name: "Solution C", symbol: "CCC", category: "SMAs", manager: "Manager C", fee: 0.4 },
+    { id: "solution-a", name: "Solution A", symbol: "AAA", category: "Equities", manager: "Manager A", fee: 0.25, liquidity: "Intraday" },
+    { id: "solution-b", name: "Solution B", symbol: "BBB", category: "ETFs", manager: "Manager B", fee: 0.12, liquidity: "Intraday" },
+    { id: "solution-c", name: "Solution C", symbol: "CCC", category: "SMAs", manager: "Manager C", fee: 0.4, liquidity: "Daily" },
   ],
 };
 
@@ -72,4 +73,29 @@ test("saved proposals can only become client-ready when fully allocated", () => 
 
   saveProposal({ ...draft, candidates: draft.candidates.map((candidate, index) => ({ ...candidate, minimum: index ? 0 : 500000, amount: [400000, 300000, 300000][index] })) });
   assert.equal(markProposalReady(context.decisionId), null);
+});
+
+test("readiness blocks missing client-facing data at the domain boundary", () => {
+  const draft = createProposalDraft({
+    ...context,
+    candidates: [{ id: "managed", name: "Managed Strategy", category: "SMAs", liquidity: "Daily", fee: null }],
+  });
+  const readiness = getProposalReadiness(draft);
+  assert.equal(readiness.ready, false);
+  assert.ok(readiness.blockers.some((blocker) => blocker.code === "fees"));
+  assert.equal(proposalCandidateFeeDisclosure(draft.candidates[0]).label, "Fee review required");
+});
+
+test("direct securities disclose fee applicability and use a coherent portfolio role", () => {
+  const candidate = {
+    id: "cd",
+    name: "Brokered Certificate of Deposit 4.25% 09/15/2028",
+    type: "Certificate of deposit",
+    category: "Fixed Income",
+    assetClass: "Cash & Equivalents",
+    objective: "Tax-exempt income",
+    fee: null,
+  };
+  assert.deepEqual(proposalCandidateFeeDisclosure(candidate), { complete: true, rate: 0, label: "No annual product fee" });
+  assert.equal(proposalCandidateRole(candidate), "Capital preservation / income");
 });
