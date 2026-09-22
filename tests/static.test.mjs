@@ -118,10 +118,18 @@ test("comparison chart stays lazy, local and additive to the decision table", as
   assert.match(app, /Rebased|normalizeComparisonPoints/);
   assert.match(css, /\.compare-chart-stage \{ height: 315px/);
   assert.match(app, /class="compare-legend-item series-color-\$\{index\}"/);
+  assert.match(app, /Illustrative 1-year total return[^\n]+formatReturn\(item\.perf1\)/);
+  assert.match(app, /Illustrative 3-year annualized return[^\n]+formatReturn\(item\.perf3\)/);
   assert.match(css, /series-color-0 \{ --series-color: #b51f35; \}/);
   assert.match(css, /series-color-1 \{ --series-color: #246a58; \}/);
   assert.match(css, /benchmark-sp500[^\n]+border-top: 2px dashed var\(--series-color\)/);
   assert.match(build, /lightweight-charts\.standalone\.production\.mjs/);
+});
+
+test("proposal preview derives cash from the current basket", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /const cashAfter = outcome\.impact\.cash\?\.after;/);
+  assert.doesNotMatch(app, /const cashAfter = state\.activeDecisionScenario\?\.after\.cash/);
 });
 
 test("results table uses capped, vehicle-aware configurable columns", async () => {

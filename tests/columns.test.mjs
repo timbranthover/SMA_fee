@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, MAX_RESULT_COLUMNS, normalizeColumns } from "../lib/column-config.js";
+import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "../lib/column-config.js";
 import { defaultSort, headerSort, sortLoadedItems, sortOptions } from "../lib/sort-config.js";
 
 test("every category default and preset stays valid and within the five-column cap", () => {
@@ -11,6 +11,17 @@ test("every category default and preset stays valid and within the five-column c
     for (const [preset, columns] of Object.entries(CATEGORY_COLUMN_PRESETS[category])) {
       assert.ok(columns.length > 0 && columns.length <= MAX_RESULT_COLUMNS, `${category} ${preset} exceeds the cap`);
       assert.ok(columns.every((column) => allowed.includes(column)), `${category} ${preset} has an invalid field`);
+    }
+  }
+});
+
+test("column choices and presets never repeat the same visible label", () => {
+  for (const [category, allowed] of Object.entries(CATEGORY_COLUMN_RULES)) {
+    const labels = allowed.map((column) => columnLabel(category, column));
+    assert.equal(new Set(labels).size, labels.length, `${category} exposes duplicate column labels`);
+    for (const [preset, columns] of Object.entries(CATEGORY_COLUMN_PRESETS[category])) {
+      const presetLabels = columns.map((column) => columnLabel(category, column));
+      assert.equal(new Set(presetLabels).size, presetLabels.length, `${category} ${preset} repeats a column label`);
     }
   }
 });

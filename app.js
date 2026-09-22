@@ -1418,7 +1418,7 @@ function renderResultColumn(item, column) {
   if (column === "minimum") return marketMetric({ value: formatMinimum(item.minimum), label: "Opening" });
   if (column === "fee") return marketMetric({ value: formatFee(item.fee), label: "Annual" });
   if (column === "risk") return marketMetric({ value: item.risk, label: "Risk level" });
-  if (column === "perf1") return marketMetric(snapshotMetric(snapshot, "perf1") || { value: formatReturn(item.perf1), label: "Annualized" });
+  if (column === "perf1") return marketMetric(snapshotMetric(snapshot, "perf1") || { value: formatReturn(item.perf1), label: "Trailing 1 year" });
   if (column === "perf3") return marketMetric(snapshotMetric(snapshot, "perf3") || { value: formatReturn(item.perf3), label: "Annualized" });
   if (column === "liquidity") return marketMetric({ value: item.liquidity || "—", label: "Terms" });
   if (column === "assetClass") return marketMetric({ value: item.assetClass || "—", label: "Classification" });
@@ -1737,7 +1737,7 @@ function renderProposalTray() {
   const outcome = calculateProposalImpact(state.householdScenario?.impactModel, candidates);
   const metrics = [outcome.impact.concentration, outcome.impact.usEquity, outcome.impact.cash].filter(Boolean);
   const cashBefore = state.householdScenario?.impactModel?.cashBefore;
-  const cashAfter = state.activeDecisionScenario?.after.cash ?? outcome.impact.cash?.after;
+  const cashAfter = outcome.impact.cash?.after;
   const cashDetail = Number.isFinite(cashBefore) && Number.isFinite(cashAfter) ? `Existing cash ${currency.format(cashBefore)}; change from this proposal ${currency.format(cashAfter - cashBefore)}. Before taxes. Any unallocated investment budget remains in cash until invested.` : "Before taxes";
   preview.innerHTML = `<span class="impact-preview-label">${candidates.length ? "SELECTION IMPACT" : "PROPOSAL IMPACT"} · BEFORE TAX</span>${metrics.filter((item) => item !== outcome.impact.cash && candidates.length).map((item) => `<span>${escapeHtml(item.label)}<strong>${proposalImpactValue(item.before, item.format)} → ${proposalImpactValue(item.after, item.format)}</strong></span>`).join("")}${Number.isFinite(cashAfter) ? `<span title="${escapeHtml(cashDetail)}"><span>Household cash after proposal <small>· includes existing cash</small></span><strong>${formatWealthCurrency(cashBefore)} → ${formatWealthCurrency(cashAfter)}</strong></span>` : ""}`;
   el("proposalContinue").disabled = state.mandatePending || target <= 0 || !candidates.length || remaining !== 0 || !minimumsMet;
@@ -2278,8 +2278,8 @@ function renderCompareModal() {
   const rows = [
     ["Vehicle", (item) => item.type], ["Manager / issuer", (item) => item.manager], ["Asset class", (item) => item.assetClass],
     ["Objective", (item) => item.objective], ["Minimum", (item) => formatMinimum(item.minimum)],
-    ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk], ["1-year return", (item) => formatReturn(item.marketSnapshot?.live?.perf1 ?? item.perf1)],
-    ["3-year return", (item) => formatReturn(item.marketSnapshot?.live?.perf3 ?? item.perf3)], ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
+    ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk], ["Illustrative 1-year total return", (item) => formatReturn(item.perf1)],
+    ["Illustrative 3-year annualized return", (item) => formatReturn(item.perf3)], ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
   ];
   renderCompareLegend(items);
   el("compareBenchmark").checked = compareBenchmarkVisible;

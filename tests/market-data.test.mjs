@@ -116,7 +116,9 @@ test("live metric overlay updates only valid Yahoo fields and preserves existing
   assert.equal(equity.metrics.forwardPE.value, "24.3×");
   assert.equal(equity.metrics.dividendYield.value, "1.00%");
   assert.equal(equity.metrics.perf1.value, "+12.3%");
+  assert.equal(equity.metrics.perf1.label, "Trailing 1 year");
   assert.equal(equity.metrics.perf3.value, "+8.8%");
+  assert.equal(equity.metrics.perf3.label, "Annualized");
   assert.equal(equity.live.marketCap, 2_450_000_000_000);
 
   const etf = applyMetricsToSnapshot(base, { perf1: 7, perf3: 5, netAssets: 715_000_000_000, expenseRatio: 0.03, currency: "USD" }, "ETFs");
