@@ -2789,7 +2789,9 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("focusout", (event) => {
-  if (event.target.matches("[data-proposal-allocation]") && state.proposal?.status === "Draft") renderProposalBuilder();
+  if (!event.target.matches("[data-proposal-allocation]") || state.proposal?.status !== "Draft" || event.target.value !== "") return;
+  const candidate = state.proposal.candidates.find((item) => item.id === event.target.dataset.proposalAllocation);
+  if (candidate) event.target.value = candidate.amount;
 });
 
 document.addEventListener("error", (event) => {
