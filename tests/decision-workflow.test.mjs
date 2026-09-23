@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { completeDecision, getDecisionPlan, getDecisionWorkflowStatus, listDecisionTransitions, recordDecisionTransition, saveDecisionPlan, scheduleDecisionFunding, setDecisionCandidates } from "../lib/decision-data.js";
+import { completeDecision, getDecisionPlan, getDecisionWorkflowStatus, listDecisionTransitions, loadHouseholdTimeline, recordDecisionTransition, saveDecisionPlan, scheduleDecisionFunding, setDecisionCandidates } from "../lib/decision-data.js";
 import { getProposal, getProposalReadiness } from "../lib/proposal-data.js";
 
 const values = new Map();
@@ -48,4 +48,15 @@ test("reopening and finalizing again retain each real transition", () => {
   recordDecisionTransition({ decisionId, householdId, status: "Ready for client", title: "Client proposal finalized" });
   recordDecisionTransition({ decisionId, householdId, status: "Ready for client", title: "Client proposal finalized" });
   assert.deepEqual(listDecisionTransitions().filter((transition) => transition.decisionId === decisionId).map((transition) => transition.status), ["Ready for client", "Plan drafted", "Ready for client"]);
+});
+
+test("timeline displays each transition after a proposal is reopened", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ view: "timeline", data: [] }) });
+  try {
+    const timeline = await loadHouseholdTimeline("test-household");
+    const events = timeline.filter((event) => event.decisionId === "test-reopened-proposal");
+    assert.equal(events.length, 3);
+    assert.equal(new Set(events.map((event) => event.id)).size, 3);
+  } finally { globalThis.fetch = originalFetch; }
 });
