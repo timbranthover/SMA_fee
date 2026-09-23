@@ -943,7 +943,7 @@ function launchInvestmentContext(scenario) {
   state.risks = new Set((scenario.risks || []).filter((risk) => RISKS.includes(risk)));
   state.statuses.clear();
   state.ranges = {};
-  state.sort = defaultSort(Boolean(state.q));
+  state.sort = scenario.category === "ETFs" && !state.q ? "aum-desc" : defaultSort(Boolean(state.q));
   state.sortExplicit = false;
   el("searchInput").value = state.q;
   showScenarioRibbon(scenario);
