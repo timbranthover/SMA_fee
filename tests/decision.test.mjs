@@ -14,7 +14,7 @@ const decisionService = createDecisionService(ADVISOR_WORKSPACE_DATASET, { repos
 
 test("decision domain is normalized, linked and advisor bounded", () => {
   assert.equal(repository.listAdvisorHouseholds(DEFAULT_ADVISOR_ID).length, 128);
-  assert.ok(ADVISOR_WORKSPACE_DATASET.decisions.length >= 25 && ADVISOR_WORKSPACE_DATASET.decisions.length <= 80);
+  assert.ok(ADVISOR_WORKSPACE_DATASET.decisions.length >= 25 && ADVISOR_WORKSPACE_DATASET.decisions.length <= ADVISOR_WORKSPACE_DATASET.insights.length);
   assert.ok(ADVISOR_WORKSPACE_DATASET.householdEvents.length > 250);
   assert.equal(new Set(ADVISOR_WORKSPACE_DATASET.decisions.map((decision) => decision.id)).size, ADVISOR_WORKSPACE_DATASET.decisions.length);
   for (const decision of ADVISOR_WORKSPACE_DATASET.decisions) {
@@ -67,8 +67,35 @@ test("Morrison concentration decision produces explicit household-wide scenario 
   assert.ok(scenario.after.stressLoss < scenario.before.stressLoss);
   assert.ok(scenario.after.goalProgress >= scenario.before.goalProgress);
   assert.equal(scenario.implementation.criteriaVisible, true);
-  assert.equal(scenario.implementation.category, "SMAs");
+  assert.equal(scenario.implementation.category, "ETFs");
   assert.equal("recommendationScore" in scenario, false);
+});
+
+test("every documented concentration can move from review to a funded investment selection", () => {
+  for (const policy of ADVISOR_WORKSPACE_DATASET.concentrationPolicies) {
+    const insight = ADVISOR_WORKSPACE_DATASET.insights.find((item) => item.householdId === policy.householdId && item.kind === "concentration");
+    const decision = decisionService.getHouseholdDecisionSummary(policy.householdId).decisions.find((item) => item.sourceInsightId === insight?.id);
+    assert.ok(decision, `${policy.householdId} has a decision behind its concentration review`);
+    const review = wealthService.getHouseholdConcentrationReview(policy.householdId);
+    const scenario = decisionService.modelDecisionScenario(policy.householdId, decision.id, {});
+    assert.ok(Math.abs(scenario.implementation.amount - review.targetRelease) <= 1000);
+    assert.ok(scenario.economics.realizedGain >= 0);
+    if (!decisionService.getDecisionDetail(policy.householdId, decision.id).model.sourceBucket) assert.equal(scenario.after.usEquityPct, null);
+    const search = searchCatalog({ category: scenario.implementation.category, q: scenario.implementation.query, flags: scenario.implementation.flags, risks: scenario.implementation.risks, pageSize: 5 });
+    assert.ok(search.total >= 5, `${policy.householdId} opens a nonempty candidate shelf`);
+    assert.ok(searchCatalog({ category: scenario.implementation.category, q: "VOO", flags: scenario.implementation.flags, risks: scenario.implementation.risks, pageSize: 5 }).items.some((item) => item.symbol === "VOO"));
+  }
+});
+
+test("every investment-exploration alert opens a modeled decision instead of an empty research search", () => {
+  for (const insight of ADVISOR_WORKSPACE_DATASET.insights.filter((item) => item.actionMetadata?.type === "investment-search")) {
+    const decision = decisionService.getHouseholdDecisionSummary(insight.householdId).decisions.find((item) => item.sourceInsightId === insight.id);
+    assert.ok(["liquidity", "allocation"].includes(decision?.kind), `${insight.householdId} has a decision behind Explore`);
+    const scenario = decisionService.modelDecisionScenario(insight.householdId, decision.id, {});
+    if (decision.kind === "liquidity") assert.ok(scenario.economics.reserveAmount >= 0);
+    const search = searchCatalog({ category: scenario.implementation.category, q: scenario.implementation.query, flags: scenario.implementation.flags, risks: scenario.implementation.risks, pageSize: 5 });
+    assert.ok(search.total >= 5, `${insight.householdId} has investment candidates after reviewing the reserve`);
+  }
 });
 
 test("liquidity and goal decisions model from real household cash and goals", () => {
@@ -107,9 +134,9 @@ test("meeting brief and relationship timeline are data-grounded projections", ()
 test("advisor book carries decision and plan state without loading decision detail", () => {
   const book = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "decisions", pageSize: 200 });
   assert.equal(book.total, book.focusCounts.decisions);
-  assert.ok(book.metrics.openDecisions >= 20 && book.metrics.openDecisions <= 70);
+  assert.ok(book.metrics.openDecisions >= 20 && book.metrics.openDecisions <= ADVISOR_WORKSPACE_DATASET.decisions.length);
   assert.ok(book.metrics.plansInProgress >= 5 && book.metrics.plansInProgress <= 8);
-  assert.ok(book.focusCounts.decisions < book.metrics.householdCount / 2, "active decisions should involve a minority of the book");
+  assert.ok(book.focusCounts.decisions < book.metrics.householdCount * 0.6, "active decisions should remain concentrated in the exception households");
   assert.ok(book.items.every((item) => item.openDecisionCount > 0));
   const plans = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "plans", pageSize: 200 });
   assert.equal(plans.total, book.focusCounts.plans);

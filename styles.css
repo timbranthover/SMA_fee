@@ -260,16 +260,25 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .concentration-section .section-heading h3 { margin: 4px 0; font-family: Georgia, serif; font-size: 20px; font-weight: 400; }
 .concentration-section .section-heading > span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .concentration-section .section-heading p { margin: 5px 0 0; color: #777; font-size: 9px; }
-.policy-track { position: relative; height: 12px; margin-top: 31px; border-radius: 1px; background: #e1e1dd; }
-.policy-current { height: 100%; background: #b61e2e; }
-.policy-target { position: absolute; top: -8px; bottom: -8px; z-index: 1; width: 2px; background: #171717; }
-.policy-target span { position: absolute; left: 0; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap; font-size: 8px; font-weight: 700; }
-.policy-scale { display: flex; justify-content: space-between; margin-top: 8px; color: #888; font-size: 7px; }
+.policy-comparison { display: grid; gap: 16px; padding: 18px 22px; border: 1px solid var(--line); background: #fafaf8; }
+.policy-comparison-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 24px; align-items: center; }
+.policy-comparison-row > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.policy-comparison-row span { color: #575752; font-size: 10px; }
+.policy-comparison-row strong { color: #20201f; font-size: 16px; font-variant-numeric: tabular-nums; }
+.policy-comparison-row progress { width: 100%; height: 9px; overflow: hidden; appearance: none; border: 0; border-radius: 20px; background: #e9e9e4; }
+.policy-comparison-row progress::-webkit-progress-bar { border-radius: 20px; background: #e9e9e4; }
+.policy-comparison-row progress::-webkit-progress-value { border-radius: 20px; background: #b93143; }
+.policy-comparison-row progress::-moz-progress-bar { border-radius: 20px; background: #b93143; }
+.policy-comparison-row .policy-target-progress::-webkit-progress-value { background: #414f50; }
+.policy-comparison-row .policy-target-progress::-moz-progress-bar { background: #414f50; }
+.policy-comparison p { margin: 0; padding-top: 11px; border-top: 1px solid #e5e5df; color: #666; font-size: 10px; line-height: 1.5; }
+.policy-comparison p strong { color: #992a39; font-weight: 700; }
 .concentration-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .concentration-table th, .concentration-table td { height: 42px; padding: 7px 10px; border-bottom: 1px solid var(--line-soft); text-align: right; font-size: 9px; font-variant-numeric: tabular-nums; }
 .concentration-table th:first-child { width: 42%; text-align: left; }
 .concentration-table thead th { height: 30px; color: #888; background: #f7f7f5; font-size: 7px; letter-spacing: .05em; text-transform: uppercase; }
 .concentration-table tbody th { font-weight: 600; }
+.concentration-table tbody th small { display: block; margin-top: 3px; color: #858580; font-size: 8px; font-weight: 400; }
 .concentration-research { display: flex; align-items: center; justify-content: space-between; gap: 25px; margin-top: 23px; padding: 18px 20px; background: #f4f4f1; }
 .concentration-research > div { display: grid; gap: 5px; }
 .concentration-research span { color: #777; font-size: 7px; font-weight: 700; letter-spacing: .08em; }
@@ -974,7 +983,7 @@ footer { height: 46px; background: #e6e6e3; border-top: 1px solid #d4d4d0; color
 .household-heading-left { display: grid; gap: 10px; }
 .household-book-back { width: max-content; border: 0; background: transparent; padding: 0; color: #70706d; font-size: 9px; font-weight: 600; }
 .household-book-back:hover { color: #111; }
-.policy-track-svg { width: 100%; height: 24px; display: block; }
+@media (max-width: 680px) { .policy-comparison-row { grid-template-columns: 1fr; gap: 7px; } }
 .account-allocation-bar svg { width: 100%; height: 10px; display: block; }
 
 

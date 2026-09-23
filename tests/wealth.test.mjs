@@ -253,11 +253,12 @@ test("Total Wealth keeps expensive work off the initial household critical path"
   assert.match(app, /loadConcentrationReview/);
   assert.match(app, /import\("\/vendor\/nouislider\.mjs"\)/);
   assert.doesNotMatch(app, /import noUiSlider from/);
-  assert.match(app, /data-household-scenario="concentration"/);
+  assert.match(app, /data-decision-open="\$\{escapeHtml\(decision.id\)\}"/);
+  assert.doesNotMatch(app, /data-household-scenario="concentration"/);
   assert.match(wealthSource, /actionMetadata/);
   assert.match(advisorSource, /actionMetadata/);
-  assert.match(advisorSource, /flags: \["Tax-Aware", "Direct Indexing"\]/);
-  assert.match(app, /Carry the objective—not hidden client data/);
+  assert.doesNotMatch(advisorSource, /FROM CONCENTRATION REVIEW/);
+  assert.match(app, /Review the sale and estimated gain, then select investments/);
   assert.match(app, /library\.AreaSeries/);
   assert.match(css, /\.wealth-layout/);
   assert.match(css, /\.wealth-drawer\.open/);
