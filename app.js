@@ -6,7 +6,7 @@ import { defaultSort, headerSort, isSortAllowed, parseSort, sortLoadedItems, sor
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
 import { clearAllSearchFilters, clearQueryDerivedFilters } from "/lib/search-state.js";
 import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
-import { completeDecision, getDecisionPlan, getDecisionWorkflowStatus, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, recordDecisionTransition, saveDecisionPlan, scheduleDecisionFunding, setDecisionCandidates, toggleDecisionPlanStep } from "/lib/decision-data.js";
+import { completeDecision, getDecisionPlan, getDecisionWorkflowStatus, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, recordDecisionTransition, saveDecisionPlan, scheduleDecisionFunding, setDecisionCandidates, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
 import { calculateProposalImpact } from "/lib/proposal-impact.js";
 import { comparisonFee } from "/lib/detail-market-data.js";
 import { allocateProposalCandidates, createProposalDraft, finalizedProposalEvents, getProposal, getProposalReadiness, listProposals, markProposalReady, proposalCandidateFeeDisclosure, proposalCandidateRole, reallocateProposalCandidate, reopenProposal, saveProposal } from "/lib/proposal-data.js";
@@ -2010,7 +2010,7 @@ function renderProposalBuilder() {
       <div>${finalized ? "" : `<button type="button" class="proposal-back-link" data-proposal-back-results>${backLabel("Investment selection")}</button>`}<span class="eyebrow">TOTAL WEALTH · CLIENT PROPOSAL</span><h1 id="proposalPageTitle">${finalized ? "Client proposal" : "Proposal for client review"}</h1><p>${finalized ? "Finalized and saved to the household decision." : "Finalize the recommendation, disclosures and client-ready document."}</p></div>
       <div class="proposal-header-actions">${finalized ? `<button type="button" class="secondary-button" data-proposal-print>Print / Save PDF</button><button type="button" class="secondary-button" data-proposal-reopen>Reopen to edit</button>` : `<button type="button" class="secondary-button" data-open-decision-from-proposal>Edit investments</button><button type="button" class="primary-button" data-proposal-generate aria-describedby="proposalReadinessStatus" ${readiness.ready ? "" : "disabled"}>Finalize proposal</button>`}</div>
     </header>
-    <nav class="proposal-stepper" aria-label="Proposal progress"><button type="button" class="complete" data-return-decision-studio><i>✓</i>Define change</button><b></b><button type="button" class="complete" data-proposal-back-results><i>✓</i>Select investments</button><b></b><span class="active"><i>3</i>Build proposal</span></nav>
+    <nav class="proposal-stepper" aria-label="Proposal progress">${finalized ? `<span class="complete"><i>✓</i>Define change</span><b></b><span class="complete"><i>✓</i>Select investments</span>` : `<button type="button" class="complete" data-return-decision-studio><i>✓</i>Define change</button><b></b><button type="button" class="complete" data-proposal-back-results><i>✓</i>Select investments</button>`}<b></b><span class="active"><i>3</i>Build proposal</span></nav>
     <div class="proposal-builder-layout">
       <main class="proposal-document" id="proposalDocument">
         <header class="proposal-document-brand"><div><span class="brand-mark" aria-hidden="true">UPS</span><i></i><strong>WEALTH MANAGEMENT</strong></div><span>${escapeHtml(proposal.status.toUpperCase())}</span></header>
@@ -2104,6 +2104,7 @@ function confirmReopenProposal() {
   state.proposal = reopenProposal(state.proposal.decisionId);
   if (!state.proposal) { showToast("Unable to reopen proposal"); return; }
   setDecisionPlanStatus(state.proposal.decisionId, "Plan drafted");
+  recordDecisionTransition({ decisionId: state.proposal.decisionId, householdId: state.proposal.householdId, status: "Plan drafted", title: "Client proposal reopened", detail: state.proposal.decisionTitle, type: "plan" });
   renderProposalBuilder();
   renderWealthWorkspace();
   renderBookRows();

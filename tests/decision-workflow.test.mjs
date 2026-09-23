@@ -39,3 +39,13 @@ test("opening, saving a basket, scheduling funding, and completion earn statuses
   assert.equal(getDecisionPlan(funding.id).sourceAccountName, "Family trust");
   assert.ok(listDecisionTransitions().some((transition) => transition.decisionId === funding.id && transition.status === "Plan drafted"));
 });
+
+test("reopening and finalizing again retain each real transition", () => {
+  const decisionId = "test-reopened-proposal";
+  const householdId = "test-household";
+  recordDecisionTransition({ decisionId, householdId, status: "Ready for client", title: "Client proposal finalized" });
+  recordDecisionTransition({ decisionId, householdId, status: "Plan drafted", title: "Client proposal reopened" });
+  recordDecisionTransition({ decisionId, householdId, status: "Ready for client", title: "Client proposal finalized" });
+  recordDecisionTransition({ decisionId, householdId, status: "Ready for client", title: "Client proposal finalized" });
+  assert.deepEqual(listDecisionTransitions().filter((transition) => transition.decisionId === decisionId).map((transition) => transition.status), ["Ready for client", "Plan drafted", "Ready for client"]);
+});
