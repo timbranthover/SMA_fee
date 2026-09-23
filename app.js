@@ -4,6 +4,7 @@ import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
 import { defaultSort, headerSort, isSortAllowed, sortLoadedItems, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
+import { clearAllSearchFilters, clearQueryDerivedFilters } from "/lib/search-state.js";
 import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
 import { getDecisionPlan, getHouseholdPlanSummary, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, saveDecisionPlan, setDecisionCandidates, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
 import { calculateProposalImpact } from "/lib/proposal-impact.js";
@@ -46,6 +47,9 @@ const state = {
   risks: new Set(),
   statuses: new Set(),
   ranges: {},
+  queryFilterKeys: new Set(),
+  excludedQueryFilters: new Set(),
+  suppressInferenceFor: null,
   sort: "name-asc",
   sortExplicit: false,
   cursor: 0,
@@ -1302,6 +1306,7 @@ function setRangeSelection(field, rawMinimum, rawMaximum, options = {}) {
   if (maximum !== facet.max) next.max = maximum;
   if (Number.isFinite(next.min) || Number.isFinite(next.max)) state.ranges[field] = next;
   else delete state.ranges[field];
+  state.queryFilterKeys.delete(`range:${field}`);
   refreshRangeControl(field, options);
 }
 
@@ -1309,6 +1314,7 @@ function updateRangeSelection(field, bound, rawValue) {
   const facet = state.facets?.ranges?.[field];
   const definition = rangeDefinitions(state.appliedCategory).find((entry) => entry.field === field);
   if (!facet || !definition) return;
+  state.queryFilterKeys.delete(`range:${field}`);
   if (rawValue === "") {
     const next = { ...(state.ranges[field] || {}) };
     delete next[bound];
@@ -1507,11 +1513,33 @@ function updateHeader() {
   el("nextPage").disabled = state.nextCursor === null;
 }
 
-function renderInterpretation(interpreted = []) {
+function renderInterpretation(interpreted = [], notice = null) {
   const panel = el("interpretation");
-  if (!interpreted.length || !state.q) { panel.hidden = true; return; }
-  el("interpretationText").textContent = interpreted.join(" · ");
+  if ((!interpreted.length && !notice) || !state.q) { panel.hidden = true; return; }
+  el("interpretationText").textContent = [notice, ...interpreted].filter(Boolean).join(" · ");
   panel.hidden = false;
+}
+
+function setSearchQuery(query) {
+  if (state.q !== query) clearQueryDerivedFilters(state);
+  state.q = query;
+}
+
+function applyQueryFilters(data) {
+  const previous = new Set(state.queryFilterKeys);
+  const inferred = data.appliedFilters?.query || {};
+  state.queryFilterKeys.clear();
+  for (const [type, values, selected] of [["flag", inferred.flags || [], state.flags], ["risk", inferred.risks || [], state.risks]]) {
+    for (const value of values) {
+      const key = `${type}:${value}`;
+      if (!selected.has(value) || previous.has(key)) state.queryFilterKeys.add(key);
+      selected.add(value);
+    }
+  }
+  for (const field of Object.keys(inferred.ranges || {})) {
+    const key = `range:${field}`;
+    if (!state.ranges[field] || previous.has(key)) state.queryFilterKeys.add(key);
+  }
 }
 
 function buildSearchUrl() {
@@ -1521,6 +1549,9 @@ function buildSearchUrl() {
   if (state.flags.size) params.set("flags", [...state.flags].join(","));
   if (state.risks.size) params.set("risks", [...state.risks].join(","));
   if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
+  if (state.excludedQueryFilters.size) params.set("excludedQueryFilters", [...state.excludedQueryFilters].join(","));
+  if (state.queryFilterKeys.size) params.set("queryFilterKeys", [...state.queryFilterKeys].join(","));
+  if (state.suppressInferenceFor === state.q && state.q) params.set("suppressInference", "1");
   const ranges = serializeRanges(state.ranges);
   if (ranges) params.set("ranges", ranges);
   params.set("sort", state.sort);
@@ -1560,6 +1591,9 @@ function syncUrl() {
   if (state.flags.size) params.set("flags", [...state.flags].join(","));
   if (state.risks.size) params.set("risks", [...state.risks].join(","));
   if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
+  if (state.excludedQueryFilters.size) params.set("excludedQueryFilters", [...state.excludedQueryFilters].join(","));
+  if (state.queryFilterKeys.size) params.set("queryFilterKeys", [...state.queryFilterKeys].join(","));
+  if (state.suppressInferenceFor === state.q && state.q) params.set("suppressInference", "1");
   const ranges = serializeRanges(state.ranges);
   if (ranges) params.set("ranges", ranges);
   if (state.sortExplicit || state.sort !== defaultSort(Boolean(state.q))) params.set("sort", state.sort);
@@ -1605,6 +1639,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     state.previousCursor = data.previousCursor;
     state.facets = data.facets;
     state.appliedCategory = data.appliedCategory || state.category;
+    applyQueryFilters(data);
     state.ranges = normalizeRanges(data.appliedRanges || state.ranges, state.appliedCategory);
     if (state.pendingColumns && state.pendingColumns.category === state.appliedCategory) {
       setColumnsForCategory(state.appliedCategory, state.pendingColumns.columns, { persist: false });
@@ -1615,7 +1650,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     const roundTripMs = Math.max(1, Math.round(performance.now() - requestStarted));
     el("latency").textContent = `${roundTripMs} ms`;
     el("latency").title = `Browser round trip; server search ${data.tookMs} ms`;
-    renderInterpretation(data.interpreted);
+    renderInterpretation(data.interpreted, data.notice);
     renderCategories();
     renderFilterOptions();
     renderRangeFilters();
@@ -1667,6 +1702,7 @@ function cancelActiveSearch() {
 }
 
 function applyQuickScreen(name) {
+  clearQueryDerivedFilters(state);
   state.q = "";
   state.flags.clear(); state.risks.clear(); state.statuses.clear();
   state.ranges = {};
@@ -1684,6 +1720,8 @@ function applyQuickScreen(name) {
 
 function removeFilter(key) {
   const [type, value] = key.split(":");
+  if (state.queryFilterKeys.has(key)) state.excludedQueryFilters.add(key);
+  state.queryFilterKeys.delete(key);
   if (type === "range") delete state.ranges[value];
   if (type === "flag") state.flags.delete(value);
   if (type === "risk") state.risks.delete(value);
@@ -2337,6 +2375,7 @@ function renderSavedScreens() {
 function applySavedScreen(id) {
   const screen = getSavedScreens().find((item) => item.id === id);
   if (!screen) return;
+  clearQueryDerivedFilters(state);
   state.category = screen.state.category || "All";
   state.q = screen.state.q || "";
   state.flags = new Set(screen.state.flags || []);
@@ -2387,6 +2426,9 @@ function hydrateFromUrl() {
   state.flags = new Set((params.get("flags") || "").split(",").filter((value) => PRIMARY_FLAGS.includes(value)));
   state.risks = new Set((params.get("risks") || "").split(",").filter((value) => RISKS.includes(value)));
   state.statuses = new Set((params.get("statuses") || "").split(",").filter((value) => STATUSES.includes(value)));
+  state.excludedQueryFilters = new Set((params.get("excludedQueryFilters") || "").split(",").filter(Boolean));
+  state.queryFilterKeys = new Set((params.get("queryFilterKeys") || "").split(",").filter(Boolean));
+  state.suppressInferenceFor = params.get("suppressInference") === "1" ? state.q : null;
   const legacyMinimum = Number(params.get("maxMinimum"));
   const legacyFee = Number(params.get("maxFee"));
   const legacyRanges = {
@@ -2504,7 +2546,7 @@ document.addEventListener("click", (event) => {
     drawCompareRange();
   }
   const category = event.target.closest("[data-category]");
-  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.ranges = {}; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; normalizeActiveSort(); runSearch(); }
+  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.ranges = {}; state.queryFilterKeys.clear(); normalizeActiveSort(); runSearch(); }
   const screen = event.target.closest("[data-screen]");
   if (screen) applyQuickScreen(screen.dataset.screen);
   const detail = event.target.closest("[data-detail-id]");
@@ -2517,7 +2559,7 @@ document.addEventListener("click", (event) => {
   const remove = event.target.closest("[data-remove-filter]");
   if (remove) removeFilter(remove.dataset.removeFilter);
   const resetRange = event.target.closest("[data-reset-range]");
-  if (resetRange) { delete state.ranges[resetRange.dataset.resetRange]; runSearch(); }
+  if (resetRange) { const key = `range:${resetRange.dataset.resetRange}`; if (state.queryFilterKeys.has(key)) state.excludedQueryFilters.add(key); state.queryFilterKeys.delete(key); delete state.ranges[resetRange.dataset.resetRange]; runSearch(); }
   const removeCompare = event.target.closest("[data-remove-compare]");
   if (removeCompare) toggleCompare(removeCompare.dataset.removeCompare, false);
   if (event.target.closest("[data-close-drawer]") || event.target === el("drawerBackdrop")) closeDrawer();
@@ -2617,8 +2659,8 @@ document.addEventListener("change", (event) => {
     renderColumnConfigurator();
   }
   if (target.matches("#compareBenchmark")) { compareBenchmarkVisible = target.checked; drawCompareRange(); }
-  if (target.matches('[data-filter="flag"]')) { target.checked ? state.flags.add(target.value) : state.flags.delete(target.value); runSearch(); }
-  if (target.matches('[data-filter="risk"]')) { target.checked ? state.risks.add(target.value) : state.risks.delete(target.value); runSearch(); }
+  if (target.matches('[data-filter="flag"]')) { const key = `flag:${target.value}`; state.queryFilterKeys.delete(key); if (target.checked) { state.flags.add(target.value); state.excludedQueryFilters.delete(key); } else { state.flags.delete(target.value); state.excludedQueryFilters.add(key); } runSearch(); }
+  if (target.matches('[data-filter="risk"]')) { const key = `risk:${target.value}`; state.queryFilterKeys.delete(key); if (target.checked) { state.risks.add(target.value); state.excludedQueryFilters.delete(key); } else { state.risks.delete(target.value); state.excludedQueryFilters.add(key); } runSearch(); }
   if (target.matches('[data-filter="status"]')) { target.checked ? state.statuses.add(target.value) : state.statuses.delete(target.value); runSearch(); }
   if (target.matches("[data-compare-id]")) toggleCompare(target.dataset.compareId, target.checked);
   if (target.matches("[data-scenario-target]")) refreshEmbeddedMandate({ targetWeight: Number(target.value) });
@@ -2650,12 +2692,12 @@ document.addEventListener("error", (event) => {
 el("searchForm").addEventListener("submit", (event) => {
   event.preventDefault();
   window.clearTimeout(debounceTimer);
-  state.q = el("searchInput").value.trim();
+  setSearchQuery(el("searchInput").value.trim());
   if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
   runSearch();
 });
 el("searchInput").addEventListener("input", () => {
-  state.q = el("searchInput").value.trim();
+  setSearchQuery(el("searchInput").value.trim());
   window.clearTimeout(debounceTimer);
   cancelActiveSearch();
   if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
@@ -2669,7 +2711,7 @@ el("bookSearch").addEventListener("input", (event) => {
 el("bookSort").addEventListener("change", (event) => { state.bookSort = event.target.value; loadBook(); });
 el("bookLoadMore").addEventListener("click", () => { if (state.bookNextCursor !== null) { state.bookCursor = state.bookNextCursor; loadBook({ reset: false }); } });
 el("sortSelect").addEventListener("change", (event) => { state.sort = event.target.value; state.sortExplicit = true; runSearch(); });
-el("clearAll").addEventListener("click", () => { state.q = ""; state.category = "All"; state.appliedCategory = "All"; state.flags.clear(); state.risks.clear(); state.statuses.clear(); state.ranges = {}; state.sort = defaultSort(false); state.sortExplicit = false; el("searchInput").value = ""; runSearch(); });
+el("clearAll").addEventListener("click", () => { clearAllSearchFilters(state); runSearch(); });
 el("prevPage").addEventListener("click", () => { if (state.previousCursor !== null) { state.cursor = state.previousCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("nextPage").addEventListener("click", () => { if (state.nextCursor !== null) { state.cursor = state.nextCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("compareButton").addEventListener("click", renderCompareModal);
