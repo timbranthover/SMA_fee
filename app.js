@@ -1,4 +1,5 @@
 import { renderProposalControls } from "/command-header.mjs";
+import { ADVISOR_IDENTITY } from "/lib/advisor-identity.js";
 import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, STATUSES } from "/lib/shared-config.js";
 import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
@@ -301,7 +302,7 @@ function goalProgressMeter(goal) {
 
 function bookPriorityMarkup(item) {
   const status = item.priority?.decisionId ? getDecisionWorkflowStatus(item.priority.decisionId, item.priority.decisionStatus) : null;
-  const workflowStatus = status ? `<span class="book-workflow-status">${escapeHtml(status)}</span>` : "";
+  const workflowStatus = status && status !== "New" ? `<span class="book-workflow-status">${escapeHtml(status)}</span>` : "";
   if (item.priority) {
     const detail = String(item.priority.detail || "").replace(/\s+across\s+/i, " · ");
     return `<span class="book-attention-stack"><span class="book-priority book-priority-${status === "Complete" ? "neutral" : escapeHtml(item.priority.tone)}"><i></i><span><strong title="${escapeHtml(item.priority.title)}">${escapeHtml(item.priority.title)}</strong><small><span class="book-priority-detail">${escapeHtml(detail)}</span>${workflowStatus}</small></span></span></span>`;
@@ -312,11 +313,11 @@ function bookPriorityMarkup(item) {
   return `<span class="book-attention-stack"><span class="book-priority-none">No material exception</span></span>`;
 }
 
-function renderAdvisorIdentity({ displayName, initials, workspaceLabel } = {}) {
-  el("advisorAvatar").textContent = initials || "—";
-  el("advisorName").textContent = displayName || "Advisor";
-  el("advisorWorkspace").textContent = workspaceLabel || "Advisor workspace";
-  el("advisorProfile").setAttribute("aria-label", workspaceLabel || "Advisor workspace");
+function renderAdvisorIdentity({ displayName, initials, workspaceLabel } = ADVISOR_IDENTITY) {
+  el("advisorAvatar").textContent = initials;
+  el("advisorName").textContent = displayName;
+  el("advisorWorkspace").textContent = workspaceLabel;
+  el("advisorProfile").setAttribute("aria-label", `${displayName}, ${workspaceLabel}`);
 }
 
 function renderBookSummary(data) {
@@ -336,8 +337,8 @@ function renderBookSummary(data) {
     bookFilterGoals: counts.goals,
     bookFilterUpcoming: counts.upcoming,
   };
-  Object.entries(countMap).forEach(([id, value]) => { el(id).textContent = formatCount(value || 0); });
-  el("bookIntelDecisions").textContent = `${formatCount(data.metrics.openDecisions || 0)} active`;
+  Object.entries(countMap).forEach(([id, value]) => { el(id).textContent = id === "bookFilterDecisions" ? `${formatCount(value || 0)} households` : formatCount(value || 0); });
+  el("bookIntelDecisions").textContent = `${formatCount(data.metrics.openDecisions || 0)} decisions across ${formatCount(counts.decisions || 0)} households`;
   el("bookIntelPlans").textContent = `${formatCount(data.metrics.plansInProgress || 0)} active plans`;
   el("bookIntelPriority").textContent = `${formatCount(counts.priority || 0)} households`;
   el("bookIntelCash").textContent = `${formatCount(counts.cash || 0)} households`;
@@ -481,7 +482,7 @@ function renderWealthWorkspace() {
     const decision = decisionByInsight.get(insight.id);
     const status = decision ? getDecisionWorkflowStatus(decision.id, decision.status) : null;
     const action = status === "Complete" ? "View outcome" : status === "Ready for client" ? "View proposal" : decision?.kind === "concentration" ? "Review" : decision ? "Decide" : insight.actionLabel;
-    return `<button type="button" class="attention-item tone-${status === "Complete" || status === "Ready for client" ? "neutral" : escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${status ? ` · ${escapeHtml(status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em>${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(action)} <b>›</b></span></button>`;
+    return `<button type="button" class="attention-item tone-${status === "Complete" || status === "Ready for client" ? "neutral" : escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${status && status !== "New" ? ` · ${escapeHtml(status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em>${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(action)} <b>›</b></span></button>`;
   }).join(""));
 }
 
@@ -2885,6 +2886,7 @@ document.addEventListener("input", (event) => {
 
 
 state.columnPreferences = loadColumnPreferences();
+renderAdvisorIdentity();
 hydrateFromUrl();
 el("flagGovernance").innerHTML = PRIMARY_FLAGS.map((flag) => `<div class="governance-row"><span class="badge ${FLAG_COLORS[flag]}">${escapeHtml(flag)}</span><div><strong>${escapeHtml(FLAG_DEFINITIONS[flag].owner)}</strong><small>${escapeHtml(FLAG_DEFINITIONS[flag].definition)}</small></div></div>`).join("");
 renderCategories();
