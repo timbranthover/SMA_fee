@@ -96,7 +96,7 @@
       <section class="wealth-view" id="wealthView" hidden>
         <header class="wealth-heading" id="wealthHeading">
           <div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">—</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Household</h1><p>Loading relationship…</p></div><button class="household-profile-button" type="button" data-wealth-action="relationship">Relationship profile</button></div></div>
-          <div class="wealth-heading-meta"><strong>Loading household data…</strong></div>
+          <div class="wealth-heading-meta"><span>Illustrative household</span><strong>Loading current data…</strong></div>
         </header>
 
         <section class="wealth-summary-strip" id="wealthSummaryStrip" aria-label="Household summary"></section>
@@ -116,10 +116,10 @@
                 </div>
               </div>
               <div class="wealth-chart-stage">
-                <div id="wealthChart" class="wealth-chart" role="img" aria-label="Household investable wealth history"></div>
+                <div id="wealthChart" class="wealth-chart" role="img" aria-label="Illustrative household investable wealth history"></div>
                 <div class="wealth-chart-loading" id="wealthChartLoading"><span></span><p>Preparing household history…</p></div>
               </div>
-              <div class="wealth-chart-footer"><span id="wealthChartPeriod">Loading range…</span><span>Modeled values · Includes net flows</span></div>
+              <div class="wealth-chart-footer"><span id="wealthChartPeriod">Loading range…</span><span>Illustrative values · Includes net flows</span></div>
               <div class="allocation-overview">
                 <div class="allocation-heading"><strong>Current allocation</strong><span id="wealthAllocationTotal">— financial assets</span></div>
                 <div class="allocation-bar" id="wealthAllocationBar" aria-label="Household asset allocation"></div>
@@ -287,17 +287,17 @@
       <div class="proposal-tray-context"><span>PROPOSAL BASKET</span><strong id="proposalTrayTitle">Select investments</strong><small id="proposalTraySubtitle">$0 available to allocate</small></div>
       <div class="proposal-tray-items" id="proposalTrayItems" tabindex="0" role="group" aria-label="Selected investments"></div>
       <div class="proposal-tray-allocation"><span>Allocated</span><strong id="proposalTrayAllocated">$0</strong><small id="proposalTrayRemaining">$0 remaining</small></div>
-      <button type="button" class="primary-button proposal-continue" id="proposalContinue" aria-describedby="proposalTrayRemaining" disabled>Continue to proposal <span aria-hidden="true">→</span></button>
+      <button type="button" class="primary-button proposal-continue" id="proposalContinue" disabled>Continue to proposal <span aria-hidden="true">→</span></button>
     </div>
 
     <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
-    <aside class="detail-drawer" id="detailDrawer" role="dialog" aria-labelledby="detailTitle" aria-hidden="true" inert>
+    <aside class="detail-drawer" id="detailDrawer" role="dialog" aria-labelledby="detailTitle" aria-hidden="true">
       <div class="drawer-loading" id="drawerLoading"><span></span><p>Loading investment details…</p></div>
       <div id="drawerContent" hidden></div>
     </aside>
 
     <div class="wealth-drawer-backdrop" id="wealthDrawerBackdrop" hidden></div>
-    <aside class="wealth-drawer" id="wealthDrawer" role="dialog" aria-labelledby="wealthDrawerTitle" aria-hidden="true" inert>
+    <aside class="wealth-drawer" id="wealthDrawer" role="dialog" aria-labelledby="wealthDrawerTitle" aria-hidden="true">
       <div id="wealthDrawerContent"></div>
     </aside>
 
@@ -324,7 +324,7 @@
             <div class="compare-chart-canvas" id="compareChart" role="img" aria-label="Normalized investment performance chart"></div>
             <div class="compare-chart-status" id="compareChartStatus"><span></span><p>Preparing performance history…</p></div>
           </div>
-          <div class="compare-chart-meta"><span>Modeled total return · Rebased to 0% at period start</span><span id="compareChartAsOf">As of Aug 21, 2026</span></div>
+          <div class="compare-chart-meta"><span>Illustrative total return · Rebased to 0% at period start</span><span id="compareChartAsOf">Data through Aug 21, 2026</span></div>
           <p class="sr-only" id="compareChartSummary" aria-live="polite"></p>
         </section>
         <div class="compare-table-heading"><div><span class="compare-chart-kicker">DECISION FIELDS</span><h3>Investment details</h3></div><p>Aligned terms and characteristics for a quick operational review.</p></div>
@@ -359,7 +359,7 @@
 
     <dialog class="modal info-modal" id="researchModal">
       <div class="modal-header"><div><span class="eyebrow">RESEARCH & GOVERNANCE</span><h2>How this prototype is governed</h2><p>Flags are centrally defined, owned and effective-dated.</p></div><button data-close-modal="researchModal">×</button></div>
-      <div class="info-content"><p>Every result is evaluated against the same 130,428-record catalog. Counts, filters and sorting are calculated server-side; only the current 25-row page is sent to the browser.</p><div id="flagGovernance"></div></div>
+      <div class="info-content"><p>Every result is evaluated against the same 130,428-record mock catalog. Counts, filters and sorting are calculated server-side; only the current 25-row page is sent to the browser.</p><div id="flagGovernance"></div><p class="disclosure-box">Illustrative data only. Real production use requires authenticated entitlements, approved source systems, audit logging and compliance review.</p></div>
     </dialog>
 
     <dialog class="modal info-modal" id="helpModal">

@@ -18,8 +18,6 @@ export function inputFromQuery(query = {}) {
     category: String(query.category || "All"),
     flags: arrayParam(query.flags),
     risks: arrayParam(query.risks),
-    excludedQueryFilters: arrayParam(query.excludedQueryFilters),
-    suppressInference: query.suppressInference === "1",
     statuses: arrayParam(query.statuses),
     ranges: parseRanges(query.ranges),
     maxMinimum: numericParam(query.maxMinimum),

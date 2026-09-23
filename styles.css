@@ -230,8 +230,8 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 31px; font-weigh
 .scenario-dismiss { width: 25px; height: 25px; border: 1px solid #cfcfca; border-radius: 50%; background: transparent; color: #666; }
 
 .wealth-drawer-backdrop { position: fixed; inset: 58px 0 0; z-index: 69; background: rgba(0,0,0,.34); backdrop-filter: blur(1px); }
-.wealth-drawer { position: fixed; top: 58px; right: 0; bottom: 0; z-index: 70; width: min(860px, calc(100vw - 250px)); overflow-y: auto; background: #fff; visibility: hidden; transform: translateX(105%); transition: transform .22s ease, visibility 0s linear .22s; }
-.wealth-drawer.open { visibility: visible; box-shadow: -18px 0 52px rgba(0,0,0,.22); transform: translateX(0); transition: transform .22s ease; }
+.wealth-drawer { position: fixed; top: 58px; right: 0; bottom: 0; z-index: 70; width: min(860px, calc(100vw - 250px)); overflow-y: auto; background: #fff; box-shadow: -18px 0 52px rgba(0,0,0,.22); transform: translateX(105%); transition: transform .22s ease; }
+.wealth-drawer.open { transform: translateX(0); }
 .wealth-drawer-header { position: sticky; top: 0; z-index: 3; min-height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.97); }
 .wealth-drawer-header > div { min-width: 0; display: flex; align-items: center; gap: 18px; }
 .wealth-drawer-header .eyebrow { margin: 0; font-size: 7px; white-space: nowrap; }
@@ -570,8 +570,8 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .tray-close { border: 0; background: transparent; color: #aaa; font-size: 20px; }
 
 .drawer-backdrop { position: fixed; inset: 58px 0 0; background: rgba(0,0,0,.3); backdrop-filter: blur(1px); z-index: 80; }
-.detail-drawer { position: fixed; top: 58px; right: 0; bottom: 0; width: min(1120px, calc(100vw - 250px)); background: #f5f5f2; z-index: 85; visibility: hidden; transform: translateX(102%); transition: transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s; overflow-y: auto; overscroll-behavior: contain; }
-.detail-drawer.open { visibility: visible; box-shadow: -18px 0 55px rgba(0,0,0,.24); transform: translateX(0); transition: transform .24s cubic-bezier(.2,.8,.2,1); }
+.detail-drawer { position: fixed; top: 58px; right: 0; bottom: 0; width: min(1120px, calc(100vw - 250px)); background: #f5f5f2; z-index: 85; box-shadow: -18px 0 55px rgba(0,0,0,.24); transform: translateX(102%); transition: transform .24s cubic-bezier(.2,.8,.2,1); overflow-y: auto; overscroll-behavior: contain; }
+.detail-drawer.open { transform: translateX(0); }
 .profile-route main, .profile-route > footer, .profile-route .compare-tray { display: none; }
 .profile-route .detail-drawer { left: 0; width: 100%; box-shadow: none; transform: none; }
 .drawer-loading { min-height: 100%; display: flex; flex-direction: column; justify-content: center; color: #777; padding: 70px clamp(48px, 8vw, 120px); background: white; }
@@ -733,7 +733,6 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .research-card .flag-detail { border-color: #3a3a3a; }
 .research-card .flag-detail span, .research-card .flag-detail em { color: #aaa; }
 .profile-disclosure { margin: 26px 0 0; color: #858585; font-size: 8px; line-height: 1.5; }
-.profile-data-sources { margin: 24px 0 0; color: #777; font-size: 10px; line-height: 1.5; }
 .flag-detail { display: grid; grid-template-columns: 1fr auto; gap: 5px 8px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .flag-detail:last-child { border-bottom: 0; }
 .flag-detail strong { font-size: 10px; }
@@ -1055,13 +1054,6 @@ body.decision-studio-open { overflow: hidden; }
 .decision-implementation .primary-button { width: 100%; }
 .decision-implementation p { margin: 9px 0 0; color: #888; font-size: 7px; line-height: 1.45; }
 .decision-implementation.muted { background: #f3f3f0; }
-.decision-affected-accounts { margin: 0 0 18px; padding: 12px 16px; border: 1px solid var(--line); background: white; }
-.decision-affected-accounts > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 8px; }
-.decision-affected-accounts > div span { color: #777; text-align: right; }
-.funding-decision-actions { display: flex !important; gap: 7px !important; }
-.funding-decision-actions button { flex: 1; width: auto !important; }
-.scenario-amount-basis { color: #73736f; font-size: 8px; line-height: 1.3; }
-.attention-item.tone-neutral > i, .book-priority-neutral i { background: #808989; }
 .decision-plan-empty, .decision-plan-active { margin-top: 12px; padding: 15px; border: 1px solid #d6d6d1; background: #fff; }
 .decision-plan-empty h3, .decision-plan-active h3 { margin: 0 0 7px; font-family: Georgia, serif; font-size: 18px; font-weight: 400; }
 .decision-plan-empty p { margin: 0 0 13px; color: #777; font-size: 8px; line-height: 1.45; }
@@ -1154,12 +1146,10 @@ body:not([data-workspace="investments"]) .proposal-impact-preview { display: non
 
 .scenario-ribbon.proposal-mode { min-height: 154px; grid-template-columns: minmax(252px, .85fr) minmax(470px, 2.1fr) minmax(118px, .5fr) auto 30px; gap: clamp(14px, 1.35vw, 24px); padding: 17px clamp(24px, 2.5vw, 42px); border-bottom-color: #cfcfca; background: #f7f7f4; box-shadow: 0 4px 15px rgba(0,0,0,.05); }
 .scenario-progress { display: flex; align-items: center; gap: 8px; }
-.scenario-progress span, .scenario-progress button { display: flex; align-items: center; gap: 7px; color: #999; font-size: 8.5px; font-weight: 700; white-space: nowrap; }
-.scenario-progress button { border: 0; background: transparent; padding: 0; cursor: pointer; }
-.scenario-progress button:hover { text-decoration: underline; }
-.scenario-progress span i, .scenario-progress button i { width: 22px; height: 22px; display: grid; flex: 0 0 22px; place-items: center; border: 1px solid #cfcfca; border-radius: 50%; background: #fff; font-size: 8px; font-style: normal; }
-.scenario-progress .complete { color: #4c685b; }
-.scenario-progress .complete i { border-color: #89a496; background: #edf5f1; }
+.scenario-progress span { display: flex; align-items: center; gap: 7px; color: #999; font-size: 8.5px; font-weight: 700; white-space: nowrap; }
+.scenario-progress span i { width: 22px; height: 22px; display: grid; flex: 0 0 22px; place-items: center; border: 1px solid #cfcfca; border-radius: 50%; background: #fff; font-size: 8px; font-style: normal; }
+.scenario-progress span.complete { color: #4c685b; }
+.scenario-progress span.complete i { border-color: #89a496; background: #edf5f1; }
 .scenario-progress span.active { color: #171717; }
 .scenario-progress span.active i { border-color: #171717; background: #171717; color: #fff; }
 .scenario-progress b { width: 20px; height: 1px; flex: 0 1 20px; background: #d2d2ce; }
@@ -1213,7 +1203,6 @@ body:not([data-workspace="investments"]) .proposal-impact-preview { display: non
 .proposal-tray-allocation span { color: #999; font-size: 7px; letter-spacing: .07em; text-transform: uppercase; }
 .proposal-tray-allocation strong { font-family: Georgia, serif; font-size: 17px; font-weight: 400; }
 .proposal-tray-allocation small { color: #aaa; font-size: 7px; }
-.proposal-tray-allocation small.warning { max-width: 260px; line-height: 1.35; text-align: right; }
 .proposal-tray-allocation small.warning { color: #f0b6a2; }
 .proposal-continue { height: 46px; font-size: 9px; }
 .proposal-continue:disabled, .proposal-generate-button:disabled, .proposal-header-actions .primary-button:disabled { border-color: #666; background: #666; color: #cfcfcf; cursor: not-allowed; }
@@ -1227,10 +1216,8 @@ body:not([data-workspace="investments"]) .proposal-impact-preview { display: non
 .proposal-workspace-header p { margin: 0; color: #777; font-size: 9px; }
 .proposal-header-actions { display: flex; gap: 8px; }
 .proposal-stepper { height: 54px; display: flex; align-items: center; justify-content: center; gap: 12px; border-bottom: 1px solid #d5d5d1; background: #f7f7f4; }
-.proposal-stepper span, .proposal-stepper button { display: flex; align-items: center; gap: 7px; color: #888; font-size: 8px; font-weight: 700; }
-.proposal-stepper button { border: 0; background: transparent; padding: 0; cursor: pointer; }
-.proposal-stepper button:hover { text-decoration: underline; }
-.proposal-stepper span i, .proposal-stepper button i { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #c8c8c4; border-radius: 50%; background: #fff; font-style: normal; }
+.proposal-stepper span { display: flex; align-items: center; gap: 7px; color: #888; font-size: 8px; font-weight: 700; }
+.proposal-stepper span i { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #c8c8c4; border-radius: 50%; background: #fff; font-style: normal; }
 .proposal-stepper .complete { color: #4b695b; }
 .proposal-stepper .complete i { border-color: #8ba899; background: #edf5f1; }
 .proposal-stepper .active { color: #111; }
@@ -1293,7 +1280,7 @@ body:not([data-workspace="investments"]) .proposal-impact-preview { display: non
 .proposal-allocation-table thead th { border-top: 0; background: #f7f7f4; color: #777; font-size: 7px; text-transform: uppercase; }
 .proposal-allocation-table th:first-child { text-align: left; }
 .proposal-allocation-table > small { display: block; margin-top: 7px; color: #888; font-size: 7px; }
-.proposal-allocation-table .allocation-change { color: #555; }
+.proposal-allocation-table .positive { color: #246a58; }.proposal-allocation-table .negative { color: #a33a48; }
 .proposal-considerations > div { display: grid; grid-template-columns: repeat(3,1fr); gap: 9px; margin-top: 10px; }
 .proposal-considerations p { display: grid; gap: 5px; margin: 0; padding: 11px; border: 1px solid #e0e0dc; }
 .proposal-considerations p strong { font-size: 8px; }
@@ -1308,7 +1295,6 @@ body:not([data-workspace="investments"]) .proposal-impact-preview { display: non
 .proposal-disclosures strong { display: block; color: #555; font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
 .proposal-disclosures p { margin: 7px 0 0; color: #777; font-size: 6.5px; line-height: 1.55; }
 .proposal-document-footer { height: 45px; display: flex; align-items: center; justify-content: space-between; padding: 0 38px; color: #888; font-size: 6px; }
-.proposal-document-title > small { display: block; margin-top: 5px; color: #777; font-size: 8px; }
 
 .proposal-composer { position: sticky; top: 80px; max-height: calc(100vh - 100px); overflow-y: auto; border: 1px solid #d2d2ce; background: #fff; box-shadow: 0 5px 16px rgba(0,0,0,.05); }
 .proposal-composer-heading { padding: 17px 17px 14px; border-bottom: 1px solid #e1e1dd; }
@@ -1319,32 +1305,24 @@ body:not([data-workspace="investments"]) .proposal-impact-preview { display: non
 .proposal-funding-card > span { color: #aaa; font-size: 7px; letter-spacing: .09em; }
 .proposal-funding-card > strong { display: block; margin-top: 5px; font-family: Georgia, serif; font-size: 24px; font-weight: 400; }
 .proposal-funding-card > small { color: #aaa; font-size: 7px; }
-.proposal-funding-card progress { display: block; width: 100%; height: 4px; margin-top: 12px; border: 0; accent-color: #fff; background: #3a3a38; }
-.proposal-funding-card progress::-webkit-progress-bar { background: #3a3a38; }
-.proposal-funding-card progress::-webkit-progress-value { background: #fff; }
-.proposal-funding-card progress::-moz-progress-bar { background: #fff; }
+.proposal-funding-card > div { height: 4px; margin-top: 12px; overflow: hidden; background: #3a3a38; }
+.proposal-funding-card > div i { display: block; height: 100%; background: #fff; }
 .proposal-funding-card p { display: flex; justify-content: space-between; margin: 6px 0 0; color: #aaa; font-size: 7px; }
 .proposal-funding-card p b { color: #d6a0a8; }
 .proposal-funding-card p b.complete { color: #9fc7b1; }
 .proposal-allocation-editor, .proposal-section-editor { padding: 14px 17px; border-bottom: 1px solid #e1e1dd; }
 .proposal-composer-section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
 .proposal-composer-section-heading button { border: 0; background: transparent; color: #555; font-size: 7px; font-weight: 700; }
-.proposal-allocation-editor > label { min-height: 80px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 6px 10px; padding: 9px 0; border-top: 1px solid #ecece8; }
+.proposal-allocation-editor > label { min-height: 70px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 6px 10px; padding: 9px 0; border-top: 1px solid #ecece8; }
 .proposal-allocation-editor > label:nth-child(2) { border-top: 0; }
 .proposal-allocation-editor > label.below-minimum { margin: 0 -17px; padding: 0 17px; background: #fff6f2; }
 .proposal-allocation-editor > label.below-minimum small { color: #9f3d24; }
 .proposal-allocation-editor label strong, .proposal-allocation-editor label small { display: block; max-width: 205px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proposal-allocation-editor label strong { font-size: 8px; }
 .proposal-allocation-editor label small { margin-top: 3px; color: #999; font-size: 7px; }
-.proposal-amount-input { display: flex; align-items: center; gap: 6px; }
-.proposal-amount-input input { width: 105px; min-height: 28px; border: 1px solid #c9c9c3; border-radius: 3px; padding: 3px 5px; color: #222; font: 11px Arial, sans-serif; font-variant-numeric: tabular-nums; text-align: right; }
-.proposal-amount-input output { min-width: 34px; color: #555; font-size: 9px; text-align: right; }
-.proposal-allocation-editor progress { grid-column: 1 / -1; width: 100%; height: 6px; accent-color: #344d5a; }
-.proposal-allocation-editor [data-proposal-minimum-error] { grid-column: 1 / -1; white-space: normal; color: #9f3d24; }
-.proposal-finalized-summary { padding: 18px; }
-.proposal-finalized-summary > span { font-size: 8px; letter-spacing: .1em; color: #246a58; }
-.proposal-finalized-summary h2 { font: normal 21px Georgia, serif; margin: 12px 0; }
-.proposal-finalized-summary p { font-size: 11px; line-height: 1.5; color: #666; }
+.proposal-allocation-editor output { color: #222; font-family: Georgia, serif; font-size: 13px; font-variant-numeric: tabular-nums; }
+.proposal-allocation-editor output em { margin-left: 4px; color: #777; font-family: Arial, sans-serif; font-size: 7px; font-style: normal; }
+.proposal-allocation-editor input[type="range"] { grid-column: 1 / -1; width: 100%; height: 18px; margin: 0; accent-color: #222; }
 .proposal-section-editor { display: grid; gap: 9px; }
 .proposal-section-editor .proposal-composer-section-heading { margin-bottom: 1px; }
 .proposal-section-editor label { display: flex; align-items: center; gap: 8px; color: #444; font-size: 8px; }
@@ -1393,7 +1371,7 @@ body:not([data-workspace="investments"]) .proposal-impact-preview { display: non
 @media print {
   @page { size: letter; margin: .42in; }
   body { min-width: 0; background: #fff; }
-  .global-header, .proposal-workspace-header, .proposal-stepper, .proposal-composer, .detail-drawer, .wealth-drawer, .proposal-tray, body > footer, dialog { display: none !important; }
+  .global-header, .proposal-workspace-header, .proposal-stepper, .proposal-composer, body > footer, dialog { display: none !important; }
   main, .proposal-view, .proposal-builder-layout { max-width: none; margin: 0; padding: 0; background: #fff; }
   .proposal-builder-layout { display: block; }
   .proposal-document { min-height: 0; border: 0; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }

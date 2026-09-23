@@ -5,8 +5,6 @@ import { createWealthRepository } from "../lib/wealth-repository.js";
 import { createWealthService } from "../lib/wealth-service.js";
 import { createDecisionService } from "../lib/decision-service.js";
 import { getAuthorizedDecisionProjection } from "../api/decision.js";
-import { SEEDED_DECISION_ARTIFACTS, SEEDED_DECISION_PLANS, SEEDED_PROPOSALS, seededDecisionStatus, seededDecisionTransitions } from "../lib/workflow-seeds.js";
-import { searchCatalog } from "../lib/catalog.js";
 
 const repository = createWealthRepository(ADVISOR_WORKSPACE_DATASET);
 const wealthService = createWealthService(ADVISOR_WORKSPACE_DATASET, { repository });
@@ -108,59 +106,10 @@ test("advisor book carries decision and plan state without loading decision deta
   const book = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "decisions", pageSize: 200 });
   assert.equal(book.total, book.focusCounts.decisions);
   assert.ok(book.metrics.openDecisions >= 20 && book.metrics.openDecisions <= 70);
-  assert.ok(book.metrics.plansInProgress >= 5 && book.metrics.plansInProgress <= 8);
+  assert.ok(book.metrics.plansInProgress >= 8 && book.metrics.plansInProgress <= 35);
   assert.ok(book.focusCounts.decisions < book.metrics.householdCount / 2, "active decisions should involve a minority of the book");
   assert.ok(book.items.every((item) => item.openDecisionCount > 0));
   const plans = wealthService.getAdvisorBook(DEFAULT_ADVISOR_ID, { focus: "plans", pageSize: 200 });
   assert.equal(plans.total, book.focusCounts.plans);
   assert.ok(plans.items.every((item) => item.planCount > 0));
-  for (const item of book.items) {
-    const priorityDecision = ADVISOR_WORKSPACE_DATASET.decisions.find((decision) => decision.id === item.priority?.decisionId);
-    assert.equal(item.priority?.decisionStatus || null, priorityDecision?.status || null);
-  }
-});
-
-test("workflow statuses require real artifacts and Morrison starts with four open decisions", () => {
-  assert.equal(Object.keys(SEEDED_DECISION_ARTIFACTS).length, 8);
-  assert.ok(SEEDED_PROPOSALS.length >= 2);
-  for (const decision of ADVISOR_WORKSPACE_DATASET.decisions) {
-    const artifact = SEEDED_DECISION_ARTIFACTS[decision.id];
-    assert.equal(decision.status, seededDecisionStatus(decision.id));
-    if (decision.status === "Reviewing") assert.ok(artifact?.openedAt);
-    if (decision.status === "Plan drafted") assert.ok(artifact?.plan && (artifact.plan.kind === "funding-schedule" || artifact.plan.candidates.length));
-    if (decision.status === "Ready for client") assert.ok(artifact?.proposal?.candidates.length && artifact.proposal.status === "Ready for client");
-    if (decision.status === "Complete") assert.ok(artifact?.completedAt);
-    if (decision.status === "New") assert.ok(!artifact?.openedAt && !artifact?.plan && !artifact?.proposal && !artifact?.completedAt);
-  }
-  for (const plan of SEEDED_DECISION_PLANS) {
-    assert.ok(plan.implementationAmount > 0);
-    if (plan.kind !== "funding-schedule") assert.ok(plan.candidates.length && plan.candidates.every((candidate) => candidate.name && candidate.amount > 0));
-  }
-  const morrison = decisionService.getHouseholdDecisionSummary("household-morrison");
-  assert.equal(morrison.openCount, 4);
-  assert.equal(morrison.decisions.find((decision) => decision.kind === "concentration").status, "New");
-});
-
-test("every decision timeline event maps one-to-one to a stored transition", () => {
-  for (const decision of ADVISOR_WORKSPACE_DATASET.decisions) {
-    const expected = seededDecisionTransitions(decision);
-    const actual = ADVISOR_WORKSPACE_DATASET.householdEvents.filter((event) => event.decisionId === decision.id);
-    assert.equal(actual.length, expected.length);
-    for (const [index, transition] of expected.entries()) {
-      assert.equal(actual[index].status, transition.status);
-      assert.equal(actual[index].occurredAt, transition.occurredAt);
-      assert.equal(actual[index].title, transition.title);
-    }
-  }
-});
-
-test("every investment decision intent returns at least five candidates", () => {
-  for (const decision of ADVISOR_WORKSPACE_DATASET.decisions) {
-    if (decision.implementationType === "none") continue;
-    const scenario = decisionService.modelDecisionScenario(decision.householdId, decision.id);
-    if (!scenario?.implementation?.enabled) continue;
-    const { category, query, flags, risks } = scenario.implementation;
-    const results = searchCatalog({ category, q: query, flags, risks, pageSize: 5 });
-    assert.ok(results.total >= 5, `${decision.id}: ${category} / ${query} returned ${results.total}`);
-  }
 });

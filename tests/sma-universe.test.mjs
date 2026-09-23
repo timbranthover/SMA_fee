@@ -7,7 +7,7 @@ test("every synthetic SMA has a distinct stable identity and coherent mandate", 
   assert.equal(new Set(records.map((item) => item.name)).size, records.length);
   assert.equal(new Set(records.map((item) => item.symbol)).size, records.length);
   for (const item of records) {
-    assert.equal(item.type, "Separately managed account");
+    assert.equal(item.type, "Illustrative SMA");
     if (item.flags.includes("Direct Indexing")) {
       assert.ok(item.flags.includes("Tax-Aware"));
       assert.match(item.assetClass, /^US /);

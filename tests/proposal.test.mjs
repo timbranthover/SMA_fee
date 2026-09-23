@@ -35,10 +35,10 @@ test("proposal allocation is exact and bounded", () => {
   assert.deepEqual(allocated.map((candidate) => candidate.amount), [333334, 333333, 333333]);
 });
 
-test("equal split raises only allocations below their investment minimum", () => {
+test("proposal allocation meets investment minimums before splitting the remainder", () => {
   const candidates = context.candidates.slice(0, 2).map((candidate, index) => ({ ...candidate, minimum: [500000, 100000][index] }));
   const allocated = allocateProposalCandidates(candidates, context.totalAmount);
-  assert.deepEqual(allocated.map((candidate) => candidate.amount), [500000, 500000]);
+  assert.deepEqual(allocated.map((candidate) => candidate.amount), [700000, 300000]);
 });
 
 test("slider allocation preserves the total and every other minimum", () => {
