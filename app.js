@@ -2,12 +2,14 @@ import { renderProposalControls } from "/command-header.mjs";
 import { CATEGORY_COUNTS, CATEGORY_ORDER, FLAG_COLORS, FLAG_DEFINITIONS, PRIMARY_FLAGS, RISKS, STATUSES } from "/lib/shared-config.js";
 import { brandLogo } from "/lib/brand-logos.js";
 import { CATEGORY_COLUMN_PRESETS, CATEGORY_COLUMN_RULES, CATEGORY_DEFAULT_COLUMNS, COLUMN_DEFINITIONS, MAX_RESULT_COLUMNS, columnLabel, normalizeColumns } from "/lib/column-config.js";
-import { defaultSort, headerSort, isSortAllowed, sortLoadedItems, sortOptions, SORTS } from "/lib/sort-config.js";
+import { defaultSort, headerSort, isSortAllowed, parseSort, sortLoadedItems, sortOptions, SORTS } from "/lib/sort-config.js";
 import { normalizeRanges, parseRanges, rangeDefinitions, serializeRanges } from "/lib/range-config.js";
+import { clearAllSearchFilters, clearQueryDerivedFilters } from "/lib/search-state.js";
 import { DEFAULT_ADVISOR_ID, loadAdvisorBook, loadConcentrationReview, loadHouseholdAccount, loadHouseholdGoal, loadHouseholdOverview, loadWealthHistory } from "/lib/wealth-data.js";
-import { getDecisionPlan, getHouseholdPlanSummary, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, saveDecisionPlan, setDecisionCandidates, setDecisionPlanStatus, toggleDecisionPlanStep } from "/lib/decision-data.js";
+import { completeDecision, getDecisionPlan, getDecisionWorkflowStatus, loadDecisionDetail, loadDecisionSummary, loadHouseholdTimeline, loadMeetingBrief, modelDecisionScenario, recordDecisionTransition, saveDecisionPlan, scheduleDecisionFunding, setDecisionCandidates, toggleDecisionPlanStep } from "/lib/decision-data.js";
 import { calculateProposalImpact } from "/lib/proposal-impact.js";
-import { allocateProposalCandidates, createProposalDraft, getProposal, getProposalReadiness, markProposalReady, proposalCandidateFeeDisclosure, proposalCandidateRole, reallocateProposalCandidate, saveProposal } from "/lib/proposal-data.js";
+import { comparisonFee } from "/lib/detail-market-data.js";
+import { allocateProposalCandidates, createProposalDraft, finalizedProposalEvents, getProposal, getProposalReadiness, listProposals, markProposalReady, proposalCandidateFeeDisclosure, proposalCandidateRole, reallocateProposalCandidate, reopenProposal, saveProposal } from "/lib/proposal-data.js";
 
 const number = new Intl.NumberFormat("en-US");
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -27,6 +29,7 @@ const state = {
   activeDecisionPlan: null,
   proposal: null,
   proposalCandidates: new Map(),
+  lastReinvestAmount: new Map(),
   mandatePending: false,
   decisionController: null,
   decisionScenarioController: null,
@@ -46,6 +49,9 @@ const state = {
   risks: new Set(),
   statuses: new Set(),
   ranges: {},
+  queryFilterKeys: new Set(),
+  excludedQueryFilters: new Set(),
+  suppressInferenceFor: null,
   sort: "name-asc",
   sortExplicit: false,
   cursor: 0,
@@ -295,12 +301,11 @@ function goalProgressMeter(goal) {
 }
 
 function bookPriorityMarkup(item) {
-  const localPlan = getHouseholdPlanSummary(item.id);
-  const planStatus = localPlan?.status || (item.planCount ? item.decisionStatus : null);
-  const workflowStatus = planStatus ? `<span class="book-workflow-status">${escapeHtml(planStatus)}</span>` : "";
+  const status = item.priority?.decisionId ? getDecisionWorkflowStatus(item.priority.decisionId, item.priority.decisionStatus) : null;
+  const workflowStatus = status ? `<span class="book-workflow-status">${escapeHtml(status)}</span>` : "";
   if (item.priority) {
     const detail = String(item.priority.detail || "").replace(/\s+across\s+/i, " · ");
-    return `<span class="book-attention-stack"><span class="book-priority book-priority-${escapeHtml(item.priority.tone)}"><i></i><span><strong title="${escapeHtml(item.priority.title)}">${escapeHtml(item.priority.title)}</strong><small><span class="book-priority-detail">${escapeHtml(detail)}</span>${workflowStatus}</small></span></span></span>`;
+    return `<span class="book-attention-stack"><span class="book-priority book-priority-${status === "Complete" ? "neutral" : escapeHtml(item.priority.tone)}"><i></i><span><strong title="${escapeHtml(item.priority.title)}">${escapeHtml(item.priority.title)}</strong><small><span class="book-priority-detail">${escapeHtml(detail)}</span>${workflowStatus}</small></span></span></span>`;
   }
   if (item.openDecisionCount) {
     return `<span class="book-attention-stack"><span class="book-priority-none"><strong>${item.openDecisionCount} open ${item.openDecisionCount === 1 ? "decision" : "decisions"}</strong><small><span>Relationship workflow active</span>${workflowStatus}</small></span></span>`;
@@ -400,7 +405,7 @@ function resetWealthChart() {
 }
 
 function renderHouseholdLoading(id) {
-  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">··</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Loading relationship…</h1><p>${escapeHtml(id)}</p></div></div></div><div class="wealth-heading-meta"><span>Illustrative household</span><strong>Retrieving current household data…</strong></div>`);
+  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">··</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>Loading relationship…</h1><p>${escapeHtml(id)}</p></div></div></div><div class="wealth-heading-meta"><strong>Retrieving household data…</strong></div>`);
   updateHtml(el("wealthSummaryStrip"), `<div class="wealth-summary-primary"><span>Net worth</span><strong>—</strong><small>Loading</small></div><div><span>Portfolio</span><strong>—</strong><small>Loading</small></div><div><span>Liquidity</span><strong>—</strong><small>Loading</small></div><div><span>Largest position</span><strong>—</strong><small>Loading</small></div><div><span>Goals</span><strong>—</strong><small>Loading</small></div>`);
 }
 
@@ -457,12 +462,13 @@ function renderWealthWorkspace() {
   const concentration = HOUSEHOLD_INSIGHTS.find((insight) => insight.kind === "concentration");
   const topHolding = HOUSEHOLD_HOLDINGS[0];
   const decisionByInsight = new Map((state.decisionSummary?.decisions || []).map((decision) => [decision.sourceInsightId, decision]));
-  const openDecisionCount = state.decisionSummary?.openCount;
-  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-profile-button" type="button" data-wealth-action="relationship">Relationship profile</button></div></div><div class="wealth-heading-meta"><div class="wealth-heading-status"><span>Illustrative household</span><strong>Updated ${escapeHtml(HOUSEHOLD.asOf)}</strong></div><div class="household-heading-actions"><button class="panel-action" type="button" data-wealth-action="meeting">Prepare meeting</button><button class="panel-action decision-count-button" type="button" data-wealth-action="decisions">Open decisions <b>${openDecisionCount ?? "—"}</b></button><button class="panel-action" type="button" data-wealth-action="timeline">Timeline</button></div></div>`);
+  const decisions = state.decisionSummary?.decisions || [];
+  const openDecisionCount = state.decisionSummary ? decisions.filter((decision) => getDecisionWorkflowStatus(decision.id, decision.status) !== "Complete").length : null;
+  updateHtml(el("wealthHeading"), `<div class="household-heading-left"><button type="button" class="household-book-back" data-workspace-view="book">← My Book</button><div class="household-identity"><span class="household-avatar" aria-hidden="true">${escapeHtml(HOUSEHOLD.initials)}</span><div><span class="eyebrow">TOTAL WEALTH · HOUSEHOLD</span><h1>${escapeHtml(HOUSEHOLD.name)}</h1><p>${escapeHtml(HOUSEHOLD.relationshipType)} · ${escapeHtml(HOUSEHOLD.location)} · ${HOUSEHOLD.accountCount} financial accounts</p></div><button class="household-profile-button" type="button" data-wealth-action="relationship">Relationship profile</button></div></div><div class="wealth-heading-meta"><div class="wealth-heading-status"><strong>As of ${escapeHtml(HOUSEHOLD.asOf)}</strong></div><div class="household-heading-actions"><button class="panel-action" type="button" data-wealth-action="meeting">Prepare meeting</button><button class="panel-action decision-count-button" type="button" data-wealth-action="decisions">Open decisions <b>${openDecisionCount ?? "—"}</b></button><button class="panel-action" type="button" data-wealth-action="timeline">Timeline</button></div></div>`);
   const largestPosition = topHolding ? `${escapeHtml(topHolding.symbol)} · ${topHolding.weight.toFixed(1)}%` : "—";
   updateHtml(el("wealthSummaryStrip"), `<div class="wealth-summary-primary"><span>Net worth</span><strong>${formatWealthCurrency(HOUSEHOLD.netWorth)}</strong><small><b>${formatSignedWealthCurrency(HOUSEHOLD.ytdChange)}</b> year to date</small></div><div><span>Portfolio</span><strong>${escapeHtml(HOUSEHOLD.riskProfile)}</strong><small>Household risk profile</small></div><div><span>Liquidity</span><strong>${formatWealthCurrency(HOUSEHOLD.investableCash)}</strong><small>${HOUSEHOLD.liquidityPct.toFixed(1)}% readily available</small></div><div><span>Largest position</span><strong class="${concentration ? "wealth-watch" : ""}">${largestPosition}</strong><small>${concentration ? escapeHtml(concentration.detail) : "Within monitored household exposure"}</small></div><div><span>Goals</span><strong>${HOUSEHOLD.goalsOnTrack} of ${HOUSEHOLD.goalsTotal}</strong><small>On track or funded</small></div>`);
   el("wealthPerformanceTitle").textContent = formatWealthCurrency(HOUSEHOLD.financialAssets);
-  el("wealthPerformanceMeta").innerHTML = `<strong>${HOUSEHOLD.ytdReturn >= 0 ? "+" : ""}${HOUSEHOLD.ytdReturn.toFixed(1)}%</strong> time-weighted return · <span>${formatSignedWealthCurrency(HOUSEHOLD.netFlows)} net flows</span>`;
+  el("wealthPerformanceMeta").innerHTML = `<strong>${HOUSEHOLD.ytdReturn >= 0 ? "+" : ""}${HOUSEHOLD.ytdReturn.toFixed(1)}%</strong> YTD time-weighted return · <span>${formatSignedWealthCurrency(HOUSEHOLD.netFlows)} YTD net flows</span>`;
   el("wealthAllocationTotal").textContent = `${formatWealthCurrency(HOUSEHOLD.financialAssets)} financial assets`;
   el("wealthAttentionCount").textContent = String(HOUSEHOLD_INSIGHTS.length);
   el("wealthAttentionIntro").textContent = `Material changes and opportunities across ${HOUSEHOLD.name}.`;
@@ -475,7 +481,9 @@ function renderWealthWorkspace() {
   updateHtml(el("wealthGoals"), HOUSEHOLD_GOALS.map((goal) => `<button type="button" class="goal-row" data-wealth-goal="${escapeHtml(goal.id)}"><span class="goal-copy"><strong>${escapeHtml(goal.name)}</strong><small>${escapeHtml(goal.timing)}</small></span>${goalProgressMeter(goal)}<em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></button>`).join(""));
   updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => {
     const decision = decisionByInsight.get(insight.id);
-    return `<button type="button" class="attention-item tone-${escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${decision ? ` · ${escapeHtml(getDecisionPlan(decision.id)?.status || decision.status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em>${escapeHtml(insight.detail)}</em></span><span class="attention-action">${decision ? "Decide" : escapeHtml(insight.actionLabel)} <b>›</b></span></button>`;
+    const status = decision ? getDecisionWorkflowStatus(decision.id, decision.status) : null;
+    const action = status === "Complete" ? "View outcome" : status === "Ready for client" ? "View proposal" : decision ? "Decide" : insight.actionLabel;
+    return `<button type="button" class="attention-item tone-${status === "Complete" || status === "Ready for client" ? "neutral" : escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${status ? ` · ${escapeHtml(status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em>${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(action)} <b>›</b></span></button>`;
   }).join(""));
 }
 
@@ -596,6 +604,7 @@ function closeWealthDrawer({ restoreFocus = true } = {}) {
   wealthDrawerRequest += 1;
   el("wealthDrawer").classList.remove("open");
   el("wealthDrawer").setAttribute("aria-hidden", "true");
+  el("wealthDrawer").inert = true;
   el("wealthDrawerBackdrop").hidden = true;
   document.body.classList.remove("wealth-drawer-open");
   document.querySelector("main").inert = false;
@@ -620,10 +629,9 @@ function concentrationDrawer(review) {
       <section class="concentration-metrics" aria-label="Concentration summary"><div><span>Market value</span><strong>${formatWealthCurrency(review.holding.value)}</strong><small>Largest household position</small></div><div><span>Unrealized gain</span><strong>${formatWealthCurrency(review.unrealizedGain)}</strong><small>${basisPct === null ? "Cost basis unavailable" : `${basisPct}% above cost basis`}</small></div><div><span>Risk contribution</span><strong>${review.riskContribution === null ? "—" : `${review.riskContribution}%`}</strong><small>Of modeled equity risk</small></div><div><span>Target release</span><strong>${formatWealthCurrency(review.targetRelease)}</strong><small>To reach ${review.targetWeight.toFixed(0)}% target</small></div></section>
       <section class="concentration-section"><div class="section-heading"><span>Exposure</span><h3>Position relative to policy</h3></div><div class="policy-track">${policyTrackSvg(review)}</div><div class="policy-scale"><span>0%</span><span>${review.targetWeight.toFixed(0)}% household target</span><span>${Math.max(30, Math.ceil(review.holding.weight / 5) * 5)}%</span></div></section>
       <section class="concentration-section"><div class="section-heading"><span>Ownership</span><h3>Where the exposure sits</h3><p>Account location and unrealized gains shape implementation choices.</p></div><table class="concentration-table"><thead><tr><th>Account</th><th>Market value</th><th>Account weight</th><th>Unrealized gain</th></tr></thead><tbody>${review.accounts.map((account) => `<tr><th>${escapeHtml(account.name)}<small>${escapeHtml(account.registration)}</small></th><td>${formatWealthCurrency(account.value)}</td><td>${account.weight.toFixed(1)}%</td><td>${formatWealthCurrency(account.gain)}</td></tr>`).join("")}</tbody></table></section>
-      <section class="concentration-section scenario-impact"><div class="section-heading"><span>Decision support</span><h3>Illustrative household impact</h3></div><table class="concentration-table"><thead><tr><th>Scenario</th><th>Position impact</th><th>Portfolio impact</th></tr></thead><tbody>${review.scenarios.map((scenario) => `<tr><th>${escapeHtml(scenario.name)}</th><td>${escapeHtml(scenario.holdingMove)}</td><td>${escapeHtml(scenario.portfolioMove)}</td></tr>`).join("")}</tbody></table></section>
+      <section class="concentration-section scenario-impact"><div class="section-heading"><span>Decision support</span><h3>Modeled household impact</h3></div><table class="concentration-table"><thead><tr><th>Scenario</th><th>Position impact</th><th>Portfolio impact</th></tr></thead><tbody>${review.scenarios.map((scenario) => `<tr><th>${escapeHtml(scenario.name)}</th><td>${escapeHtml(scenario.holdingMove)}</td><td>${escapeHtml(scenario.portfolioMove)}</td></tr>`).join("")}</tbody></table></section>
       <section class="concentration-research"><div><span>UPS RESEARCH · ${escapeHtml(review.research.reviewed)}</span><strong>${escapeHtml(review.research.status)}</strong><p>${escapeHtml(review.research.summary)}</p></div><button type="button" class="secondary-button" data-open-modal="researchModal">View research context</button></section>
       ${review.searchIntent ? `<section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Explore implementation paths</h3><p>Carry the objective—not hidden client data—into the investment shelf.</p></div><button type="button" class="primary-button" data-household-scenario="concentration">${escapeHtml(review.searchIntent.title)} →</button></section>` : ""}
-      <p class="wealth-disclosure">Illustrative household and scenario data · Not for investment decisions.</p>
     </div>`;
 }
 
@@ -633,7 +641,7 @@ function operationalDrawer(id) {
     item = {
       eyebrow: "RELATIONSHIP PROFILE",
       title: HOUSEHOLD.name,
-      summary: "A consolidated view of the people, entities and connected accounts that make up this illustrative relationship.",
+      summary: "A consolidated view of the people, entities and connected accounts that make up this relationship.",
       rows: [["Household members", HOUSEHOLD.members.length ? HOUSEHOLD.members.join(" · ") : "Household relationship"], ["Primary relationship", `${HOUSEHOLD.relationshipType} · ${HOUSEHOLD.location}`], ["Entity relationships", HOUSEHOLD.entitySummary], ["Service model", HOUSEHOLD.serviceModel], ["External coverage", `${HOUSEHOLD.heldAwayCount} connected held-away ${HOUSEHOLD.heldAwayCount === 1 ? "account" : "accounts"}`], ["Last planning review", HOUSEHOLD.lastPlanningReview]],
     };
   } else {
@@ -646,7 +654,8 @@ function operationalDrawer(id) {
       rows: detail?.rows || [["Household", HOUSEHOLD.name], ["Status", insight?.severity || "Current"], ["Detail", insight?.detail || "No additional detail"]],
     };
   }
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">${escapeHtml(item.eyebrow)}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary)}</p><div class="operational-rows">${item.rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div><p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p></div>`;
+  const decision = state.decisionSummary?.decisions?.find((candidate) => candidate.sourceInsightId === id);
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">${escapeHtml(item.eyebrow)}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close">×</button></header><div class="wealth-drawer-body operational-review"><h2 id="wealthDrawerTitle">${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary)}</p><div class="operational-rows">${item.rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>${decision ? `<button type="button" class="primary-button" data-decision-open="${escapeHtml(decision.id)}">Open funding decision →</button>` : ""}</div>`;
 }
 
 function accountMix(account) {
@@ -661,7 +670,6 @@ function accountsDrawer() {
       <section class="account-review-hero"><div><span>HOUSEHOLD ACCOUNTS</span><h2 id="wealthDrawerTitle">${formatWealthCurrency(HOUSEHOLD.financialAssets)} across ${HOUSEHOLD.accountCount} accounts</h2><p>Custodied and connected assets consolidated into one household view.</p></div></section>
       <section class="account-review-metrics"><div><span>Custodied assets</span><strong>${formatWealthCurrency(HOUSEHOLD.financialAssets - heldAway)}</strong><small>${HOUSEHOLD.custodiedCount} custodied relationships</small></div><div><span>Held away</span><strong>${formatWealthCurrency(heldAway)}</strong><small>${HOUSEHOLD.heldAwayCount} connected accounts</small></div><div><span>Available cash</span><strong>${formatWealthCurrency(cash)}</strong><small>Across all registrations</small></div><div><span>As of</span><strong>${escapeHtml(HOUSEHOLD.asOf)}</strong><small>Household reporting timestamp</small></div></section>
       <section class="concentration-section"><div class="section-heading"><span>ACCOUNT MAP</span><h3>Ownership and purpose</h3><p>Select an account to review allocation, holdings and operational status.</p></div><table class="concentration-table account-map-table"><thead><tr><th>Account</th><th>Registration</th><th>Value</th><th>YTD</th></tr></thead><tbody>${HOUSEHOLD_ACCOUNTS.map((account) => `<tr><th><button type="button" class="drawer-table-link" data-wealth-account="${escapeHtml(account.id)}">${escapeHtml(account.name)} <span>›</span></button></th><td>${escapeHtml(account.registration)}</td><td>${formatWealthCurrency(account.value)}</td><td class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}%</td></tr>`).join("")}</tbody></table></section>
-      <p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p>
     </div>`;
 }
 
@@ -669,29 +677,28 @@ function accountDrawer(account) {
   if (!account) return accountsDrawer();
   const holdings = account.holdings.length
     ? `<table class="concentration-table account-holdings-table"><thead><tr><th>Holding</th><th>Market value</th><th>Account weight</th></tr></thead><tbody>${account.holdings.map((holding) => `<tr><th><div class="wealth-holding">${productMark({ ...holding, category: "Equities" })}<span><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)}</small></span></div></th><td>${formatWealthCurrency(holding.value)}</td><td>${holding.weight.toFixed(1)}%</td></tr>`).join("")}</tbody></table>`
-    : `<div class="account-empty-holdings"><strong>Position-level feed summarized</strong><span>This connected account contributes to household allocation and planning without exposing underlying positions in the prototype.</span></div>`;
+    : `<div class="account-empty-holdings"><strong>Position-level feed summarized</strong><span>This connected account contributes to household allocation and planning; underlying positions are not available in this view.</span></div>`;
   const holdingsLabel = account.holdingsTotal > account.holdings.length ? `Showing ${account.holdings.length} of ${account.holdingsTotal} positions` : `${account.holdingsTotal} ${account.holdingsTotal === 1 ? "position" : "positions"}`;
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">ACCOUNT · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-wealth-action="accounts">${backLabel("All accounts")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close account detail">×</button></header>
     <div class="wealth-drawer-body account-review">
       <section class="account-detail-hero"><div><span>${escapeHtml(account.registration)}</span><h2 id="wealthDrawerTitle">${escapeHtml(account.name)}</h2><p>${escapeHtml(account.purpose)} · ${escapeHtml(account.program)}</p></div><div><span>Current value</span><strong>${formatWealthCurrency(account.value)}</strong><small class="${account.change >= 0 ? "positive" : "negative"}">${account.change >= 0 ? "+" : ""}${account.change.toFixed(1)}% YTD</small></div></section>
-      <section class="account-review-metrics"><div><span>Available cash</span><strong>${formatWealthCurrency(account.cash)}</strong><small>${(account.cash / account.value * 100).toFixed(1)}% of account</small></div><div><span>Tax treatment</span><strong>${escapeHtml(account.taxTreatment)}</strong><small>Registration-level view</small></div><div><span>Unrealized gain</span><strong>${account.unrealizedGain ? formatWealthCurrency(account.unrealizedGain) : "—"}</strong><small>${account.unrealizedGain ? "Illustrative tax lot basis" : "Not available"}</small></div><div><span>Last reconciled</span><strong>${escapeHtml(account.lastReconciled || "Not provided")}</strong><small>${escapeHtml(account.sourceSystem || "Source not provided")}</small></div></section>
+      <section class="account-review-metrics"><div><span>Available cash</span><strong>${formatWealthCurrency(account.cash)}</strong><small>${(account.cash / account.value * 100).toFixed(1)}% of account</small></div><div><span>Tax treatment</span><strong>${escapeHtml(account.taxTreatment)}</strong><small>Registration-level view</small></div><div><span>Unrealized gain</span><strong>${account.unrealizedGain ? formatWealthCurrency(account.unrealizedGain) : "—"}</strong><small>${account.unrealizedGain ? "Modeled tax lot basis" : "Not available"}</small></div><div><span>Last reconciled</span><strong>${escapeHtml(account.lastReconciled || "Not provided")}</strong><small>${escapeHtml(account.sourceSystem || "Source not provided")}</small></div></section>
       <section class="concentration-section"><div class="section-heading"><span>ALLOCATION</span><h3>${escapeHtml(account.allocation)} portfolio</h3></div>${accountMix(account)}</section>
       <section class="concentration-section"><div class="section-heading"><span>EXPOSURE</span><h3>Largest positions</h3><p>${escapeHtml(holdingsLabel)} · Position detail is shown when available from the connected source.</p></div>${holdings}</section>
       <section class="account-data-strip"><div><span>Service model</span><strong>${escapeHtml(account.program)}</strong></div><div><span>Primary purpose</span><strong>${escapeHtml(account.purpose)}</strong></div><div><span>Custody</span><strong>${escapeHtml(account.custodyType === "held-away" ? "Held away" : "Custodied")}</strong></div></section>
-      <p class="wealth-disclosure">Illustrative household data · Not for investment decisions.</p>
     </div>`;
 }
 
 function goalDrawer(goal) {
   if (!goal) return operationalDrawer("relationship");
   const gap = Math.max(0, goal.target - goal.funded);
+  const relatedDecision = state.decisionSummary?.decisions?.find((decision) => decision.goalId === goal.id && decision.kind === "goal-funding") || state.decisionSummary?.decisions?.find((decision) => decision.kind === "concentration" && goal.tone !== "good");
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">PLANNING · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close goal review">×</button></header>
     <div class="wealth-drawer-body goal-review">
       <section class="goal-review-hero"><div><span>${escapeHtml(goal.timing)}</span><h2 id="wealthDrawerTitle">${escapeHtml(goal.name)}</h2><p>${escapeHtml(goal.action)}</p></div><em class="goal-${escapeHtml(goal.tone)}">${escapeHtml(goal.status)}</em></section>
       <section class="goal-funding"><div class="goal-funding-heading"><div><span>Funded</span><strong>${formatWealthCurrency(goal.funded)}</strong></div><div><span>Target</span><strong>${formatWealthCurrency(goal.target)}</strong></div></div><progress class="goal-funding-track goal-progress-${escapeHtml(goal.tone)}" max="100" value="${Math.max(0, Math.min(100, Number(goal.progress) || 0))}" aria-label="${escapeHtml(`${goal.name} funding progress`)}"></progress><div class="goal-funding-scale"><span>${goal.progress}% funded</span><span>${gap ? `${formatWealthCurrency(gap)} remaining` : "Target funded"}</span></div></section>
-      <section class="account-review-metrics goal-review-metrics"><div><span>Plan confidence</span><strong>${goal.confidence}%</strong><small>Illustrative planning model</small></div><div><span>Annual funding</span><strong>${goal.annualFunding ? formatWealthCurrency(goal.annualFunding) : "Fully funded"}</strong><small>Current scheduled amount</small></div><div><span>Responsibility</span><strong>${escapeHtml(goal.owner)}</strong><small>Goal ownership</small></div><div><span>Next review</span><strong>${escapeHtml(goal.nextReview)}</strong><small>Planning calendar</small></div></section>
-      <section class="goal-next-step"><span>NEXT ADVISOR ACTION</span><strong>${escapeHtml(goal.action)}</strong><small>Planning assumptions and values are illustrative.</small></section>
-      <p class="wealth-disclosure">Illustrative household and planning data · Not for investment decisions.</p>
+      <section class="account-review-metrics goal-review-metrics"><div><span>Plan confidence</span><strong>${goal.confidence}%</strong><small>Planning model</small></div><div><span>Annual funding</span><strong>${goal.annualFunding ? formatWealthCurrency(goal.annualFunding) : "Fully funded"}</strong><small>Current scheduled amount</small></div><div><span>Responsibility</span><strong>${escapeHtml(goal.owner)}</strong><small>Goal ownership</small></div><div><span>Next review</span><strong>${escapeHtml(goal.nextReview)}</strong><small>Planning calendar</small></div></section>
+      <section class="goal-next-step"><span>NEXT ADVISOR ACTION</span><strong>${escapeHtml(goal.action)}</strong><small>Review planning assumptions before implementation.</small>${relatedDecision ? `<button type="button" class="primary-button" data-decision-open="${escapeHtml(relatedDecision.id)}">Open related decision →</button>` : ""}</section>
     </div>`;
 }
 
@@ -707,15 +714,19 @@ function formatDecisionDate(value) {
 
 function decisionListDrawer(summary) {
   const decisions = (summary?.decisions || []).filter((decision) => decision.status !== "Complete");
-  return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD WORKFLOW · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close decisions">×</button></header><div class="wealth-drawer-body decision-list-drawer"><div class="drawer-section-heading"><span class="panel-kicker">OPEN DECISIONS</span><h2 id="wealthDrawerTitle">${summary?.openCount || 0} active across this relationship</h2><p>Each item is grounded in a household signal and can be modeled before anything moves toward implementation.</p></div><div class="decision-list">${decisions.map((decision) => { const plan = getDecisionPlan(decision.id); return `<button type="button" class="decision-list-item tone-${escapeHtml(decision.tone)}" data-decision-open="${escapeHtml(decision.id)}"><i></i><span><small>${escapeHtml(decision.priority)} · ${escapeHtml(plan?.status || decision.status)}</small><strong>${escapeHtml(decision.title)}</strong><em>${escapeHtml(decision.evidenceSummary)}</em></span><b>›</b></button>`; }).join("") || `<div class="drawer-empty">No open decisions for this household.</div>`}</div></div>`;
+  return `<header class="wealth-drawer-header"><div><span class="eyebrow">HOUSEHOLD WORKFLOW · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close decisions">×</button></header><div class="wealth-drawer-body decision-list-drawer"><div class="drawer-section-heading"><span class="panel-kicker">OPEN DECISIONS</span><h2 id="wealthDrawerTitle">${decisions.length} active across this relationship</h2><p>Each item is grounded in a household signal and can be modeled before anything moves toward implementation.</p></div><div class="decision-list">${decisions.map((decision) => `<button type="button" class="decision-list-item tone-${escapeHtml(decision.tone)}" data-decision-open="${escapeHtml(decision.id)}"><i></i><span><small>${escapeHtml(decision.priority)} · ${escapeHtml(getDecisionWorkflowStatus(decision.id, decision.status))}</small><strong>${escapeHtml(decision.title)}</strong><em>${escapeHtml(decision.evidenceSummary)}</em></span><b>›</b></button>`).join("") || `<div class="drawer-empty">No open decisions for this household.</div>`}</div></div>`;
 }
 
 function meetingBriefDrawer(data) {
-  const decisionRows = (data.openDecisions || []).map((decision) => `<button type="button" class="meeting-decision" data-decision-open="${escapeHtml(decision.id)}"><span><strong>${escapeHtml(decision.title)}</strong><small>${escapeHtml(decision.evidenceSummary)}</small></span><em>${escapeHtml(getDecisionPlan(decision.id)?.status || decision.status)}</em></button>`).join("");
+  const decisionRows = (data.openDecisions || []).filter((decision) => getDecisionWorkflowStatus(decision.id, decision.status) !== "Complete").map((decision) => `<button type="button" class="meeting-decision" data-decision-open="${escapeHtml(decision.id)}"><span><strong>${escapeHtml(decision.title)}</strong><small>${escapeHtml(decision.evidenceSummary)}</small></span><em>${escapeHtml(getDecisionWorkflowStatus(decision.id, decision.status))}</em></button>`).join("");
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">MEETING PREP · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close meeting brief">×</button></header><div class="wealth-drawer-body meeting-brief"><div class="drawer-section-heading"><span class="panel-kicker">RELATIONSHIP BRIEF</span><h2 id="wealthDrawerTitle">Prepare the conversation</h2><p>${escapeHtml(data.household.members.join(" · "))} · Last planning review ${escapeHtml(data.household.lastPlanningReview)}</p></div><section><h3>Current household</h3><div class="meeting-metric-grid">${data.changes.map((item) => `<div><span>${escapeHtml(item.label)}</span><strong>${typeof item.value === "number" ? formatSignedWealthCurrency(item.value) : escapeHtml(item.value)}</strong></div>`).join("")}</div></section><section><h3>Open decisions</h3><div class="meeting-decision-list">${decisionRows || `<p class="drawer-empty">No active decisions.</p>`}</div></section><section><h3>Upcoming</h3><div class="meeting-copy-list">${(data.upcoming || []).map((item) => `<div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.detail)}</span></div>`).join("") || `<p class="drawer-empty">No material upcoming obligations.</p>`}</div></section><section><h3>Recent relationship activity</h3><div class="meeting-copy-list">${(data.recentActivity || []).slice(0, 5).map((item) => `<div><strong>${escapeHtml(item.title)}</strong><span>${formatDecisionDate(item.occurredAt)} · ${escapeHtml(item.detail)}</span></div>`).join("")}</div></section></div>`;
 }
 
 function timelineDrawer(events) {
+  const finalized = finalizedProposalEvents(listProposals(), state.currentHouseholdId);
+  const existing = new Set((events || []).map((event) => event.id));
+  const finalizedDecisions = new Set((events || []).filter((event) => /proposal finalized/i.test(event.title)).map((event) => event.decisionId));
+  events = [...finalized.filter((event) => !existing.has(event.id) && !finalizedDecisions.has(event.decisionId)), ...(events || [])].sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">RELATIONSHIP HISTORY · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>← Back to Total Wealth</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close timeline">×</button></header><div class="wealth-drawer-body relationship-timeline"><div class="drawer-section-heading"><span class="panel-kicker">HOUSEHOLD TIMELINE</span><h2 id="wealthDrawerTitle">What changed and when</h2><p>Planning, portfolio and decision events from the same household model.</p></div><ol>${(events || []).map((event) => `<li><i class="timeline-${escapeHtml(event.type)}"></i><div><span>${formatDecisionDate(event.occurredAt)} · ${escapeHtml(event.source)}</span>${event.decisionId ? `<button type="button" data-decision-open="${escapeHtml(event.decisionId)}"><strong>${escapeHtml(event.title)}</strong></button>` : `<strong>${escapeHtml(event.title)}</strong>`}<p>${escapeHtml(event.detail)}</p></div></li>`).join("")}</ol></div>`;
 }
 
@@ -741,6 +752,7 @@ async function openWealthDrawer(id) {
   el("wealthDrawerBackdrop").hidden = false;
   el("wealthDrawer").classList.add("open");
   el("wealthDrawer").setAttribute("aria-hidden", "false");
+  el("wealthDrawer").inert = false;
   document.body.classList.add("wealth-drawer-open");
   document.querySelector("main").inert = true;
   document.querySelector(".global-header").inert = true;
@@ -802,12 +814,26 @@ function decisionScenarioOutcomes(detail, scenario) {
 }
 
 function decisionPlanMarkup(detail, plan) {
-  if (!plan) return `<div class="decision-plan-empty"><span class="panel-kicker">ACTION PLAN</span><h3>Turn the scenario into work</h3><p>Capture the intended path, then track it across client discussion and implementation.</p><button type="button" class="primary-button" data-decision-build-plan>Build plan</button></div>`;
-  const statuses = ["Plan drafted", "Proposal in progress", "Ready for client", "Client discussion", "Client approved", "In progress", "Complete"];
+  if (!plan) return `<div class="decision-plan-empty"><span class="panel-kicker">ACTION PLAN</span><h3>Next steps</h3><p>Select investments to save an implementation basket. The decision stays in Reviewing until there is a real plan.</p></div>`;
   const proposal = getProposal(detail.decision.id);
-  const candidateMarkup = plan.candidates.length ? `<div class="decision-candidates"><span>Implementation candidates</span>${plan.candidates.map((candidate) => `<div><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.category)}${candidate.symbol ? ` · ${escapeHtml(candidate.symbol)}` : ""}</small></div>`).join("")}</div>` : "";
+  const candidateMarkup = plan.candidates.length ? `<div class="decision-candidates"><span>Saved implementation basket</span>${plan.candidates.map((candidate) => `<div><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.category)} · ${formatWealthCurrency(candidate.amount)}${candidate.symbol ? ` · ${escapeHtml(candidate.symbol)}` : ""}</small></div>`).join("")}</div>` : plan.kind === "funding-schedule" ? `<div class="decision-candidates"><span>Scheduled funding</span><div><strong>${formatWealthCurrency(plan.implementationAmount)}</strong><small>${escapeHtml(plan.sourceAccountName || "Household cash")} · ${escapeHtml(plan.dueDate || "Next review")}</small></div></div>` : "";
   const proposalMarkup = proposal ? `<button type="button" class="decision-proposal-card" data-open-proposal="${escapeHtml(proposal.decisionId)}"><span><small>CLIENT PROPOSAL · ${escapeHtml(proposal.status.toUpperCase())}</small><strong>${formatWealthCurrency(proposal.totalAmount)} proposed change</strong><em>${proposal.candidates.length} selected ${proposal.candidates.length === 1 ? "solution" : "solutions"}</em></span><b>Open proposal →</b></button>` : "";
-  return `<div class="decision-plan-active"><div class="decision-plan-heading"><div><span class="panel-kicker">ACTION PLAN</span><h3>${escapeHtml(plan.title)}</h3></div><label>Status<select data-decision-plan-status>${statuses.map((status) => `<option value="${status}"${status === plan.status ? " selected" : ""}>${status}</option>`).join("")}</select></label></div>${proposalMarkup}<div class="decision-plan-steps">${plan.steps.map((step) => `<button type="button" class="${step.complete ? "complete" : ""}" data-decision-plan-step="${escapeHtml(step.id)}"><i>${step.complete ? "✓" : ""}</i><span>${escapeHtml(step.title)}</span></button>`).join("")}</div>${candidateMarkup}</div>`;
+  return `<div class="decision-plan-active"><div class="decision-plan-heading"><div><span class="panel-kicker">ACTION PLAN</span><h3>${escapeHtml(plan.title)}</h3></div></div>${proposalMarkup}${candidateMarkup}<div class="decision-plan-steps">${plan.steps.map((step) => `<button type="button" class="${step.complete ? "complete" : ""}" data-decision-plan-step="${escapeHtml(step.id)}"><i>${step.complete ? "✓" : ""}</i><span>${escapeHtml(step.title)}</span></button>`).join("")}</div>${getDecisionWorkflowStatus(detail.decision.id, detail.decision.status) === "Complete" ? `<small>Marked complete by the advisor.</small>` : `<button type="button" class="secondary-button" data-decision-complete>Mark decision complete</button>`}</div>`;
+}
+
+function fundingSourceForAmount(amount) {
+  const accounts = HOUSEHOLD_ACCOUNTS.filter((account) => account.cash > 0).sort((left, right) => right.cash - left.cash);
+  const single = accounts.find((account) => account.cash >= amount && account.custodyType !== "held-away");
+  if (single) return { label: single.name, available: single.cash, multiple: false };
+  return { label: "Household cash across linked accounts", available: accounts.reduce((sum, account) => sum + account.cash, 0), multiple: true };
+}
+
+function fundingDecisionCard(detail, scenario, plan) {
+  const amount = Number(scenario.economics.fundingAmount || 0);
+  const source = fundingSourceForAmount(amount);
+  const dueDate = detail.relatedGoal?.nextReview || detail.evidence.detail.match(/(?:due|scheduled|within|by)\s+[^.]+/i)?.[0] || "Review with client";
+  const status = getDecisionWorkflowStatus(detail.decision.id, detail.decision.status);
+  return `<section class="decision-implementation funding-decision"><span class="proposal-step-kicker">FUNDING DECISION · STEP 1</span><h3>${escapeHtml(detail.decision.kind === "goal-funding" ? "Fund the planning goal" : "Cover the upcoming obligation")}</h3><div class="decision-funding-envelope"><span>AMOUNT TO FUND</span><strong>${formatWealthCurrency(amount)}</strong><small>Source: ${escapeHtml(source.label)} · ${formatWealthCurrency(source.available)} available</small></div><p>Timing: ${escapeHtml(dueDate)}. ${source.multiple ? "Confirm account eligibility and transfer amounts before funding. " : ""}Household cash available: ${formatWealthCurrency(detail.household.investableCash)}.</p>${plan?.kind === "funding-schedule" ? `<p>Scheduled from ${escapeHtml(plan.sourceAccountName || source.label)} for ${escapeHtml(plan.dueDate || dueDate)}.</p>` : ""}<div class="funding-decision-actions"><button type="button" class="primary-button" data-decision-schedule ${amount > 0 && source.available >= amount ? "" : "disabled"}>Schedule funding</button><button type="button" class="secondary-button" data-decision-funded ${amount > 0 && status !== "Complete" ? "" : "disabled"}>Mark funded</button></div><small>Scheduling records a funding plan. Mark funded only after confirming completion outside this model.</small></section>`;
 }
 
 function renderDecisionStudio() {
@@ -816,10 +842,11 @@ function renderDecisionStudio() {
   if (!detail || !scenario) return;
   const plan = state.activeDecisionPlan || getDecisionPlan(detail.decision.id);
   state.activeDecisionPlan = plan;
-  const status = plan?.status || detail.decision.status;
+  const status = getDecisionWorkflowStatus(detail.decision.id, detail.decision.status);
   const implementation = scenario.implementation;
-  const implementationCard = implementation?.enabled ? `<section class="decision-implementation"><span class="proposal-step-kicker">STEP 1 OF 3 · DEFINE THE CHANGE</span><h3>${escapeHtml(implementation.objective)}</h3><div class="decision-funding-envelope"><span>AVAILABLE TO REDEPLOY</span><strong>${formatWealthCurrency(implementation.amount)}</strong><small>Explicit implementation mandate from this scenario</small></div><div>${implementation.tags.slice(1, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div><button type="button" class="primary-button" data-decision-implement>Find investments for proposal <span aria-hidden="true">→</span></button><p>Research and select solutions for a client proposal. Every criterion remains visible and editable.</p></section>` : `<section class="decision-implementation muted"><span class="panel-kicker">IMPLEMENTATION</span><h3>No investment search required yet</h3><p>This scenario is currently about household funding or workflow rather than selecting a product.</p></section>`;
-  updateHtml(el("decisionStudioContent"), `<header class="decision-studio-header"><button type="button" class="decision-back" data-close-decision-studio>← ${escapeHtml(HOUSEHOLD.name)}</button><div><span class="eyebrow">DECISION STUDIO · ${escapeHtml(detail.decision.priority.toUpperCase())}</span><h2 id="decisionStudioTitle">${escapeHtml(detail.decision.title)}</h2><p>${escapeHtml(detail.decision.objective)}</p></div><span class="decision-status">${escapeHtml(status)}</span><button type="button" class="decision-close" data-close-decision-studio aria-label="Close decision studio">×</button></header><div class="decision-studio-body"><aside class="decision-facts"><div class="decision-signal tone-${escapeHtml(detail.decision.tone)}"><span>${escapeHtml(detail.evidence.severity)}</span><strong>${escapeHtml(detail.evidence.title)}</strong><p>${escapeHtml(detail.evidence.detail)}</p><small>${escapeHtml(detail.evidence.source)}</small></div><section><span class="panel-kicker">WHAT WE KNOW</span><div class="decision-fact-list">${detail.facts.map((fact) => `<div><span>${escapeHtml(fact.label)}</span><strong>${decisionValue(fact.value, fact.label)}</strong></div>`).join("")}</div></section><section class="decision-assumptions"><span class="panel-kicker">MODEL ASSUMPTIONS</span>${scenario.assumptions.map((assumption) => `<p>${escapeHtml(assumption)}</p>`).join("")}</section></aside><main class="decision-model"><div class="decision-model-heading"><span class="panel-kicker">WHAT COULD CHANGE</span><h3>Model the household consequence</h3><p>Adjust only explicit assumptions. The resulting changes are calculated from this household's current data.</p></div>${decisionScenarioControls(detail, scenario)}<div class="decision-consequence-heading"><span class="panel-kicker">HOUSEHOLD CONSEQUENCE</span><h3>Before and after</h3></div>${decisionScenarioOutcomes(detail, scenario)}</main><aside class="decision-plan-column">${implementationCard}${decisionPlanMarkup(detail, plan)}</aside></div>`);
+  const implementationCard = detail.decision.implementationType === "none" ? fundingDecisionCard(detail, scenario, plan) : `<section class="decision-implementation"><span class="proposal-step-kicker">STEP 1 OF 3 · DEFINE THE CHANGE</span><h3>${escapeHtml(implementation.objective)}</h3><div class="decision-funding-envelope"><span>AVAILABLE TO INVEST</span><strong>${formatWealthCurrency(implementation.amount)}</strong><small>${detail.decision.kind === "concentration" ? `Based on ${formatWealthCurrency(scenario.economics.release)} modeled sale proceeds at the ${decisionPercent(scenario.inputs.targetWeight)} target` : detail.decision.kind === "liquidity" ? `${formatWealthCurrency(scenario.before.cash)} cash − ${formatWealthCurrency(scenario.economics.reserveAmount)} (${decisionPercent(scenario.inputs.reservePct)} reserve) = ${formatWealthCurrency(scenario.economics.deployAmount)} deployable` : "Based on available household cash and the target allocation"}</small></div><div>${implementation.tags.slice(1, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div><button type="button" class="primary-button" data-decision-implement ${implementation.enabled ? "" : "disabled"}>Select investments <span aria-hidden="true">→</span></button><p>${implementation.enabled ? "Research and select solutions for a client proposal. Every criterion remains visible and editable." : "Increase the investment amount above zero to continue."}</p></section>`;
+  const affectedAccounts = detail.model.affectedAccounts?.length ? `<section class="decision-affected-accounts"><span class="panel-kicker">AFFECTED ACCOUNTS</span>${detail.model.affectedAccounts.map((account) => `<div><strong>${escapeHtml(account.name)}</strong><span>${formatWealthCurrency(account.value)} position · ${formatWealthCurrency(account.gain)} embedded gain</span></div>`).join("")}</section>` : "";
+  updateHtml(el("decisionStudioContent"), `<header class="decision-studio-header"><button type="button" class="decision-back" data-close-decision-studio>← ${escapeHtml(HOUSEHOLD.name)}</button><div><span class="eyebrow">DECISION STUDIO · ${escapeHtml(detail.decision.priority.toUpperCase())}</span><h2 id="decisionStudioTitle">${escapeHtml(detail.decision.title)}</h2><p>${escapeHtml(detail.decision.objective)}</p></div><span class="decision-status">${escapeHtml(status)}</span><button type="button" class="decision-close" data-close-decision-studio aria-label="Close decision studio">×</button></header><div class="decision-studio-body"><aside class="decision-facts"><div class="decision-signal tone-${status === "Complete" ? "neutral" : escapeHtml(detail.decision.tone)}"><span>${escapeHtml(detail.evidence.severity)}</span><strong>${escapeHtml(detail.evidence.title)}</strong><p>${escapeHtml(detail.evidence.detail)}</p><small>${escapeHtml(detail.evidence.source)}</small></div><section><span class="panel-kicker">WHAT WE KNOW</span><div class="decision-fact-list">${detail.facts.map((fact) => `<div><span>${escapeHtml(fact.label)}</span><strong>${decisionValue(fact.value, fact.label)}</strong></div>`).join("")}</div></section><section class="decision-assumptions"><span class="panel-kicker">MODEL ASSUMPTIONS</span>${scenario.assumptions.map((assumption) => `<p>${escapeHtml(assumption)}</p>`).join("")}</section></aside><main class="decision-model"><div class="decision-model-heading"><span class="panel-kicker">WHAT COULD CHANGE</span><h3>Model the household consequence</h3><p>Adjust only explicit assumptions. The resulting changes are calculated from this household's current data.</p></div>${decisionScenarioControls(detail, scenario)}${affectedAccounts}<div class="decision-consequence-heading"><span class="panel-kicker">HOUSEHOLD CONSEQUENCE</span><h3>Before and after</h3></div>${decisionScenarioOutcomes(detail, scenario)}</main><aside class="decision-plan-column">${implementationCard}${decisionPlanMarkup(detail, plan)}</aside></div>`);
 }
 
 function closeDecisionStudio({ restoreFocus = true } = {}) {
@@ -839,16 +866,16 @@ function closeDecisionStudio({ restoreFocus = true } = {}) {
   if (restoreFocus && state.lastFocus?.focus) state.lastFocus.focus();
 }
 
-async function openDecisionStudio(decisionId) {
+async function openDecisionStudio(decisionId, { preserve = false, inputs = null } = {}) {
   if (!state.currentHouseholdId) return;
+  const existingScenario = preserve && state.activeDecisionScenario?.decisionId === decisionId ? state.activeDecisionScenario : null;
   const request = ++decisionRequest;
   state.decisionController?.abort();
   const controller = new AbortController();
   state.decisionController = controller;
   state.lastFocus = document.activeElement;
   closeWealthDrawer({ restoreFocus: false });
-  state.activeDecisionDetail = null;
-  state.activeDecisionScenario = null;
+  if (!existingScenario) { state.activeDecisionDetail = null; state.activeDecisionScenario = null; }
   state.activeDecisionPlan = getDecisionPlan(decisionId);
   el("decisionStudioContent").innerHTML = `<div class="decision-studio-loading"><span></span><p>Preparing household decision…</p></div>`;
   el("decisionStudioBackdrop").hidden = false;
@@ -858,8 +885,13 @@ async function openDecisionStudio(decisionId) {
   try {
     const detail = await loadDecisionDetail(decisionId, state.currentHouseholdId, { signal: controller.signal });
     if (request !== decisionRequest || controller !== state.decisionController) return;
-    const scenario = await modelDecisionScenario(decisionId, state.currentHouseholdId, detail.model.defaults);
+    const scenario = existingScenario || await modelDecisionScenario(decisionId, state.currentHouseholdId, inputs || detail.model.defaults);
     if (request !== decisionRequest) return;
+    if (getDecisionWorkflowStatus(decisionId, detail.decision.status) === "New") {
+      recordDecisionTransition({ decisionId, householdId: state.currentHouseholdId, status: "Reviewing", title: "Decision review opened", detail: detail.decision.title });
+      renderWealthWorkspace();
+      renderBookRows();
+    }
     state.activeDecisionDetail = detail;
     state.activeDecisionScenario = scenario;
     state.activeDecisionPlan = getDecisionPlan(decisionId);
@@ -903,17 +935,6 @@ async function refreshDecisionScenario() {
   } catch (error) {
     if (error.name !== "AbortError") showToast("Unable to update decision scenario");
   }
-}
-
-function buildActiveDecisionPlan() {
-  const detail = state.activeDecisionDetail;
-  if (!detail) return null;
-  const plan = saveDecisionPlan({ decision: detail.decision, householdId: state.currentHouseholdId, steps: detail.planTemplate, implementationAmount: state.activeDecisionScenario?.implementation?.amount || 0 });
-  state.activeDecisionPlan = plan;
-  renderDecisionStudio();
-  renderBookRows();
-  showToast("Action plan drafted");
-  return plan;
 }
 
 function launchInvestmentContext(scenario) {
@@ -969,9 +990,6 @@ function launchDecisionImplementation() {
   const detail = state.activeDecisionDetail;
   const scenario = state.activeDecisionScenario;
   if (!detail || !scenario?.implementation?.enabled) return;
-  if (!getDecisionPlan(detail.decision.id)) {
-    state.activeDecisionPlan = saveDecisionPlan({ decision: detail.decision, householdId: state.currentHouseholdId, steps: detail.planTemplate, implementationAmount: scenario.implementation.amount });
-  }
   const implementation = scenario.implementation;
   const fundingSource = proposalFundingSource(detail);
   state.compare.clear();
@@ -1011,30 +1029,21 @@ async function returnFromInvestmentContext() {
 
 function openPrimaryConcentrationDecision() {
   const decision = state.decisionSummary?.decisions?.find((item) => item.kind === "concentration");
-  if (decision) openDecisionInScreener(decision.id);
+  if (decision) openDecisionStudio(decision.id);
   else openWealthDrawer("concentration");
 }
 
-async function openDecisionInScreener(decisionId) {
-  if (!state.currentHouseholdId) return;
-  const request = ++decisionRequest;
-  state.decisionController?.abort();
-  const controller = new AbortController();
-  state.decisionController = controller;
-  closeWealthDrawer({ restoreFocus: false });
-  showToast("Preparing investment mandate…");
-  try {
-    const detail = await loadDecisionDetail(decisionId, state.currentHouseholdId, { signal: controller.signal });
-    if (request !== decisionRequest || controller !== state.decisionController) return;
-    const scenario = await modelDecisionScenario(decisionId, state.currentHouseholdId, detail.model.defaults, { signal: controller.signal });
-    if (request !== decisionRequest) return;
-    state.activeDecisionDetail = detail;
-    state.activeDecisionScenario = scenario;
-    state.activeDecisionPlan = getDecisionPlan(decisionId);
-    launchDecisionImplementation();
-  } catch (error) {
-    if (error.name !== "AbortError") showToast("Unable to prepare this investment mandate");
-  }
+function openDecisionInScreener(decisionId) {
+  if (getDecisionWorkflowStatus(decisionId) === "Ready for client" && getProposal(decisionId)) { openProposalBuilder(decisionId); return; }
+  openDecisionStudio(decisionId);
+}
+
+async function returnToDecisionStudio() {
+  const context = state.householdScenario;
+  if (!context?.decisionId || !context.householdId) return;
+  const inputs = state.activeDecisionScenario?.decisionId === context.decisionId ? state.activeDecisionScenario.inputs : context.impactModel?.scenarioInputs || null;
+  if (state.workspaceView !== "wealth" || state.currentHouseholdId !== context.householdId) await openHousehold(context.householdId);
+  openDecisionStudio(context.decisionId, { inputs });
 }
 
 function scenarioAmountOptions(scenario, detail) {
@@ -1060,7 +1069,8 @@ function renderScenarioMandate() {
   const amount = Number(scenario.implementation.amount || 0);
   const amountKey = scenarioAmountKey(detail);
   const amountMaximum = Number(detail.model.bounds[amountKey]?.max);
-  container.innerHTML = `${targetControl}<div class="scenario-amount-choice"><span>Invest now</span><div>${scenarioAmountOptions(scenario, detail).map((value) => `<button type="button" data-scenario-amount="${value}" data-scenario-amount-key="${amountKey}" aria-pressed="${value === amount}">${value === amountMaximum ? `All ${formatWealthCurrency(value)}` : formatWealthCurrency(value)}</button>`).join("")}</div></div>`;
+  const basis = detail.decision.kind === "liquidity" ? `<p class="scenario-amount-basis">${formatWealthCurrency(scenario.before.cash)} cash − ${formatWealthCurrency(scenario.economics.reserveAmount)} (${decisionPercent(scenario.inputs.reservePct)} reserve) = ${formatWealthCurrency(scenario.economics.deployAmount)} deployable</p>` : detail.decision.kind === "concentration" ? `<p class="scenario-amount-basis">${formatWealthCurrency(scenario.economics.release)} modeled sale proceeds at a ${decisionPercent(scenario.inputs.targetWeight)} position target</p>` : "";
+  container.innerHTML = `${targetControl}<div class="scenario-amount-choice"><span>Invest now</span><div>${scenarioAmountOptions(scenario, detail).map((value) => `<button type="button" data-scenario-amount="${value}" data-scenario-amount-key="${amountKey}" aria-pressed="${value === amount}">${value === amountMaximum ? `All ${formatWealthCurrency(value)}` : formatWealthCurrency(value)}</button>`).join("")}</div>${basis}</div>`;
 }
 
 async function refreshEmbeddedMandate(updates) {
@@ -1073,7 +1083,14 @@ async function refreshEmbeddedMandate(updates) {
   state.mandatePending = true;
   renderProposalTray();
   try {
-    const scenario = await modelDecisionScenario(detail.decision.id, householdId, { ...(state.activeDecisionScenario?.inputs || {}), ...updates }, { signal: controller.signal });
+    const previous = Number(state.activeDecisionScenario?.inputs?.redeployAmount || 0);
+    if (previous > 0) state.lastReinvestAmount.set(detail.decision.id, previous);
+    const nextInputs = { ...(state.activeDecisionScenario?.inputs || {}), ...updates };
+    if (detail.decision.kind === "concentration" && updates.targetWeight !== undefined && previous === 0 && state.lastReinvestAmount.has(detail.decision.id)) {
+      nextInputs.redeployAmount = state.lastReinvestAmount.get(detail.decision.id);
+    }
+    if (Number(updates.redeployAmount) > 0) state.lastReinvestAmount.set(detail.decision.id, Number(updates.redeployAmount));
+    const scenario = await modelDecisionScenario(detail.decision.id, householdId, nextInputs, { signal: controller.signal });
     if (controller !== state.decisionScenarioController || state.currentHouseholdId !== householdId || state.householdScenario?.decisionId !== detail.decision.id) return;
     state.activeDecisionScenario = scenario;
     state.householdScenario.implementationAmount = scenario.implementation.amount;
@@ -1097,7 +1114,7 @@ function showScenarioRibbon({ source, title, tags, decisionId = null, implementa
   el("scenarioTitle").textContent = title;
   el("scenarioObjective").textContent = objective;
   el("scenarioTags").innerHTML = tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
-  el("scenarioProgress").innerHTML = proposalMode ? `<span class="complete"><i>1</i>Define change</span><b></b><span class="active"><i>2</i>Select investments</span><b></b><span><i>3</i>Build proposal</span>` : "";
+  el("scenarioProgress").innerHTML = proposalMode ? `<button type="button" class="complete" data-return-decision-studio><i>✓</i>Define change</button><b></b><span class="active"><i>2</i>Select investments</span><b></b><span><i>3</i>Build proposal</span>` : "";
   el("scenarioCapital").hidden = !proposalMode;
   if (proposalMode) {
     el("scenarioCapitalAmount").textContent = formatWealthCurrency(implementationAmount);
@@ -1118,7 +1135,7 @@ function applyHouseholdScenario(scenario) {
 
 function handleWealthInsight(id) {
   const decision = state.decisionSummary?.decisions?.find((item) => item.sourceInsightId === id);
-  if (decision) { openDecisionInScreener(decision.id); return; }
+  if (decision) { if (getProposal(decision.id)?.status === "Ready for client") openProposalBuilder(decision.id); else openDecisionInScreener(decision.id); return; }
   const insight = HOUSEHOLD_INSIGHTS.find((candidate) => candidate.id === id);
   if (!insight) return;
   if (insight.action.type === "concentration") { openWealthDrawer("concentration"); return; }
@@ -1302,6 +1319,7 @@ function setRangeSelection(field, rawMinimum, rawMaximum, options = {}) {
   if (maximum !== facet.max) next.max = maximum;
   if (Number.isFinite(next.min) || Number.isFinite(next.max)) state.ranges[field] = next;
   else delete state.ranges[field];
+  state.queryFilterKeys.delete(`range:${field}`);
   refreshRangeControl(field, options);
 }
 
@@ -1309,6 +1327,7 @@ function updateRangeSelection(field, bound, rawValue) {
   const facet = state.facets?.ranges?.[field];
   const definition = rangeDefinitions(state.appliedCategory).find((entry) => entry.field === field);
   if (!facet || !definition) return;
+  state.queryFilterKeys.delete(`range:${field}`);
   if (rawValue === "") {
     const next = { ...(state.ranges[field] || {}) };
     delete next[bound];
@@ -1386,7 +1405,12 @@ function marketMetric(metric) {
   return `<span class="metric-primary">${escapeHtml(metric.value)}</span><span class="metric-secondary">${escapeHtml(metric.label)}</span>`;
 }
 
-function marketPrimary(snapshot) {
+function marketPrimary(snapshot, item) {
+  if (parseSort(state.sort)?.field === "primary" && Number.isFinite(item.sortPrice)) {
+    const referencePrice = `$${item.sortPrice.toFixed(2)}`;
+    const live = snapshot.live?.primary !== undefined ? `Live ${snapshot.primary.value} · ${snapshot.asOf}` : "Reference · Aug 21, 2026";
+    return `<div class="market-primary-layout"><div class="market-primary-quote"><span class="metric-primary">${escapeHtml(referencePrice)}</span><span class="metric-secondary market-price-time">${escapeHtml(live)}</span></div></div>`;
+  }
   const intraday = snapshot.intraday ? marketSparkline(snapshot.intraday) : "";
   return `<div class="market-primary-layout"><div class="market-primary-quote"><div class="market-value-line"><span class="metric-primary">${escapeHtml(snapshot.primary.value)}</span><span class="snapshot-change ${escapeHtml(snapshot.primary.tone)}">${escapeHtml(snapshot.primary.change)}</span></div><span class="metric-secondary market-price-time">${escapeHtml(snapshot.asOf || "")}</span></div>${intraday}</div>`;
 }
@@ -1420,17 +1444,27 @@ function snapshotMetric(snapshot, column) {
   return snapshot.metrics?.[column];
 }
 
+function displayedSortedMetric(item, snapshot, column) {
+  if (parseSort(state.sort)?.field !== column || !["Equities", "ETFs"].includes(item.category)) return null;
+  const live = snapshot?.live?.[column];
+  const secondary = Number.isFinite(live) ? `Live ${snapshot.metrics?.[column]?.value || `${live}`}` : "Reference · Aug 21, 2026";
+  if (column === "perf1" || column === "perf3") return { value: formatReturn(item[column]), label: secondary };
+  if (column === "aum" || column === "marketCap") return { value: String(item.aum || "—").replace(/\s+market cap$/i, ""), label: secondary };
+  const reference = snapshot?.reference?.metrics?.[column] || snapshot?.metrics?.[column];
+  return reference ? { ...reference, label: secondary } : null;
+}
+
 function renderResultColumn(item, column) {
   const snapshot = item.marketSnapshot;
-  if (column === "primary") return snapshot ? marketPrimary(snapshot) : marketSnapshotPlaceholder();
-  if (SNAPSHOT_COLUMNS.has(column)) return snapshot ? marketMetric(snapshotMetric(snapshot, column) || { value: "—", label: columnLabel(item.category, column) }) : marketSnapshotPlaceholder();
-  if (column === "marketCap") return marketMetric(snapshotMetric(snapshot, "marketCap") || { value: String(item.aum || "—").replace(/\s+market cap$/i, ""), label: "Market cap" });
-  if (column === "aum") return marketMetric(snapshotMetric(snapshot, "aum") || { value: item.aum || "—", label: "Fund assets" });
+  if (column === "primary") return snapshot ? marketPrimary(snapshot, item) : marketSnapshotPlaceholder();
+  if (SNAPSHOT_COLUMNS.has(column)) return snapshot ? marketMetric(displayedSortedMetric(item, snapshot, column) || snapshotMetric(snapshot, column) || { value: "—", label: columnLabel(item.category, column) }) : marketSnapshotPlaceholder();
+  if (column === "marketCap") return marketMetric(displayedSortedMetric(item, snapshot, "marketCap") || snapshotMetric(snapshot, "marketCap") || { value: String(item.aum || "—").replace(/\s+market cap$/i, ""), label: "Market cap" });
+  if (column === "aum") return marketMetric(displayedSortedMetric(item, snapshot, "aum") || snapshotMetric(snapshot, "aum") || { value: item.aum || "—", label: "Fund assets" });
   if (column === "minimum") return marketMetric({ value: formatMinimum(item.minimum), label: "Opening" });
   if (column === "fee") return marketMetric({ value: formatFee(item.fee), label: "Annual" });
   if (column === "risk") return marketMetric({ value: item.risk, label: "Risk level" });
-  if (column === "perf1") return marketMetric(snapshotMetric(snapshot, "perf1") || { value: formatReturn(item.perf1), label: "Trailing 1 year" });
-  if (column === "perf3") return marketMetric(snapshotMetric(snapshot, "perf3") || { value: formatReturn(item.perf3), label: "Annualized" });
+  if (column === "perf1") return marketMetric(displayedSortedMetric(item, snapshot, "perf1") || snapshotMetric(snapshot, "perf1") || { value: formatReturn(item.perf1), label: "Trailing 1 year" });
+  if (column === "perf3") return marketMetric(displayedSortedMetric(item, snapshot, "perf3") || snapshotMetric(snapshot, "perf3") || { value: formatReturn(item.perf3), label: "Annualized" });
   if (column === "liquidity") return marketMetric({ value: item.liquidity || "—", label: "Terms" });
   if (column === "assetClass") return marketMetric({ value: item.assetClass || "—", label: "Classification" });
   return marketMetric({ value: "—", label: columnLabel(item.category, column) });
@@ -1507,11 +1541,33 @@ function updateHeader() {
   el("nextPage").disabled = state.nextCursor === null;
 }
 
-function renderInterpretation(interpreted = []) {
+function renderInterpretation(interpreted = [], notice = null) {
   const panel = el("interpretation");
-  if (!interpreted.length || !state.q) { panel.hidden = true; return; }
-  el("interpretationText").textContent = interpreted.join(" · ");
+  if ((!interpreted.length && !notice) || !state.q) { panel.hidden = true; return; }
+  el("interpretationText").textContent = [notice, ...interpreted].filter(Boolean).join(" · ");
   panel.hidden = false;
+}
+
+function setSearchQuery(query) {
+  if (state.q !== query) clearQueryDerivedFilters(state);
+  state.q = query;
+}
+
+function applyQueryFilters(data) {
+  const previous = new Set(state.queryFilterKeys);
+  const inferred = data.appliedFilters?.query || {};
+  state.queryFilterKeys.clear();
+  for (const [type, values, selected] of [["flag", inferred.flags || [], state.flags], ["risk", inferred.risks || [], state.risks]]) {
+    for (const value of values) {
+      const key = `${type}:${value}`;
+      if (!selected.has(value) || previous.has(key)) state.queryFilterKeys.add(key);
+      selected.add(value);
+    }
+  }
+  for (const field of Object.keys(inferred.ranges || {})) {
+    const key = `range:${field}`;
+    if (!state.ranges[field] || previous.has(key)) state.queryFilterKeys.add(key);
+  }
 }
 
 function buildSearchUrl() {
@@ -1521,6 +1577,9 @@ function buildSearchUrl() {
   if (state.flags.size) params.set("flags", [...state.flags].join(","));
   if (state.risks.size) params.set("risks", [...state.risks].join(","));
   if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
+  if (state.excludedQueryFilters.size) params.set("excludedQueryFilters", [...state.excludedQueryFilters].join(","));
+  if (state.queryFilterKeys.size) params.set("queryFilterKeys", [...state.queryFilterKeys].join(","));
+  if (state.suppressInferenceFor === state.q && state.q) params.set("suppressInference", "1");
   const ranges = serializeRanges(state.ranges);
   if (ranges) params.set("ranges", ranges);
   params.set("sort", state.sort);
@@ -1560,6 +1619,9 @@ function syncUrl() {
   if (state.flags.size) params.set("flags", [...state.flags].join(","));
   if (state.risks.size) params.set("risks", [...state.risks].join(","));
   if (state.statuses.size) params.set("statuses", [...state.statuses].join(","));
+  if (state.excludedQueryFilters.size) params.set("excludedQueryFilters", [...state.excludedQueryFilters].join(","));
+  if (state.queryFilterKeys.size) params.set("queryFilterKeys", [...state.queryFilterKeys].join(","));
+  if (state.suppressInferenceFor === state.q && state.q) params.set("suppressInference", "1");
   const ranges = serializeRanges(state.ranges);
   if (ranges) params.set("ranges", ranges);
   if (state.sortExplicit || state.sort !== defaultSort(Boolean(state.q))) params.set("sort", state.sort);
@@ -1605,6 +1667,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     state.previousCursor = data.previousCursor;
     state.facets = data.facets;
     state.appliedCategory = data.appliedCategory || state.category;
+    applyQueryFilters(data);
     state.ranges = normalizeRanges(data.appliedRanges || state.ranges, state.appliedCategory);
     if (state.pendingColumns && state.pendingColumns.category === state.appliedCategory) {
       setColumnsForCategory(state.appliedCategory, state.pendingColumns.columns, { persist: false });
@@ -1615,7 +1678,7 @@ async function runSearch({ preserveCursor = false } = {}) {
     const roundTripMs = Math.max(1, Math.round(performance.now() - requestStarted));
     el("latency").textContent = `${roundTripMs} ms`;
     el("latency").title = `Browser round trip; server search ${data.tookMs} ms`;
-    renderInterpretation(data.interpreted);
+    renderInterpretation(data.interpreted, data.notice);
     renderCategories();
     renderFilterOptions();
     renderRangeFilters();
@@ -1667,6 +1730,7 @@ function cancelActiveSearch() {
 }
 
 function applyQuickScreen(name) {
+  clearQueryDerivedFilters(state);
   state.q = "";
   state.flags.clear(); state.risks.clear(); state.statuses.clear();
   state.ranges = {};
@@ -1684,6 +1748,8 @@ function applyQuickScreen(name) {
 
 function removeFilter(key) {
   const [type, value] = key.split(":");
+  if (state.queryFilterKeys.has(key)) state.excludedQueryFilters.add(key);
+  state.queryFilterKeys.delete(key);
   if (type === "range") delete state.ranges[value];
   if (type === "flag") state.flags.delete(value);
   if (type === "risk") state.risks.delete(value);
@@ -1742,7 +1808,7 @@ function renderProposalTray() {
     : `<div class="proposal-tray-empty"><i>＋</i><span>${noSale ? "Lower the target weight to fund this proposal." : "Choose investments to allocate your budget."}</span></div>`;
   el("proposalTrayAllocated").innerHTML = `${formatWealthCurrency(allocated)} <span>of ${formatWealthCurrency(target)}</span>`;
   el("proposalTrayRemaining").textContent = requiredMinimum > target
-    ? `${formatWealthCurrency(requiredMinimum - target)} above available capital in minimums`
+    ? `Selected minimums total ${formatWealthCurrency(requiredMinimum)}; budget is ${formatWealthCurrency(target)}. Increase the amount or remove a solution.`
     : noSale ? "Lower target to fund" : !minimumsMet ? "Minimums not met" : `${formatWealthCurrency(remaining)} remaining`;
   el("proposalTrayRemaining").classList.toggle("warning", !minimumsMet);
   const outcome = calculateProposalImpact(state.householdScenario?.impactModel, candidates);
@@ -1778,15 +1844,16 @@ function proposalImpactValue(value, format) {
 }
 
 function defaultProposalRationale(context) {
-  if (!context) return "Implement the agreed household change using investments selected for the client's objectives and portfolio context.";
+  if (!context) return "The proposed investments support your household objectives and broader portfolio context.";
   const objective = String(context.objective || "support the household objectives").replace(/\.$/, "").replace(/^./, (letter) => letter.toLowerCase());
-  return `Allocate ${formatWealthCurrency(context.implementationAmount)} from ${String(context.sourceLabel || "the household portfolio")} across the selected investments. The recommendation is intended to ${objective}. Review the selected strategies, total costs and tax implications with the client before implementation.`;
+  return `We propose allocating ${formatWealthCurrency(context.implementationAmount)} from ${String(context.sourceLabel || "your household portfolio")} across the selected investments. This is intended to ${objective}. Together we will review the strategies, total costs, risks and tax implications before any implementation.`;
 }
 
 function buildProposalFromSelection() {
   const context = state.householdScenario;
   if (!context?.decisionId || !state.proposalCandidates.size) return null;
   const existing = getProposal(context.decisionId);
+  if (existing?.status === "Ready for client") return existing;
   const draft = createProposalDraft({
     ...existing,
     decisionId: context.decisionId,
@@ -1806,7 +1873,10 @@ function buildProposalFromSelection() {
     createdAt: existing?.createdAt,
   });
   state.proposal = saveProposal(draft);
-  state.activeDecisionPlan = setDecisionPlanStatus(context.decisionId, "Proposal in progress") || state.activeDecisionPlan;
+  if (state.activeDecisionDetail?.decision.id === context.decisionId) {
+    state.activeDecisionPlan = saveDecisionPlan({ decision: state.activeDecisionDetail.decision, householdId: context.householdId, steps: state.activeDecisionDetail.planTemplate, implementationAmount: context.implementationAmount, candidates: state.proposal.candidates });
+    recordDecisionTransition({ decisionId: context.decisionId, householdId: context.householdId, status: "Plan drafted", title: "Implementation basket saved", detail: state.activeDecisionDetail.decision.title, type: "plan" });
+  }
   return state.proposal;
 }
 
@@ -1814,7 +1884,7 @@ function openProposalBuilder(decisionId = state.householdScenario?.decisionId) {
   let proposal = decisionId ? getProposal(decisionId) : null;
   const openingStoredProposal = proposal && state.proposal?.decisionId !== proposal.decisionId;
   if (openingStoredProposal || (proposal && !state.proposalCandidates.size)) state.proposalCandidates = new Map(proposal.candidates.map((candidate) => [candidate.id, candidate]));
-  if (proposalModeActive() && state.proposalCandidates.size) proposal = buildProposalFromSelection();
+  if (proposalModeActive() && state.householdScenario.decisionId === decisionId && state.proposalCandidates.size && proposal?.status !== "Ready for client") proposal = buildProposalFromSelection();
   if (!proposal) { showToast("Add an investment before continuing"); return; }
   state.proposal = proposal;
   if (!state.householdScenario?.proposalMode) {
@@ -1903,7 +1973,12 @@ function proposalAllocationMarkup(proposal) {
   const keys = ["concentration", "usEquity", "allocation", "cashWeight"];
   const entries = keys.map((key) => proposal.impact?.[key]).filter((item) => item?.format === "percent");
   if (!entries.length) return "";
-  return `<section class="proposal-document-section proposal-allocation-table"><span class="proposal-section-label">MODELED ALLOCATION</span><h3>Current and proposed household positioning</h3><table><thead><tr><th>Exposure</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead><tbody>${entries.map((item) => `<tr><th>${escapeHtml(item.label)}</th><td>${proposalImpactValue(item.before, "percent")}</td><td>${proposalImpactValue(item.after, "percent")}</td><td class="${Number(item.after) - Number(item.before) < 0 ? "negative" : "positive"}">${item.after === null ? "Pending data" : `${Number(item.after) - Number(item.before) >= 0 ? "+" : ""}${(Number(item.after) - Number(item.before)).toFixed(1)} pts`}</td></tr>`).join("")}</tbody></table><small>Modeled at the household level. Unchanged asset classes are omitted for clarity.</small></section>`;
+  return `<section class="proposal-document-section proposal-allocation-table"><span class="proposal-section-label">MODELED ALLOCATION</span><h3>Current and proposed household positioning</h3><table><thead><tr><th>Exposure</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead><tbody>${entries.map((item) => `<tr><th>${escapeHtml(item.label)}</th><td>${proposalImpactValue(item.before, "percent")}</td><td>${proposalImpactValue(item.after, "percent")}</td><td class="allocation-change">${item.after === null ? "Pending data" : `${Number(item.after) - Number(item.before) >= 0 ? "+" : ""}${(Number(item.after) - Number(item.before)).toFixed(1)} pts`}</td></tr>`).join("")}</tbody></table><small>Modeled at the household level. Unchanged asset classes are omitted for clarity.</small></section>`;
+}
+
+function proposalSubtitle(proposal) {
+  if (proposal.impactModel?.kind === "concentration" && proposal.impactModel.sourceSymbol === "AAPL") return "Reducing concentration in Apple";
+  return String(proposal.decisionTitle || proposal.objective || "Portfolio recommendation").replace(/\?$/, ".");
 }
 
 function renderProposalBuilder() {
@@ -1917,6 +1992,9 @@ function renderProposalBuilder() {
   const minimumsMet = proposal.candidates.every((candidate) => candidate.amount >= candidate.minimum);
   const allocationValid = proposal.candidates.length > 0 && remaining === 0 && minimumsMet;
   const readiness = getProposalReadiness(proposal);
+  const finalized = proposal.status === "Ready for client";
+  const requiredMinimum = proposal.candidates.reduce((sum, candidate) => sum + candidate.minimum, 0);
+  const minimumExplanation = requiredMinimum > proposal.totalAmount ? `Selected minimums total ${formatWealthCurrency(requiredMinimum)}; budget is ${formatWealthCurrency(proposal.totalAmount)}. Increase the amount or remove a solution.` : "";
   const feeDisclosures = proposal.candidates.map(proposalCandidateFeeDisclosure);
   const feesComplete = feeDisclosures.every((fee) => fee.complete);
   const weightedFee = proposal.candidates.reduce((sum, candidate, index) => sum + (feeDisclosures[index].rate || 0) * candidate.amount, 0) / Math.max(1, allocated);
@@ -1929,54 +2007,106 @@ function renderProposalBuilder() {
       : "No annual product-level fee is modeled for the selected direct securities. Advisory, custody, transaction and mark-up or mark-down charges may still apply.";
   const today = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
   updateHtml(el("proposalContent"), `<header class="proposal-workspace-header">
-      <div><button type="button" class="proposal-back-link" data-proposal-back-results>${backLabel("Investment selection")}</button><span class="eyebrow">TOTAL WEALTH · CLIENT PROPOSAL</span><h1 id="proposalPageTitle">Proposal for client review</h1><p>Finalize the recommendation, disclosures and client-ready document.</p></div>
-      <div class="proposal-header-actions"><button type="button" class="secondary-button" data-open-decision-from-proposal>Edit investments</button><button type="button" class="primary-button" data-proposal-generate aria-describedby="proposalReadinessStatus" ${readiness.ready ? "" : "disabled"}>Finalize proposal</button></div>
+      <div>${finalized ? "" : `<button type="button" class="proposal-back-link" data-proposal-back-results>${backLabel("Investment selection")}</button>`}<span class="eyebrow">TOTAL WEALTH · CLIENT PROPOSAL</span><h1 id="proposalPageTitle">${finalized ? "Client proposal" : "Proposal for client review"}</h1><p>${finalized ? "Finalized and saved to the household decision." : "Finalize the recommendation, disclosures and client-ready document."}</p></div>
+      <div class="proposal-header-actions">${finalized ? `<button type="button" class="secondary-button" data-proposal-print>Print / Save PDF</button><button type="button" class="secondary-button" data-proposal-reopen>Reopen to edit</button>` : `<button type="button" class="secondary-button" data-open-decision-from-proposal>Edit investments</button><button type="button" class="primary-button" data-proposal-generate aria-describedby="proposalReadinessStatus" ${readiness.ready ? "" : "disabled"}>Finalize proposal</button>`}</div>
     </header>
-    <nav class="proposal-stepper" aria-label="Proposal progress"><span class="complete"><i>✓</i>Define change</span><b></b><span class="complete"><i>✓</i>Select investments</span><b></b><span class="active"><i>3</i>Build proposal</span></nav>
+    <nav class="proposal-stepper" aria-label="Proposal progress"><button type="button" class="complete" data-return-decision-studio><i>✓</i>Define change</button><b></b><button type="button" class="complete" data-proposal-back-results><i>✓</i>Select investments</button><b></b><span class="active"><i>3</i>Build proposal</span></nav>
     <div class="proposal-builder-layout">
       <main class="proposal-document" id="proposalDocument">
         <header class="proposal-document-brand"><div><span class="brand-mark" aria-hidden="true">UPS</span><i></i><strong>WEALTH MANAGEMENT</strong></div><span>${escapeHtml(proposal.status.toUpperCase())}</span></header>
-        <section class="proposal-document-title"><span>INVESTMENT PROPOSAL · ${escapeHtml(today.toUpperCase())}</span><h2>Household investment proposal</h2><p>Prepared for <strong>${escapeHtml(proposal.members.join(" & ") || proposal.householdName)}</strong></p></section>
-        <section class="proposal-executive-summary"><div><span>HOUSEHOLD</span><strong>${escapeHtml(proposal.householdName)}</strong><small>${escapeHtml(proposal.decisionTitle)}</small></div><div><span>PROPOSED INVESTMENT</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small></div><div><span>SOLUTIONS</span><strong>${proposal.candidates.length}</strong><small>${escapeHtml(feeSummary)}</small></div></section>
+        <section class="proposal-document-title"><span>INVESTMENT PROPOSAL · ${escapeHtml(today.toUpperCase())}</span><h2>Household investment proposal</h2><p>Prepared for <strong>${escapeHtml(proposal.members.join(" & ") || proposal.householdName)}</strong></p><small>Values as of Aug 21, 2026</small></section>
+        <section class="proposal-executive-summary"><div><span>HOUSEHOLD</span><strong>${escapeHtml(proposal.householdName)}</strong><small>${escapeHtml(proposalSubtitle(proposal))}</small></div><div><span>PROPOSED INVESTMENT</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small></div><div><span>SOLUTIONS</span><strong>${proposal.candidates.length}</strong><small>${escapeHtml(feeSummary)}</small></div></section>
         <section class="proposal-document-section"><span class="proposal-section-label">WHY THIS CHANGE</span><h3>A portfolio decision grounded in the household</h3><p>${escapeHtml(proposal.rationale)}</p><div class="proposal-source-note"><span>Source of funds</span><strong>${escapeHtml(proposal.sourceLabel)}</strong><small>${escapeHtml(proposal.sourceValue)}</small></div></section>
         ${proposal.sections.householdImpact ? `<section class="proposal-document-section"><span class="proposal-section-label">HOUSEHOLD IMPACT</span><h3>What changes in the modeled portfolio</h3>${proposalImpactMarkup(proposal)}<div class="proposal-model-notes">${proposal.notes.map((note) => `<p>${escapeHtml(note)}</p>`).join("")}</div></section>` : ""}
         ${proposal.sections.householdImpact ? proposalAllocationMarkup(proposal) : ""}
         ${proposal.sections.proposedSolutions ? `<section class="proposal-document-section"><span class="proposal-section-label">PROPOSED SOLUTIONS</span><h3>How the capital would be allocated</h3>${proposalSolutionMarkup(proposal)}</section>` : ""}
-        ${proposal.sections.costsAndConsiderations ? `<section class="proposal-document-section proposal-considerations"><span class="proposal-section-label">COSTS & CONSIDERATIONS</span><div><p><strong>Estimated product cost</strong><span>${escapeHtml(costSummary)}</span></p><p><strong>Taxes</strong><span>${proposal.impactModel?.estimatedRealizedGain != null ? `Estimated realized gain: ${currency.format(proposal.impactModel.estimatedRealizedGain)}, using proportional position-level cost basis. ` : ""}Cash and allocation figures are before taxes. Tax-lot selection and any cash needed for taxes require review; no tax liability is estimated.</span></p><p><strong>Implementation</strong><span>Final eligibility, restrictions, account funding and operational readiness must be confirmed before execution.</span></p></div></section>` : ""}
+        ${proposal.sections.costsAndConsiderations ? `<section class="proposal-document-section proposal-considerations"><span class="proposal-section-label">COSTS & CONSIDERATIONS</span><div><p><strong>Estimated product cost</strong><span>${escapeHtml(costSummary)}</span></p><p><strong>Taxes</strong><span>${proposal.impactModel?.estimatedRealizedGain != null ? `Estimated realized gain: ${currency.format(proposal.impactModel.estimatedRealizedGain)}, using proportional position-level cost basis. ` : ""}Cash and allocation figures are before taxes. Tax-lot selection and any cash needed for taxes require review; no tax liability is estimated.</span></p>${proposal.impact?.cashWeight?.after > (proposal.impactModel?.cashPolicyPct ?? 4) ? `<p><strong>Cash policy</strong><span>Proposed cash of ${Number(proposal.impact.cashWeight.after).toFixed(1)}% remains above the ${proposal.impactModel?.cashPolicyPct ?? 4}% policy. Review the open excess-cash decision before implementation.</span></p>` : ""}<p><strong>Implementation</strong><span>Final eligibility, restrictions, account funding and operational readiness must be confirmed before execution.</span></p></div></section>` : ""}
         ${proposal.sections.nextSteps ? `<section class="proposal-document-section proposal-next-steps"><span class="proposal-section-label">NEXT STEPS</span><h3>Review together before anything is implemented</h3><ol><li><i>1</i><span><strong>Discuss the proposed change</strong><small>Confirm the household objective and the amount to reposition.</small></span></li><li><i>2</i><span><strong>Review the selected solutions</strong><small>Consider strategy, fees, risks, liquidity and tax implications.</small></span></li><li><i>3</i><span><strong>Approve implementation</strong><small>No transaction occurs until the required client and firm approvals are complete.</small></span></li></ol></section>` : ""}
         <section class="proposal-disclosures"><strong>Important information</strong><p>This document is an illustrative discussion aid and is not a trade confirmation, offer or solicitation. It does not by itself authorize a transaction. Proposed investments remain subject to suitability, best-interest, product eligibility, concentration, liquidity, tax, account and firm-approval review. Values and market data are as of the date shown and may change. Past performance does not guarantee future results. Fees reduce returns; consult current product materials, Form CRS, applicable Form ADV disclosures and offering documents before implementation. Tax information is general and is not tax advice. Client consent and all required supervisory approvals must be documented before any transaction.</p></section>
         <footer class="proposal-document-footer"><span>Illustrative client proposal · Prepared for discussion</span><span>${escapeHtml(proposal.id)}</span></footer>
       </main>
-      <aside class="proposal-composer">
+      ${finalized ? `<aside class="proposal-composer proposal-finalized-summary"><span>READY FOR CLIENT</span><h2>Proposal finalized</h2><p>This version is read-only. Print it for the client conversation, or reopen it to make changes.</p><button type="button" class="secondary-button" data-proposal-print>Print / Save PDF</button></aside>` : `<aside class="proposal-composer">
         <div class="proposal-composer-heading"><span>PROPOSAL CONFIGURATION</span><h2>Shape the client conversation</h2><p>Amounts and included sections update the proposal preview.</p></div>
-        <section class="proposal-funding-card"><span>CAPITAL TO ALLOCATE</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small><div><i style="width:${Math.min(100, (allocated / Math.max(1, proposal.totalAmount)) * 100)}%"></i></div><p><span>${formatWealthCurrency(allocated)} allocated</span><b class="${allocationValid ? "complete" : ""}">${!minimumsMet ? "Investment minimum not met" : `${formatWealthCurrency(Math.abs(remaining))} ${remaining < 0 ? "over" : "remaining"}`}</b></p></section>
-        <section class="proposal-allocation-editor"><div class="proposal-composer-section-heading"><span>ALLOCATION</span><button type="button" data-proposal-rebalance>Split evenly</button></div>${proposal.candidates.map((candidate) => { const belowMinimum = candidate.amount < candidate.minimum; const otherMinimums = proposal.candidates.filter((item) => item.id !== candidate.id).reduce((sum, item) => sum + item.minimum, 0); const maximum = Math.max(candidate.minimum, proposal.totalAmount - otherMinimums); return `<label class="${belowMinimum ? "below-minimum" : ""}"><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.symbol || candidate.category)} · ${formatWealthCurrency(candidate.minimum)} minimum</small></span><output>${formatWealthCurrency(candidate.amount)} <em>${proposal.totalAmount ? ((candidate.amount / proposal.totalAmount) * 100).toFixed(0) : 0}%</em></output><input type="range" min="${candidate.minimum}" max="${maximum}" step="5000" value="${candidate.amount}" data-proposal-allocation="${escapeHtml(candidate.id)}" aria-label="Allocation for ${escapeHtml(candidate.name)}" ${proposal.candidates.length === 1 ? "disabled" : ""}/></label>`; }).join("")}</section>
+        <section class="proposal-funding-card"><span>CAPITAL TO ALLOCATE</span><strong>${formatWealthCurrency(proposal.totalAmount)}</strong><small>${escapeHtml(proposal.sourceLabel)}</small><progress id="proposalFundingProgress" value="${allocated}" max="${Math.max(1, proposal.totalAmount)}">${Math.round(allocated / Math.max(1, proposal.totalAmount) * 100)}%</progress><p><span data-proposal-allocated>${formatWealthCurrency(allocated)} allocated</span><b data-proposal-remaining class="${allocationValid ? "complete" : ""}">${minimumExplanation || (!minimumsMet ? "Investment minimum not met" : `${formatWealthCurrency(Math.abs(remaining))} ${remaining < 0 ? "over" : "remaining"}`)}</b></p></section>
+        <section class="proposal-allocation-editor"><div class="proposal-composer-section-heading"><span>ALLOCATION</span><button type="button" data-proposal-rebalance>Split evenly</button></div>${proposal.candidates.map((candidate) => { const belowMinimum = candidate.amount < candidate.minimum; return `<label data-proposal-allocation-row="${escapeHtml(candidate.id)}" class="${belowMinimum ? "below-minimum" : ""}"><span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.symbol || candidate.category)} · ${formatWealthCurrency(candidate.minimum)} minimum</small></span><span class="proposal-amount-input"><input type="number" min="0" step="5000" value="${candidate.amount}" inputmode="numeric" data-proposal-allocation="${escapeHtml(candidate.id)}" aria-label="Allocation in dollars for ${escapeHtml(candidate.name)}" aria-describedby="proposal-minimum-${escapeHtml(candidate.id)}" ${proposal.candidates.length === 1 ? "disabled" : ""}/><output data-proposal-share="${escapeHtml(candidate.id)}">${proposal.totalAmount ? ((candidate.amount / proposal.totalAmount) * 100).toFixed(1) : 0}%</output></span><progress data-proposal-allocation-progress="${escapeHtml(candidate.id)}" value="${candidate.amount}" max="${Math.max(1, proposal.totalAmount)}">${candidate.amount}</progress><small id="proposal-minimum-${escapeHtml(candidate.id)}" data-proposal-minimum-error="${escapeHtml(candidate.id)}">${belowMinimum ? `${formatWealthCurrency(candidate.minimum - candidate.amount)} below the ${formatWealthCurrency(candidate.minimum)} minimum` : ""}</small></label>`; }).join("")}</section>
         <section class="proposal-section-editor"><div class="proposal-composer-section-heading"><span>CLIENT SECTIONS</span></div>${[["householdImpact", "Household impact"], ["proposedSolutions", "Proposed solutions"], ["costsAndConsiderations", "Costs & considerations"], ["nextSteps", "Next steps"]].map(([key, label]) => `<label><input type="checkbox" data-proposal-section="${key}" ${proposal.sections[key] ? "checked" : ""}/><span>${label}</span></label>`).join("")}</section>
         <label class="proposal-rationale-editor"><span>ADVISOR RATIONALE</span><textarea maxlength="1200" data-proposal-rationale>${escapeHtml(proposal.rationale)}</textarea></label>
         <section class="proposal-readiness" id="proposalReadinessStatus" data-proposal-readiness-status><span class="proposal-readiness-label">CLIENT READINESS</span>${proposalReadinessMarkup(readiness)}</section>
         <button type="button" class="primary-button proposal-generate-button" data-proposal-generate aria-describedby="proposalReadinessStatus" ${readiness.ready ? "" : "disabled"}>Finalize client proposal <span aria-hidden="true">→</span></button>
         <small class="proposal-autosave">Draft saved to this household decision</small>
-      </aside>
+      </aside>`}
     </div>`);
 }
 
 function updateProposal(updates) {
-  if (!state.proposal) return null;
-  state.proposal = saveProposal({ ...state.proposal, ...updates, status: state.proposal.status === "Ready for client" ? "Draft" : state.proposal.status });
+  if (!state.proposal || state.proposal.status === "Ready for client") return null;
+  state.proposal = saveProposal({ ...state.proposal, ...updates });
   return state.proposal;
 }
 
+function updateProposalAllocationInPlace(selectedId, requestedAmount) {
+  if (!state.proposal || state.proposal.status === "Ready for client" || !Number.isFinite(requestedAmount)) return;
+  const candidates = reallocateProposalCandidate(state.proposal.candidates, state.proposal.totalAmount, selectedId, requestedAmount);
+  state.proposalCandidates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  updateProposal({ candidates });
+  const proposal = state.proposal;
+  const allocated = proposalAllocated(proposal);
+  const requiredMinimum = candidates.reduce((sum, candidate) => sum + candidate.minimum, 0);
+  const progress = el("proposalFundingProgress");
+  if (progress) progress.value = allocated;
+  const allocatedLabel = document.querySelector("[data-proposal-allocated]");
+  if (allocatedLabel) allocatedLabel.textContent = `${formatWealthCurrency(allocated)} allocated`;
+  const remainingLabel = document.querySelector("[data-proposal-remaining]");
+  if (remainingLabel) {
+    remainingLabel.textContent = requiredMinimum > proposal.totalAmount
+      ? `Selected minimums total ${formatWealthCurrency(requiredMinimum)}; budget is ${formatWealthCurrency(proposal.totalAmount)}. Increase the amount or remove a solution.`
+      : `${formatWealthCurrency(Math.abs(proposal.totalAmount - allocated))} ${allocated > proposal.totalAmount ? "over" : "remaining"}`;
+    remainingLabel.classList.toggle("complete", requiredMinimum <= proposal.totalAmount && allocated === proposal.totalAmount);
+  }
+  for (const candidate of candidates) {
+    const input = document.querySelector(`[data-proposal-allocation="${CSS.escape(candidate.id)}"]`);
+    if (input && candidate.id !== selectedId) input.value = candidate.amount;
+    const output = document.querySelector(`[data-proposal-share="${CSS.escape(candidate.id)}"]`);
+    if (output) output.textContent = `${(candidate.amount / Math.max(1, proposal.totalAmount) * 100).toFixed(1)}%`;
+    const bar = document.querySelector(`[data-proposal-allocation-progress="${CSS.escape(candidate.id)}"]`);
+    if (bar) bar.value = candidate.amount;
+    const row = document.querySelector(`[data-proposal-allocation-row="${CSS.escape(candidate.id)}"]`);
+    row?.classList.toggle("below-minimum", candidate.amount < candidate.minimum);
+    const error = document.querySelector(`[data-proposal-minimum-error="${CSS.escape(candidate.id)}"]`);
+    if (error) error.textContent = candidate.amount < candidate.minimum ? `${formatWealthCurrency(candidate.minimum - candidate.amount)} below the ${formatWealthCurrency(candidate.minimum)} minimum` : "";
+  }
+  const solutions = document.querySelector(".proposal-solutions-table-wrap");
+  if (solutions) solutions.outerHTML = proposalSolutionMarkup(proposal);
+  const impact = document.querySelector(".proposal-impact-grid");
+  if (impact) impact.outerHTML = proposalImpactMarkup(proposal);
+  const allocation = document.querySelector(".proposal-allocation-table");
+  if (allocation) allocation.outerHTML = proposalAllocationMarkup(proposal);
+  syncProposalReadinessControls();
+}
+
 function generateClientProposal() {
+  if (state.proposal?.status === "Ready for client") return;
   const readiness = getProposalReadiness(state.proposal);
   if (!readiness.ready) { showToast(readiness.blockers[0]?.label || "Complete the proposal before finalizing"); syncProposalReadinessControls(); return; }
   state.proposal = markProposalReady(state.proposal.decisionId);
   if (!state.proposal) { showToast("Proposal could not be finalized"); return; }
   setDecisionCandidates(state.proposal.decisionId, state.proposal.candidates);
-  setDecisionPlanStatus(state.proposal.decisionId, "Ready for client");
+  recordDecisionTransition({ decisionId: state.proposal.decisionId, householdId: state.proposal.householdId, status: "Ready for client", title: "Client proposal finalized", detail: state.proposal.decisionTitle, type: "plan" });
   renderProposalBuilder();
   renderBookRows();
   updateHtml(el("proposalReadyContent"), `<div class="proposal-ready-state"><button type="button" class="proposal-ready-close" data-close-modal="proposalReadyModal" aria-label="Close">×</button><span class="proposal-ready-check">✓</span><small>CLIENT PROPOSAL READY</small><h2>${escapeHtml(state.proposal.householdName)}</h2><p>The ${formatWealthCurrency(state.proposal.totalAmount)} proposal is attached to the household decision and ready for the client conversation.</p><div><button type="button" class="secondary-button" data-proposal-print>Print or save PDF</button><button type="button" class="primary-button" data-proposal-return-household>Return to household</button></div><span class="proposal-ready-meta">${state.proposal.candidates.length} ${state.proposal.candidates.length === 1 ? "solution" : "solutions"} · ${escapeHtml(state.proposal.status)}</span></div>`);
   el("proposalReadyModal").showModal();
+}
+
+function confirmReopenProposal() {
+  if (state.proposal?.status !== "Ready for client") return;
+  if (!window.confirm("Reopen this finalized proposal for editing? Its status will return to Draft until you finalize it again.")) return;
+  state.proposal = reopenProposal(state.proposal.decisionId);
+  if (!state.proposal) { showToast("Unable to reopen proposal"); return; }
+  setDecisionPlanStatus(state.proposal.decisionId, "Plan drafted");
+  renderProposalBuilder();
+  renderWealthWorkspace();
+  renderBookRows();
 }
 
 function toggleCompare(id, checked) {
@@ -1998,7 +2128,7 @@ function chartSvg(series, benchmarkSeries = []) {
   const investmentPoints = points(series);
   const benchmarkPoints = benchmarkSeries.length ? points(benchmarkSeries) : "";
   const area = `${paddingX},${height - paddingY} ${investmentPoints} ${width - paddingX},${height - paddingY}`;
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Illustrative investment and benchmark performance"><defs><linearGradient id="profileChartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#16764d" stop-opacity=".18"/><stop offset="1" stop-color="#16764d" stop-opacity="0"/></linearGradient></defs><line x1="12" y1="54" x2="748" y2="54"/><line x1="12" y1="105" x2="748" y2="105"/><line x1="12" y1="156" x2="748" y2="156"/><polygon points="${area}" fill="url(#profileChartFill)"/>${benchmarkPoints ? `<polyline points="${benchmarkPoints}" class="benchmark-line"/>` : ""}<polyline points="${investmentPoints}" class="investment-line"/></svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Modeled investment and benchmark performance"><defs><linearGradient id="profileChartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#16764d" stop-opacity=".18"/><stop offset="1" stop-color="#16764d" stop-opacity="0"/></linearGradient></defs><line x1="12" y1="54" x2="748" y2="54"/><line x1="12" y1="105" x2="748" y2="105"/><line x1="12" y1="156" x2="748" y2="156"/><polygon points="${area}" fill="url(#profileChartFill)"/>${benchmarkPoints ? `<polyline points="${benchmarkPoints}" class="benchmark-line"/>` : ""}<polyline points="${investmentPoints}" class="investment-line"/></svg>`;
 }
 
 function detailSummary(id) {
@@ -2085,14 +2215,14 @@ function renderResearchProfile(item) {
     </header>
     <nav class="profile-nav" aria-label="Investment profile sections">${navigation.map(([label, section]) => `<button data-profile-section="${section}">${escapeHtml(label)}</button>`).join("")}</nav>
     <div class="profile-body">
-      <section class="profile-section" id="profile-overview"><div class="section-heading"><span>Decision snapshot</span><h3>Investment overview</h3><p>Mandate, benchmark and key characteristics in one underwriting view.</p></div><div class="overview-layout"><div class="profile-description"><h4>Mandate</h4><p>${escapeHtml(item.description)}</p><dl><div><dt>Objective</dt><dd>${escapeHtml(item.objective)}</dd></div><div><dt>Benchmark</dt><dd>${escapeHtml(item.benchmark)}</dd></div></dl></div><div class="snapshot-table"><div class="table-caption"><strong>Key facts</strong><span>As of ${escapeHtml(item.asOf)}</span></div>${pairedFactsTable(profile.keyFacts)}</div></div></section>
+      <section class="profile-section" id="profile-overview"><div class="section-heading"><span>Decision snapshot</span><h3>Investment overview</h3><p>Mandate, benchmark and key characteristics in one underwriting view.</p></div><div class="overview-layout"><div class="profile-description"><h4>Mandate</h4><p>${escapeHtml(item.description)}</p><dl><div><dt>Objective</dt><dd>${escapeHtml(item.objective)}</dd></div><div><dt>Benchmark</dt><dd>${escapeHtml(item.benchmark)}</dd></div></dl></div><div class="snapshot-table"><div class="table-caption"><strong>Key facts</strong><span>Reference as of ${escapeHtml(item.asOf)}${Object.keys(item.live || {}).length ? " · live fields from market feed" : ""}</span></div>${pairedFactsTable(profile.keyFacts)}</div></div></section>
       <section class="profile-section changes-section" id="profile-changes"><div class="section-heading"><span>Monitoring</span><h3>Recent changes</h3><p>Material research, shelf and data activity in one reviewable history.</p></div><div class="change-log">${controls.changes.map((change) => `<article class="change-row"><time>${escapeHtml(change.date)}</time><span class="change-type">${escapeHtml(change.type)}</span><div><h4>${escapeHtml(change.title)}</h4><p>${escapeHtml(change.summary)}</p></div><small>${escapeHtml(change.owner)}</small></article>`).join("")}</div></section>
-      <section class="profile-section" id="profile-performance"><div class="section-heading"><span>Track record</span><h3>${escapeHtml(profile.performance.title)}</h3><p>${escapeHtml(profile.performance.subtitle)}</p></div><div class="performance-layout"><div class="profile-chart"><div class="chart-legend"><span class="investment">Investment</span><span class="benchmark">${escapeHtml(item.benchmark)}</span></div>${chartSvg(profile.performance.series, profile.performance.benchmarkSeries)}</div><table class="performance-table"><thead><tr><th>Period</th><th>Investment</th><th>Benchmark</th><th>Excess</th></tr></thead><tbody>${profile.performance.rows.map((row) => { const excess = Number((row.investment - row.benchmark).toFixed(2)); return `<tr><th>${escapeHtml(row.period)}</th><td>${formatReturn(row.investment)}</td><td>${formatReturn(row.benchmark)}</td><td class="${excess >= 0 ? "positive" : "negative"}">${formatReturn(excess)}</td></tr>`; }).join("")}</tbody></table></div></section>
-      <section class="profile-section" id="profile-composition"><div class="section-heading"><span>Exposure</span><h3>${escapeHtml(profile.composition.title)}</h3><p>${escapeHtml(profile.composition.subtitle)}</p></div><div class="composition-layout"><div><div class="table-caption"><strong>Exposure mix</strong><span>Illustrative %</span></div>${breakdownRows(profile.composition.breakdown)}</div><div class="characteristic-list"><div class="table-caption"><strong>${profile.composition.holdings.length ? "Key holdings / characteristics" : "Analytical context"}</strong></div>${profile.composition.holdings.length ? holdingsTable(profile.composition.holdings) : `<p>Review fundamentals, valuation, growth and capital-return measures alongside current research.</p>`}</div></div></section>
+      <section class="profile-section" id="profile-performance"><div class="section-heading"><span>Track record</span><h3>${escapeHtml(profile.performance.title)}</h3><p>${escapeHtml(profile.performance.subtitle)}</p></div><div class="performance-layout"><div class="profile-chart"><div class="chart-legend"><span class="investment">Investment</span><span class="benchmark">${escapeHtml(item.benchmark)}</span></div>${chartSvg(profile.performance.series, profile.performance.benchmarkSeries)}</div><table class="performance-table"><thead><tr><th>Period</th><th>Investment</th><th>Benchmark</th><th>Excess</th></tr></thead><tbody>${profile.performance.rows.map((row) => { const excess = Number((row.investment - row.benchmark).toFixed(2)); const mixedBasis = row.period === "1 year" && Number.isFinite(item.live?.perf1) || row.period === "3 years" && Number.isFinite(item.live?.perf3); return `<tr><th>${escapeHtml(row.period)}</th><td>${formatReturn(row.investment)}</td><td>${formatReturn(row.benchmark)}</td><td class="${mixedBasis ? "" : excess >= 0 ? "positive" : "negative"}">${mixedBasis ? "—" : formatReturn(excess)}</td></tr>`; }).join("")}</tbody></table></div></section>
+      <section class="profile-section" id="profile-composition"><div class="section-heading"><span>Exposure</span><h3>${escapeHtml(profile.composition.title)}</h3><p>${escapeHtml(profile.composition.subtitle)}</p></div><div class="composition-layout"><div><div class="table-caption"><strong>Exposure mix</strong><span>Portfolio %</span></div>${breakdownRows(profile.composition.breakdown)}</div><div class="characteristic-list"><div class="table-caption"><strong>${profile.composition.holdings.length ? "Key holdings / characteristics" : "Analytical context"}</strong></div>${profile.composition.holdings.length ? holdingsTable(profile.composition.holdings) : `<p>Review fundamentals, valuation, growth and capital-return measures alongside current research.</p>`}</div></div></section>
       <section class="profile-section" id="profile-risk"><div class="section-heading"><span>Decision context</span><h3>Risk & analytical measures</h3><p>Each measure is paired with its analytical meaning and comparison basis.</p></div>${metricTable(profile.riskMetrics, "risk-table")}</section>
       <section class="profile-section" id="profile-fees"><div class="section-heading"><span>Implementation</span><h3>Fees & operations</h3><p>Cost, liquidity and implementation terms in an operational review format.</p></div><div class="fees-layout"><div><div class="table-caption"><strong>Costs</strong></div>${metricTable(profile.fees, "fee-table")}</div><div><div class="table-caption"><strong>Operating terms</strong></div>${metricTable(profile.operations, "operations-table")}</div></div></section>
       <section class="profile-section research-section" id="profile-research"><div class="section-heading"><span>House perspective</span><h3>UPS research & shelf context</h3></div><div class="research-card"><div><span class="research-label">${escapeHtml(profile.research.reviewed)}</span><h4>${escapeHtml(profile.research.title)}</h4><p>${escapeHtml(profile.research.summary)}</p><ul>${profile.research.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul><small>Coverage owner · ${escapeHtml(profile.research.owner)}</small></div><div class="governed-flags"><h4>Governed designations</h4>${item.flagDetails.length ? item.flagDetails.map((flag) => `<div class="flag-detail"><strong>${badge(flag.name)} ${escapeHtml(flag.name)}</strong><span>${escapeHtml(flag.definition)}</span><em>${escapeHtml(flag.owner)}<br>${escapeHtml(flag.effective)}</em></div>`).join("") : `<p>No active governed designations.</p>`}</div></div></section>
-      <p class="profile-disclosure">Illustrative prototype data · Not for investment decisions · Values and research shown here are representative of the intended production experience.</p>
+      <p class="profile-data-sources">Data sources · Listed identity: exchange reference; market price and available fund metrics: Yahoo Finance; other portfolio and research figures: workspace model as of ${escapeHtml(item.asOf)}.</p>
     </div>`;
   el("drawerLoading").hidden = true;
   el("drawerContent").hidden = false;
@@ -2111,6 +2241,7 @@ async function openDetail(id, { mode = "panel", pushHistory = true, replaceHisto
   el("drawerBackdrop").hidden = mode === "page";
   el("detailDrawer").classList.add("open");
   el("detailDrawer").setAttribute("aria-hidden", "false");
+  el("detailDrawer").inert = false;
   el("detailDrawer").setAttribute("aria-modal", mode === "panel" ? "true" : "false");
   renderDetailSkeleton(detailSummary(id));
   const summary = detailSummary(id);
@@ -2135,6 +2266,7 @@ function closeDrawer({ fromHistory = false } = {}) {
   state.detailRequest += 1;
   el("detailDrawer").classList.remove("open");
   el("detailDrawer").setAttribute("aria-hidden", "true");
+  el("detailDrawer").inert = true;
   el("drawerBackdrop").hidden = true;
   document.body.classList.remove("profile-route");
   document.body.classList.remove("profile-panel-open");
@@ -2214,7 +2346,7 @@ function updateCompareChartSummary() {
     return `${item.symbol} ${formatChartReturn(value)}`;
   });
   if (compareBenchmarkVisible) labels.push(`S&P 500 ${formatChartReturn(compareRangeData.get("benchmark-sp500")?.at(-1)?.value)}`);
-  el("compareChartSummary").textContent = `${compareRange} illustrative total return: ${labels.join(", ")}.`;
+  el("compareChartSummary").textContent = `${compareRange} modeled total return: ${labels.join(", ")}.`;
 }
 
 function drawCompareRange() {
@@ -2314,7 +2446,7 @@ function renderCompareModal() {
   const rows = [
     ["Vehicle", (item) => item.type], ["Manager / issuer", (item) => item.manager], ["Asset class", (item) => item.assetClass],
     ["Objective", (item) => item.objective], ["Minimum", (item) => formatMinimum(item.minimum)],
-    ["Annual fee", (item) => formatFee(item.fee)], ["Risk", (item) => item.risk],
+    ["Annual fee", (item) => formatFee(comparisonFee(item, state.snapshotCache.get(item.id), state.currentDetail))], ["Risk", (item) => item.risk],
     ["UPS flags", (item) => item.flags.join(", ") || "None"], ["Liquidity", (item) => item.liquidity],
   ];
   renderCompareLegend(items);
@@ -2337,6 +2469,7 @@ function renderSavedScreens() {
 function applySavedScreen(id) {
   const screen = getSavedScreens().find((item) => item.id === id);
   if (!screen) return;
+  clearQueryDerivedFilters(state);
   state.category = screen.state.category || "All";
   state.q = screen.state.q || "";
   state.flags = new Set(screen.state.flags || []);
@@ -2387,6 +2520,9 @@ function hydrateFromUrl() {
   state.flags = new Set((params.get("flags") || "").split(",").filter((value) => PRIMARY_FLAGS.includes(value)));
   state.risks = new Set((params.get("risks") || "").split(",").filter((value) => RISKS.includes(value)));
   state.statuses = new Set((params.get("statuses") || "").split(",").filter((value) => STATUSES.includes(value)));
+  state.excludedQueryFilters = new Set((params.get("excludedQueryFilters") || "").split(",").filter(Boolean));
+  state.queryFilterKeys = new Set((params.get("queryFilterKeys") || "").split(",").filter(Boolean));
+  state.suppressInferenceFor = params.get("suppressInference") === "1" ? state.q : null;
   const legacyMinimum = Number(params.get("maxMinimum"));
   const legacyFee = Number(params.get("maxFee"));
   const legacyRanges = {
@@ -2421,6 +2557,8 @@ document.addEventListener("click", (event) => {
     state.bookCursor = 0;
     loadBook();
   }
+  const stepOne = event.target.closest("[data-return-decision-studio]");
+  if (stepOne) { returnToDecisionStudio(); return; }
   const scenarioBack = event.target.closest("#scenarioBack");
   if (scenarioBack && state.householdScenario?.householdId) returnFromInvestmentContext();
   const wealthRangeButton = event.target.closest("[data-wealth-range]");
@@ -2444,8 +2582,18 @@ document.addEventListener("click", (event) => {
   if (householdScenario?.dataset.householdScenario === "concentration") applyHouseholdScenario(state.concentrationSearchIntent);
   if (event.target.closest("[data-close-wealth-drawer]") || event.target === el("wealthDrawerBackdrop")) closeWealthDrawer();
   if (event.target.closest("[data-close-decision-studio]") || event.target === el("decisionStudioBackdrop")) closeDecisionStudio();
-  if (event.target.closest("[data-decision-build-plan]")) buildActiveDecisionPlan();
   if (event.target.closest("[data-decision-implement]")) launchDecisionImplementation();
+  if (event.target.closest("[data-decision-schedule]") && state.activeDecisionDetail) {
+    const detail = state.activeDecisionDetail;
+    const source = fundingSourceForAmount(state.activeDecisionScenario?.economics.fundingAmount || 0);
+    const dueDate = detail.relatedGoal?.nextReview || detail.evidence.detail.match(/(?:due|scheduled|within|by)\s+[^.]+/i)?.[0] || "Review with client";
+    state.activeDecisionPlan = scheduleDecisionFunding({ decision: detail.decision, householdId: state.currentHouseholdId, steps: detail.planTemplate, implementationAmount: state.activeDecisionScenario?.economics.fundingAmount || 0, sourceAccountName: source.label, dueDate });
+    renderDecisionStudio(); renderWealthWorkspace(); renderBookRows(); showToast("Funding plan scheduled");
+  }
+  if ((event.target.closest("[data-decision-funded]") || event.target.closest("[data-decision-complete]")) && state.activeDecisionDetail) {
+    completeDecision({ decision: state.activeDecisionDetail.decision, householdId: state.currentHouseholdId });
+    renderDecisionStudio(); renderWealthWorkspace(); renderBookRows(); showToast("Decision marked complete");
+  }
   const openProposal = event.target.closest("[data-open-proposal]");
   if (openProposal) { closeDecisionStudio({ restoreFocus: false }); openProposalBuilder(openProposal.dataset.openProposal); }
   const proposalSelection = event.target.closest("[data-proposal-id]");
@@ -2457,6 +2605,7 @@ document.addEventListener("click", (event) => {
   const amountChoice = event.target.closest("[data-scenario-amount]");
   if (amountChoice) refreshEmbeddedMandate({ [amountChoice.dataset.scenarioAmountKey || "redeployAmount"]: Number(amountChoice.dataset.scenarioAmount) });
   if (event.target.closest("[data-proposal-generate]")) generateClientProposal();
+  if (event.target.closest("[data-proposal-reopen]")) confirmReopenProposal();
   if (event.target.closest("[data-proposal-rebalance]") && state.proposal) {
     const candidates = allocateProposalCandidates(state.proposal.candidates, state.proposal.totalAmount);
     state.proposalCandidates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
@@ -2504,7 +2653,7 @@ document.addEventListener("click", (event) => {
     drawCompareRange();
   }
   const category = event.target.closest("[data-category]");
-  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.ranges = {}; state.q = state.category === "All" ? state.q : ""; if (state.category !== "All") el("searchInput").value = ""; normalizeActiveSort(); runSearch(); }
+  if (category) { state.category = category.dataset.category; state.appliedCategory = state.category; state.ranges = {}; state.queryFilterKeys.clear(); normalizeActiveSort(); runSearch(); }
   const screen = event.target.closest("[data-screen]");
   if (screen) applyQuickScreen(screen.dataset.screen);
   const detail = event.target.closest("[data-detail-id]");
@@ -2517,7 +2666,7 @@ document.addEventListener("click", (event) => {
   const remove = event.target.closest("[data-remove-filter]");
   if (remove) removeFilter(remove.dataset.removeFilter);
   const resetRange = event.target.closest("[data-reset-range]");
-  if (resetRange) { delete state.ranges[resetRange.dataset.resetRange]; runSearch(); }
+  if (resetRange) { const key = `range:${resetRange.dataset.resetRange}`; if (state.queryFilterKeys.has(key)) state.excludedQueryFilters.add(key); state.queryFilterKeys.delete(key); delete state.ranges[resetRange.dataset.resetRange]; runSearch(); }
   const removeCompare = event.target.closest("[data-remove-compare]");
   if (removeCompare) toggleCompare(removeCompare.dataset.removeCompare, false);
   if (event.target.closest("[data-close-drawer]") || event.target === el("drawerBackdrop")) closeDrawer();
@@ -2617,18 +2766,11 @@ document.addEventListener("change", (event) => {
     renderColumnConfigurator();
   }
   if (target.matches("#compareBenchmark")) { compareBenchmarkVisible = target.checked; drawCompareRange(); }
-  if (target.matches('[data-filter="flag"]')) { target.checked ? state.flags.add(target.value) : state.flags.delete(target.value); runSearch(); }
-  if (target.matches('[data-filter="risk"]')) { target.checked ? state.risks.add(target.value) : state.risks.delete(target.value); runSearch(); }
+  if (target.matches('[data-filter="flag"]')) { const key = `flag:${target.value}`; state.queryFilterKeys.delete(key); if (target.checked) { state.flags.add(target.value); state.excludedQueryFilters.delete(key); } else { state.flags.delete(target.value); state.excludedQueryFilters.add(key); } runSearch(); }
+  if (target.matches('[data-filter="risk"]')) { const key = `risk:${target.value}`; state.queryFilterKeys.delete(key); if (target.checked) { state.risks.add(target.value); state.excludedQueryFilters.delete(key); } else { state.risks.delete(target.value); state.excludedQueryFilters.add(key); } runSearch(); }
   if (target.matches('[data-filter="status"]')) { target.checked ? state.statuses.add(target.value) : state.statuses.delete(target.value); runSearch(); }
   if (target.matches("[data-compare-id]")) toggleCompare(target.dataset.compareId, target.checked);
   if (target.matches("[data-scenario-target]")) refreshEmbeddedMandate({ targetWeight: Number(target.value) });
-  if (target.matches("[data-proposal-allocation]") && state.proposal) {
-    const amount = Math.max(0, Math.round(Number(target.value) || 0));
-    const candidates = reallocateProposalCandidate(state.proposal.candidates, state.proposal.totalAmount, target.dataset.proposalAllocation, amount);
-    state.proposalCandidates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-    updateProposal({ candidates });
-    renderProposalBuilder();
-  }
   if (target.matches("[data-proposal-section]") && state.proposal) {
     updateProposal({ sections: { ...state.proposal.sections, [target.dataset.proposalSection]: target.checked } });
     renderProposalBuilder();
@@ -2636,9 +2778,17 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-proposal-allocation]") && event.target.value !== "") {
+    updateProposalAllocationInPlace(event.target.dataset.proposalAllocation, Math.max(0, Math.round(Number(event.target.value))));
+    return;
+  }
   if (!event.target.matches("[data-proposal-rationale]") || !state.proposal) return;
   updateProposal({ rationale: event.target.value });
   syncProposalReadinessControls();
+});
+
+document.addEventListener("focusout", (event) => {
+  if (event.target.matches("[data-proposal-allocation]") && state.proposal?.status === "Draft") renderProposalBuilder();
 });
 
 document.addEventListener("error", (event) => {
@@ -2650,12 +2800,12 @@ document.addEventListener("error", (event) => {
 el("searchForm").addEventListener("submit", (event) => {
   event.preventDefault();
   window.clearTimeout(debounceTimer);
-  state.q = el("searchInput").value.trim();
+  setSearchQuery(el("searchInput").value.trim());
   if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
   runSearch();
 });
 el("searchInput").addEventListener("input", () => {
-  state.q = el("searchInput").value.trim();
+  setSearchQuery(el("searchInput").value.trim());
   window.clearTimeout(debounceTimer);
   cancelActiveSearch();
   if (state.q.length === 1) { el("latency").textContent = "Type 1 more"; el("latency").title = "Enter at least two characters to search"; return; }
@@ -2669,7 +2819,7 @@ el("bookSearch").addEventListener("input", (event) => {
 el("bookSort").addEventListener("change", (event) => { state.bookSort = event.target.value; loadBook(); });
 el("bookLoadMore").addEventListener("click", () => { if (state.bookNextCursor !== null) { state.bookCursor = state.bookNextCursor; loadBook({ reset: false }); } });
 el("sortSelect").addEventListener("change", (event) => { state.sort = event.target.value; state.sortExplicit = true; runSearch(); });
-el("clearAll").addEventListener("click", () => { state.q = ""; state.category = "All"; state.appliedCategory = "All"; state.flags.clear(); state.risks.clear(); state.statuses.clear(); state.ranges = {}; state.sort = defaultSort(false); state.sortExplicit = false; el("searchInput").value = ""; runSearch(); });
+el("clearAll").addEventListener("click", () => { clearAllSearchFilters(state); runSearch(); });
 el("prevPage").addEventListener("click", () => { if (state.previousCursor !== null) { state.cursor = state.previousCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("nextPage").addEventListener("click", () => { if (state.nextCursor !== null) { state.cursor = state.nextCursor; runSearch({ preserveCursor: true }); window.scrollTo({ top: 330, behavior: "smooth" }); } });
 el("compareButton").addEventListener("click", renderCompareModal);
@@ -2733,12 +2883,6 @@ document.addEventListener("input", (event) => {
   if (event.target.matches("[data-decision-input]")) scheduleDecisionModel();
 });
 
-document.addEventListener("change", (event) => {
-  if (!event.target.matches("[data-decision-plan-status]") || !state.activeDecisionDetail) return;
-  state.activeDecisionPlan = setDecisionPlanStatus(state.activeDecisionDetail.decision.id, event.target.value);
-  renderDecisionStudio();
-  renderBookRows();
-});
 
 state.columnPreferences = loadColumnPreferences();
 hydrateFromUrl();
