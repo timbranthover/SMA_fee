@@ -944,7 +944,7 @@ function launchInvestmentContext(scenario) {
   state.statuses.clear();
   state.ranges = {};
   state.sort = scenario.category === "ETFs" && !state.q ? "aum-desc" : defaultSort(Boolean(state.q));
-  state.sortExplicit = false;
+  state.sortExplicit = scenario.category === "ETFs" && !state.q;
   el("searchInput").value = state.q;
   showScenarioRibbon(scenario);
   state.investmentSearchStarted = true;
