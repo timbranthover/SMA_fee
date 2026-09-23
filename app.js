@@ -21,7 +21,6 @@ const WEALTH_ALLOCATION_COLORS = Object.freeze({ navy: "#203f52", blue: "#4f7892
 const state = {
   workspaceView: "book",
   householdScenario: null,
-  concentrationSearchIntent: null,
   currentHouseholdId: null,
   decisionSummary: null,
   activeDecisionDetail: null,
@@ -425,7 +424,6 @@ async function openHousehold(householdId, { updateHistory = true, replaceHistory
   state.activeDecisionScenario = null;
   state.activeDecisionPlan = null;
   closeDecisionStudio({ restoreFocus: false });
-  state.concentrationSearchIntent = null;
   resetWealthChart();
   renderHouseholdLoading(householdId);
   setWorkspaceView("wealth", { updateHistory, replaceHistory });
@@ -482,7 +480,7 @@ function renderWealthWorkspace() {
   updateHtml(el("wealthInsights"), HOUSEHOLD_INSIGHTS.map((insight) => {
     const decision = decisionByInsight.get(insight.id);
     const status = decision ? getDecisionWorkflowStatus(decision.id, decision.status) : null;
-    const action = status === "Complete" ? "View outcome" : status === "Ready for client" ? "View proposal" : decision ? "Decide" : insight.actionLabel;
+    const action = status === "Complete" ? "View outcome" : status === "Ready for client" ? "View proposal" : decision?.kind === "concentration" ? "Review" : decision ? "Decide" : insight.actionLabel;
     return `<button type="button" class="attention-item tone-${status === "Complete" || status === "Ready for client" ? "neutral" : escapeHtml(insight.tone)}" data-wealth-insight="${escapeHtml(insight.id)}"><i aria-hidden="true"></i><span class="attention-copy"><small>${escapeHtml(insight.severity)}${status ? ` · ${escapeHtml(status)}` : ""}</small><strong>${escapeHtml(insight.title)}</strong><em>${escapeHtml(insight.detail)}</em></span><span class="attention-action">${escapeHtml(action)} <b>›</b></span></button>`;
   }).join(""));
 }
@@ -612,26 +610,25 @@ function closeWealthDrawer({ restoreFocus = true } = {}) {
   if (restoreFocus) state.lastFocus?.focus?.();
 }
 
-function policyTrackSvg(review) {
+function policyComparisonMarkup(review) {
   const maximum = Math.max(30, Math.ceil(review.holding.weight / 5) * 5);
-  const current = Math.min(maximum, review.holding.weight);
-  const target = Math.min(maximum, review.targetWeight);
-  return `<svg class="policy-track-svg" viewBox="0 0 ${maximum} 8" preserveAspectRatio="none" role="img" aria-label="Current ${review.holding.weight.toFixed(1)} percent versus ${review.targetWeight.toFixed(1)} percent target"><rect x="0" y="2" width="${maximum}" height="4" fill="#ececea"></rect><rect x="0" y="2" width="${current}" height="4" fill="#b51f35"></rect><line x1="${target}" y1="0" x2="${target}" y2="8" stroke="#111" stroke-width="0.5"></line></svg>`;
+  const excess = Math.max(0, review.holding.weight - review.targetWeight);
+  return `<div class="policy-comparison" role="group" aria-label="Position exposure compared with household target"><div class="policy-comparison-row"><div><span>Current position</span><strong>${review.holding.weight.toFixed(1)}%</strong></div><progress class="policy-current-progress" max="${maximum}" value="${review.holding.weight}" aria-label="Current position ${review.holding.weight.toFixed(1)} percent"></progress></div><div class="policy-comparison-row"><div><span>Household target</span><strong>${review.targetWeight.toFixed(1)}%</strong></div><progress class="policy-target-progress" max="${maximum}" value="${review.targetWeight}" aria-label="Household target ${review.targetWeight.toFixed(1)} percent"></progress></div><p><strong>+${excess.toFixed(1)} percentage points</strong> above the household target · ${formatWealthCurrency(review.targetRelease)} modeled release to reach it</p></div>`;
 }
 
-function concentrationDrawer(review) {
-  state.concentrationSearchIntent = review.searchIntent;
+function concentrationDrawer(review, decisionSummary) {
+  const decision = decisionSummary?.decisions?.find((candidate) => candidate.kind === "concentration");
   const accountLabel = `${review.accounts.length} ${review.accounts.length === 1 ? "account" : "accounts"}`;
   const basisPct = review.costBasis > 0 ? Math.round(review.unrealizedGain / review.costBasis * 100) : null;
   return `<header class="wealth-drawer-header"><div><span class="eyebrow">PORTFOLIO RISK · ${escapeHtml(HOUSEHOLD.name.toUpperCase())}</span><button type="button" class="wealth-drawer-back" data-close-wealth-drawer>${backLabel("Back to Total Wealth")}</button></div><button type="button" class="wealth-drawer-close" data-close-wealth-drawer aria-label="Close concentration review">×</button></header>
     <div class="wealth-drawer-body">
       <section class="concentration-hero"><div class="concentration-name">${productMark({ ...review.holding, category: "Equities" })}<div><span>Single-position concentration</span><h2 id="wealthDrawerTitle">${escapeHtml(review.holding.name)}</h2><p>${escapeHtml(review.holding.symbol)} · Across ${escapeHtml(accountLabel)}</p></div></div><div class="concentration-status"><span>Above policy</span><strong>${review.holding.weight.toFixed(1)}%</strong><small>${review.targetWeight.toFixed(0)}% household target</small></div></section>
       <section class="concentration-metrics" aria-label="Concentration summary"><div><span>Market value</span><strong>${formatWealthCurrency(review.holding.value)}</strong><small>Largest household position</small></div><div><span>Unrealized gain</span><strong>${formatWealthCurrency(review.unrealizedGain)}</strong><small>${basisPct === null ? "Cost basis unavailable" : `${basisPct}% above cost basis`}</small></div><div><span>Risk contribution</span><strong>${review.riskContribution === null ? "—" : `${review.riskContribution}%`}</strong><small>Of modeled equity risk</small></div><div><span>Target release</span><strong>${formatWealthCurrency(review.targetRelease)}</strong><small>To reach ${review.targetWeight.toFixed(0)}% target</small></div></section>
-      <section class="concentration-section"><div class="section-heading"><span>Exposure</span><h3>Position relative to policy</h3></div><div class="policy-track">${policyTrackSvg(review)}</div><div class="policy-scale"><span>0%</span><span>${review.targetWeight.toFixed(0)}% household target</span><span>${Math.max(30, Math.ceil(review.holding.weight / 5) * 5)}%</span></div></section>
+      <section class="concentration-section"><div class="section-heading"><span>Exposure</span><h3>Position relative to policy</h3></div>${policyComparisonMarkup(review)}</section>
       <section class="concentration-section"><div class="section-heading"><span>Ownership</span><h3>Where the exposure sits</h3><p>Account location and unrealized gains shape implementation choices.</p></div><table class="concentration-table"><thead><tr><th>Account</th><th>Market value</th><th>Account weight</th><th>Unrealized gain</th></tr></thead><tbody>${review.accounts.map((account) => `<tr><th>${escapeHtml(account.name)}<small>${escapeHtml(account.registration)}</small></th><td>${formatWealthCurrency(account.value)}</td><td>${account.weight.toFixed(1)}%</td><td>${formatWealthCurrency(account.gain)}</td></tr>`).join("")}</tbody></table></section>
       <section class="concentration-section scenario-impact"><div class="section-heading"><span>Decision support</span><h3>Modeled household impact</h3></div><table class="concentration-table"><thead><tr><th>Scenario</th><th>Position impact</th><th>Portfolio impact</th></tr></thead><tbody>${review.scenarios.map((scenario) => `<tr><th>${escapeHtml(scenario.name)}</th><td>${escapeHtml(scenario.holdingMove)}</td><td>${escapeHtml(scenario.portfolioMove)}</td></tr>`).join("")}</tbody></table></section>
       <section class="concentration-research"><div><span>UPS RESEARCH · ${escapeHtml(review.research.reviewed)}</span><strong>${escapeHtml(review.research.status)}</strong><p>${escapeHtml(review.research.summary)}</p></div><button type="button" class="secondary-button" data-open-modal="researchModal">View research context</button></section>
-      ${review.searchIntent ? `<section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Explore implementation paths</h3><p>Carry the objective—not hidden client data—into the investment shelf.</p></div><button type="button" class="primary-button" data-household-scenario="concentration">${escapeHtml(review.searchIntent.title)} →</button></section>` : ""}
+      ${decision ? `<section class="concentration-next"><div><span class="panel-kicker">NEXT STEP</span><h3>Model a reduction in ${escapeHtml(review.holding.symbol)}</h3><p>Review the sale and estimated gain, then select investments and build a client proposal.</p></div><button type="button" class="primary-button" data-decision-open="${escapeHtml(decision.id)}">${getProposal(decision.id)?.status === "Ready for client" ? "View proposal" : "Model this change"} <span aria-hidden="true">→</span></button></section>` : ""}
     </div>`;
 }
 
@@ -739,7 +736,7 @@ async function openWealthDrawer(id) {
   state.lastFocus = document.activeElement;
   let html = null;
   let detailRequest = null;
-  if (id === "concentration") detailRequest = loadConcentrationReview(state.currentHouseholdId).then((review) => review ? concentrationDrawer(review) : operationalDrawer("relationship"));
+  if (id === "concentration") detailRequest = Promise.all([loadConcentrationReview(state.currentHouseholdId), loadDecisionSummary(state.currentHouseholdId)]).then(([review, summary]) => review ? concentrationDrawer(review, summary) : operationalDrawer("relationship"));
   else if (id === "decisions") detailRequest = loadDecisionSummary(state.currentHouseholdId).then(decisionListDrawer);
   else if (id === "meeting") detailRequest = loadMeetingBrief(state.currentHouseholdId).then(meetingBriefDrawer);
   else if (id === "timeline") detailRequest = loadHouseholdTimeline(state.currentHouseholdId).then(timelineDrawer);
@@ -1003,7 +1000,7 @@ function launchDecisionImplementation() {
   closeDecisionStudio({ restoreFocus: false });
   launchInvestmentContext({
     source: "CLIENT PROPOSAL · STEP 2 OF 3",
-    title: `Select investments for ${HOUSEHOLD.name}`,
+    title: detail.decision.kind === "concentration" ? `Reinvest ${detail.model.sourceSymbol} sale proceeds` : `Select investments for ${HOUSEHOLD.name}`,
     tags: [formatWealthCurrency(implementation.amount), ...implementation.tags.slice(1)],
     category: implementation.category,
     q: implementation.query,
@@ -1028,9 +1025,7 @@ async function returnFromInvestmentContext() {
 }
 
 function openPrimaryConcentrationDecision() {
-  const decision = state.decisionSummary?.decisions?.find((item) => item.kind === "concentration");
-  if (decision) openDecisionStudio(decision.id);
-  else openWealthDrawer("concentration");
+  openWealthDrawer("concentration");
 }
 
 function openDecisionInScreener(decisionId) {
@@ -1128,18 +1123,22 @@ function showScenarioRibbon({ source, title, tags, decisionId = null, implementa
   renderProposalTray();
 }
 
-function applyHouseholdScenario(scenario) {
-  if (!scenario) return;
-  launchInvestmentContext(scenario);
-}
-
 function handleWealthInsight(id) {
   const decision = state.decisionSummary?.decisions?.find((item) => item.sourceInsightId === id);
-  if (decision) { if (getProposal(decision.id)?.status === "Ready for client") openProposalBuilder(decision.id); else openDecisionInScreener(decision.id); return; }
+  if (decision) { if (getProposal(decision.id)?.status === "Ready for client") openProposalBuilder(decision.id); else if (decision.kind === "concentration") openWealthDrawer("concentration"); else openDecisionInScreener(decision.id); return; }
   const insight = HOUSEHOLD_INSIGHTS.find((candidate) => candidate.id === id);
   if (!insight) return;
   if (insight.action.type === "concentration") { openWealthDrawer("concentration"); return; }
-  if (insight.action.type === "investment-search") { applyHouseholdScenario(insight.action.searchIntent); return; }
+  if (insight.action.type === "investment-search") {
+    const householdId = state.currentHouseholdId;
+    loadDecisionSummary(householdId).then((summary) => {
+      if (state.currentHouseholdId !== householdId) return;
+      const linked = summary.decisions.find((item) => item.sourceInsightId === id);
+      if (linked) openDecisionInScreener(linked.id);
+      else showToast("This investment decision is unavailable");
+    }).catch(() => showToast("Unable to open the investment decision"));
+    return;
+  }
   if (insight.action.type === "goal" && insight.action.goalId) { openWealthDrawer(`goal:${insight.action.goalId}`); return; }
   openWealthDrawer(id);
 }
@@ -1977,7 +1976,7 @@ function proposalAllocationMarkup(proposal) {
 }
 
 function proposalSubtitle(proposal) {
-  if (proposal.impactModel?.kind === "concentration" && proposal.impactModel.sourceSymbol === "AAPL") return "Reducing concentration in Apple";
+  if (proposal.impactModel?.kind === "concentration") return `Reducing concentration in ${proposal.impactModel.sourceSymbol === "AAPL" ? "Apple" : proposal.impactModel.sourceName || proposal.impactModel.sourceSymbol || "a single position"}`;
   return String(proposal.decisionTitle || proposal.objective || "Portfolio recommendation").replace(/\?$/, ".");
 }
 
@@ -2579,8 +2578,6 @@ document.addEventListener("click", (event) => {
   if (wealthAction?.dataset.wealthAction === "decisions") openWealthDrawer("decisions");
   if (wealthAction?.dataset.wealthAction === "meeting") openWealthDrawer("meeting");
   if (wealthAction?.dataset.wealthAction === "timeline") openWealthDrawer("timeline");
-  const householdScenario = event.target.closest("[data-household-scenario]");
-  if (householdScenario?.dataset.householdScenario === "concentration") applyHouseholdScenario(state.concentrationSearchIntent);
   if (event.target.closest("[data-close-wealth-drawer]") || event.target === el("wealthDrawerBackdrop")) closeWealthDrawer();
   if (event.target.closest("[data-close-decision-studio]") || event.target === el("decisionStudioBackdrop")) closeDecisionStudio();
   if (event.target.closest("[data-decision-implement]")) launchDecisionImplementation();
