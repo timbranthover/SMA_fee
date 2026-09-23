@@ -802,7 +802,7 @@ function decisionScenarioControls(detail, scenario) {
 function decisionScenarioOutcomes(detail, scenario) {
   if (detail.decision.kind === "concentration") {
     const goalOutcome = scenario.before.goalProgress === null ? "" : decisionOutcome(detail.relatedGoal?.name || "Goal funding", scenario.before.goalProgress, scenario.after.goalProgress, (value) => decisionPercent(value));
-    return `<div class="decision-outcome-grid">${decisionOutcome("Concentration", scenario.before.concentrationPct, scenario.after.concentrationPct, (value) => decisionPercent(value))}${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${decisionOutcome("US equity", scenario.before.usEquityPct, scenario.after.usEquityPct, (value) => decisionPercent(value))}${decisionOutcome("Single-stock stress loss", scenario.before.stressLoss, scenario.after.stressLoss)}${goalOutcome}</div><div class="decision-economics"><div><span>Position value released</span><strong>${formatWealthCurrency(scenario.economics.release)}</strong></div><div><span>Estimated realized gain</span><strong>${formatWealthCurrency(scenario.economics.realizedGain)}</strong></div><div><span>Tax liability</span><strong>Not modeled</strong></div><div><span>Implementation amount</span><strong>${formatWealthCurrency(scenario.economics.redeployAmount)}</strong></div></div>`;
+    return `<div class="decision-outcome-grid">${decisionOutcome("Concentration", scenario.before.concentrationPct, scenario.after.concentrationPct, (value) => decisionPercent(value))}${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${scenario.after.usEquityPct === null ? "" : decisionOutcome("US equity", scenario.before.usEquityPct, scenario.after.usEquityPct, (value) => decisionPercent(value))}${decisionOutcome("Single-stock stress loss", scenario.before.stressLoss, scenario.after.stressLoss)}${goalOutcome}</div><div class="decision-economics"><div><span>Position value released</span><strong>${formatWealthCurrency(scenario.economics.release)}</strong></div><div><span>Estimated realized gain</span><strong>${formatWealthCurrency(scenario.economics.realizedGain)}</strong></div><div><span>Tax liability</span><strong>Not modeled</strong></div><div><span>Implementation amount</span><strong>${formatWealthCurrency(scenario.economics.redeployAmount)}</strong></div></div>`;
   }
   if (detail.decision.kind === "liquidity") return `<div class="decision-outcome-grid">${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${decisionOutcome("Cash weight", scenario.before.cashPct, scenario.after.cashPct, (value) => decisionPercent(value))}</div><div class="decision-economics"><div><span>Amount to deploy</span><strong>${formatWealthCurrency(scenario.economics.deployAmount)}</strong></div><div><span>Modeled reserve</span><strong>${formatWealthCurrency(scenario.economics.reserveAmount)}</strong></div></div>`;
   if (detail.decision.kind === "goal-funding") return `<div class="decision-outcome-grid">${decisionOutcome("Household cash", scenario.before.cash, scenario.after.cash)}${decisionOutcome(detail.relatedGoal?.name || "Goal progress", scenario.before.goalProgress, scenario.after.goalProgress, (value) => decisionPercent(value))}</div><div class="decision-economics"><div><span>Funding amount</span><strong>${formatWealthCurrency(scenario.economics.fundingAmount)}</strong></div><div><span>Remaining gap</span><strong>${formatWealthCurrency(scenario.economics.remainingGap)}</strong></div></div>`;
@@ -1811,7 +1811,7 @@ function renderProposalTray() {
     : noSale ? "Lower target to fund" : !minimumsMet ? "Minimums not met" : `${formatWealthCurrency(remaining)} remaining`;
   el("proposalTrayRemaining").classList.toggle("warning", !minimumsMet);
   const outcome = calculateProposalImpact(state.householdScenario?.impactModel, candidates);
-  const metrics = [outcome.impact.concentration, outcome.impact.usEquity, outcome.impact.cash].filter(Boolean);
+  const metrics = [outcome.impact.concentration, outcome.impact.usEquity, outcome.impact.cash].filter((item) => item && item.after !== null);
   const cashBefore = state.householdScenario?.impactModel?.cashBefore;
   const cashAfter = outcome.impact.cash?.after;
   const cashDetail = Number.isFinite(cashBefore) && Number.isFinite(cashAfter) ? `Existing cash ${currency.format(cashBefore)}; change from this proposal ${currency.format(cashAfter - cashBefore)}. Before taxes. Any unallocated investment budget remains in cash until invested.` : "Before taxes";
@@ -1944,7 +1944,7 @@ async function returnToProposalSelection() {
 }
 
 function proposalImpactMarkup(proposal) {
-  const entries = Object.values(proposal.impact || {});
+  const entries = Object.values(proposal.impact || {}).filter((item) => item.before !== null && item.after !== null);
   if (!entries.length) return `<p class="proposal-empty-copy">No modeled household impact is available for this decision.</p>`;
   return `<div class="proposal-impact-grid">${entries.map((item) => `<div><span>${escapeHtml(item.label)}</span><p><small>Current</small><strong>${proposalImpactValue(item.before, item.format)}</strong></p><i aria-hidden="true">→</i><p><small>Proposed</small><strong>${proposalImpactValue(item.after, item.format)}</strong></p></div>`).join("")}</div>`;
 }
@@ -1970,7 +1970,7 @@ function syncProposalReadinessControls() {
 
 function proposalAllocationMarkup(proposal) {
   const keys = ["concentration", "usEquity", "allocation", "cashWeight"];
-  const entries = keys.map((key) => proposal.impact?.[key]).filter((item) => item?.format === "percent");
+  const entries = keys.map((key) => proposal.impact?.[key]).filter((item) => item?.format === "percent" && item.before !== null && item.after !== null);
   if (!entries.length) return "";
   return `<section class="proposal-document-section proposal-allocation-table"><span class="proposal-section-label">MODELED ALLOCATION</span><h3>Current and proposed household positioning</h3><table><thead><tr><th>Exposure</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead><tbody>${entries.map((item) => `<tr><th>${escapeHtml(item.label)}</th><td>${proposalImpactValue(item.before, "percent")}</td><td>${proposalImpactValue(item.after, "percent")}</td><td class="allocation-change">${item.after === null ? "Pending data" : `${Number(item.after) - Number(item.before) >= 0 ? "+" : ""}${(Number(item.after) - Number(item.before)).toFixed(1)} pts`}</td></tr>`).join("")}</tbody></table><small>Modeled at the household level. Unchanged asset classes are omitted for clarity.</small></section>`;
 }

@@ -80,6 +80,7 @@ test("every documented concentration can move from review to a funded investment
     const scenario = decisionService.modelDecisionScenario(policy.householdId, decision.id, {});
     assert.ok(Math.abs(scenario.implementation.amount - review.targetRelease) <= 1000);
     assert.ok(scenario.economics.realizedGain >= 0);
+    if (!decisionService.getDecisionDetail(policy.householdId, decision.id).model.sourceBucket) assert.equal(scenario.after.usEquityPct, null);
     const search = searchCatalog({ category: scenario.implementation.category, q: scenario.implementation.query, flags: scenario.implementation.flags, risks: scenario.implementation.risks, pageSize: 5 });
     assert.ok(search.total >= 5, `${policy.householdId} opens a nonempty candidate shelf`);
     assert.ok(searchCatalog({ category: scenario.implementation.category, q: "VOO", flags: scenario.implementation.flags, risks: scenario.implementation.risks, pageSize: 5 }).items.some((item) => item.symbol === "VOO"));
