@@ -733,6 +733,7 @@ kbd { font-family: inherit; color: #777; background: #f1f1ef; border: 1px solid 
 .research-card .flag-detail { border-color: #3a3a3a; }
 .research-card .flag-detail span, .research-card .flag-detail em { color: #aaa; }
 .profile-disclosure { margin: 26px 0 0; color: #858585; font-size: 8px; line-height: 1.5; }
+.profile-data-sources { margin: 24px 0 0; color: #777; font-size: 10px; line-height: 1.5; }
 .flag-detail { display: grid; grid-template-columns: 1fr auto; gap: 5px 8px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .flag-detail:last-child { border-bottom: 0; }
 .flag-detail strong { font-size: 10px; }
