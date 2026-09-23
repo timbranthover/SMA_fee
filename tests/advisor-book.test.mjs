@@ -82,7 +82,7 @@ test("advisor book projection stays bounded, searchable, sortable and filterable
   const firstPage = service.getAdvisorBook(DEFAULT_ADVISOR_ID, { pageSize: 25 });
   assert.equal(firstPage.metrics.householdCount, 128);
   assert.equal(firstPage.asOf, firstPage.items[0].asOf);
-  assert.equal(firstPage.advisor.initials, "A4");
+  assert.equal(firstPage.advisor.initials, "JR");
   assert.equal(firstPage.items.length, 25);
   assert.equal(firstPage.nextCursor, 25);
   assert.ok(firstPage.metrics.financialAssets > 1_000_000_000);
