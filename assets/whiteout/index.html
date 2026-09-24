@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>WHITEOUT — Stick Sniper</title>
+<link rel="stylesheet" href="/assets/whiteout/whiteout.css">
+</head>
+<body>
+<div id="shell">
+  <canvas id="game" width="909" height="659" aria-label="Whiteout sniper game"></canvas>
+  <div id="grain"></div>
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="hud-box">OPERATION WHITEOUT<br><span id="objectiveHud">TARGETS 4 / 4</span></div>
+      <div class="hud-box right"><span id="zoomHud">1.0×</span><br><span id="timerHud">00:00.0</span></div>
+    </div>
+    <div id="statusLine"></div>
+  </div>
+  <div id="controls">
+    <button class="touch-btn" id="zoomBtn">ZOOM</button>
+    <button class="touch-btn" id="fireBtn">FIRE</button>
+  </div>
+  <div id="brief" class="screen">
+    <div class="card">
+      <div class="kicker">FIELD FILE // 01</div>
+      <h1>WHITEOUT</h1>
+      <div class="sub">06:42 // NORTH DISTRICT // ONE LEVEL</div>
+      <div class="rule"></div>
+      <p>Four couriers are closing a ledger exchange inside the winter village. You are concealed in the timber line above them.</p>
+      <div class="brief-grid">
+        <b>MARK</b><span>Black felt cap + narrow oxblood scarf.</span>
+        <b>RULE</b><span>Headshots only. No civilians. A miss ends the job.</span>
+        <b>PROBLEM</b><span>Each courier is watching the next. Drop one inside another's sightline and the village is alerted.</span>
+      </div>
+      <div class="tip">INTEL: The chain of eyes begins on the high fence line and runs downhill toward the rink.</div>
+      <button id="startBtn">BEGIN MISSION</button>
+      <div class="muted desktop-only">Mouse to aim · click to fire · SPACE toggles 2.2× scope · R restarts</div>
+      <div class="muted">The people are meant to blend into the painting. Watch before you shoot.</div>
+    </div>
+  </div>
+  <div id="result" class="screen hidden"><div class="card" id="resultCard"></div></div>
+  <div id="orientation">ROTATE TO LANDSCAPE<br><span class="orientation-note">this one wants the old computer-lab treatment</span></div>
+</div>
+<script src="/assets/whiteout/whiteout.js" defer></script>
+</body></html>
